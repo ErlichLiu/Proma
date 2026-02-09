@@ -6,16 +6,16 @@
 
 ![Proma 海报](https://img.erlich.fun/personal-blog/uPic/pb.png)
 
-### 并行运行的商业版本
-同时 Proma 也支持商业的版本，如果你需要未来更多的**云端功能**｜**稳定靠谱的 API** ｜**更划算省心的订阅包**｜**简单的使用体验**，也欢迎支持 Proma 的商业版本：https://proma.cool/download 即可下载使用。
+### Proma 商业版本
+Proma 也提供商业版本。如果你希望获得更多**云端功能**｜**稳定可靠的 API**｜**更省心的订阅方案**｜**更简单的使用体验**，欢迎下载并支持 Proma 商业版本：https://proma.cool/download
 
-Proma 的核心意义不在于替代任何一款软件，目前只实现了 Proma 的基础设施部分，接下来 Proma 将继续实现多 Agents 协同工作（个人与他人）、Agents 与外部的链接、Tools 和 Skills 固化，以及利用对用户的理解和记忆实现主动提供软件和建议的能力等，Proma 正在借助 VibeCoding 工具在飞速进化，欢迎大家 PR。
+Proma 的核心目标不是替代任何一款软件。目前项目主要完成了基础设施部分。接下来，Proma 将继续推进多 Agents 协作（个人与团队）、Agents 与外部系统的连接、Tools 和 Skills 能力沉淀，并基于对用户的理解与记忆，逐步实现主动提供工具与建议的能力。Proma 正在借助 VibeCoding 快速演进，欢迎大家 PR。
 
 ## Proma 截图
 
 Proma 的聊天模式，支持多模型切换，支持附加文件对话。
 ![Proma Chat Mode](https://img.erlich.fun/personal-blog/uPic/tBXRKI.png)
-Proma Agent 模式，通用 Agent 能力，支持 Cladue 全系列、Minimax M2.1、Kimi K2.5、智谱 GLM 等模型，支持第三方渠道。优雅、简洁、丝滑、确信的流式输出。
+Proma Agent 模式，通用 Agent 能力，支持 Cladue 全系列、Minimax M2.1、Kimi K2.5、智谱 GLM 等模型，支持第三方渠道。提供优雅、简洁、丝滑、稳定的流式输出。
 ![Proma Agent Mode](https://img.erlich.fun/personal-blog/uPic/3ZHWyA.png)
 Proma Skills 和 MCP，默认内置 Brainstorming 和办公软件 Skill，支持通过对话就能自动帮助你寻找和安装 Skills。
 ![Proma Default Skills and Mcp](https://img.erlich.fun/personal-blog/uPic/PNBOSt.png)
