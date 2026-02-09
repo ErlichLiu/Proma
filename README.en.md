@@ -18,9 +18,9 @@ Chat mode with multi-model switching and file attachment support.
 Agent mode with general-purpose agent capabilities. Supports the full Claude series, MiniMax M2.1, Kimi K2.5, Zhipu GLM, and third-party channels. Elegant, clean, smooth, and confident streaming output.
 ![Proma Agent Mode](https://img.erlich.fun/personal-blog/uPic/3ZHWyA.png)
 Built-in Brainstorming and office suite Skills with MCP support. Automatically helps you find and install Skills through conversation.
-![Proma Default Skills and Mcp](https://img.erlich.fun/personal-blog/uPic/PNBOSt.png)
+![Proma Default Skills and MCP](https://img.erlich.fun/personal-blog/uPic/PNBOSt.png)
 Full-protocol LLM channel support for all domestic and international providers, configured via Base URL + API Key.
-![Proma Mutili Provider Support](https://img.erlich.fun/personal-blog/uPic/uPPazd.png)
+![Proma Multi Provider Support](https://img.erlich.fun/personal-blog/uPic/uPPazd.png)
 
 ## Features
 
@@ -54,9 +54,9 @@ MiniMax, Kimi (Moonshot), and Zhipu GLM use dedicated API endpoints — these ar
 
 | Provider | Chat Mode | Agent Mode | Note |
 |----------|----------|----------|------|
-| MiniMax | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic`| Supports MiniMax Pro membership |
-| Kimi | `https://api.moonshot.cn/v1` | `https://api.moonshot.cn/anthropic`| Supports Moonshot developer plan |
-| Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `https://open.bigmodel.cn/api/anthropic`| Supports Zhipu developer plan |
+| MiniMax | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` | Supports MiniMax Pro membership |
+| Kimi | `https://api.moonshot.cn/v1` | `https://api.moonshot.cn/anthropic` | Supports Moonshot developer plan |
+| Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `https://open.bigmodel.cn/api/anthropic` | Supports Zhipu developer plan |
 
 ## Tech Stack
 
