@@ -29,3 +29,6 @@ export * from './environment'
 
 // GitHub Release 相关类型
 export * from './github'
+
+// 使用统计相关类型
+export * from './usage'

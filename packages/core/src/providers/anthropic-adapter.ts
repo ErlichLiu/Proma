@@ -47,6 +47,19 @@ interface AnthropicDeltaEvent {
     text?: string
     /** 思考内容增量 (thinking_delta) */
     thinking?: string
+    /** 输出 token 数量 (message_delta) */
+    output_tokens?: number
+  }
+  /** 消息开始时的 usage 信息 */
+  usage?: {
+    input_tokens: number
+    output_tokens?: number
+  }
+  message?: {
+    usage?: {
+      input_tokens: number
+      output_tokens?: number
+    }
   }
 }
 
@@ -186,6 +199,28 @@ export class AnthropicAdapter implements ProviderAdapter {
           // 普通文本内容（text_delta）
           events.push({ type: 'chunk', delta: event.delta.text })
         }
+      }
+
+      // 处理 message_start 事件中的 usage（输入 token）
+      if (event.type === 'message_start' && event.message?.usage) {
+        const usage = event.message.usage
+        events.push({
+          type: 'usage',
+          promptTokens: usage.input_tokens,
+          completionTokens: 0,
+          totalTokens: usage.input_tokens,
+        })
+      }
+
+      // 处理 message_delta 事件中的 usage（输出 token）
+      if (event.type === 'message_delta' && event.usage) {
+        const outputTokens = event.usage.output_tokens ?? event.delta?.output_tokens ?? 0
+        events.push({
+          type: 'usage',
+          promptTokens: 0,
+          completionTokens: outputTokens,
+          totalTokens: outputTokens,
+        })
       }
 
       return events

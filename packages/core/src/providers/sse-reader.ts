@@ -10,6 +10,7 @@
  */
 
 import type { ProviderAdapter, ProviderRequest, StreamEventCallback } from './types.ts'
+import type { TokenUsage } from '@proma/shared'
 
 // ===== 流式请求 =====
 
@@ -33,6 +34,8 @@ export interface StreamSSEResult {
   content: string
   /** 累积的推理内容 */
   reasoning: string
+  /** Token 使用量统计 */
+  usage?: TokenUsage
 }
 
 /**
@@ -71,6 +74,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   // 3. 读取流
   let content = ''
   let reasoning = ''
+  let usage: TokenUsage | undefined
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -99,6 +103,27 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
             content += event.delta
           } else if (event.type === 'reasoning') {
             reasoning += event.delta
+          } else if (event.type === 'usage') {
+            // 累积 usage 数据
+            if (!usage) {
+              usage = {
+                promptTokens: event.promptTokens,
+                completionTokens: event.completionTokens,
+                totalTokens: event.totalTokens,
+                cacheReadTokens: event.cacheReadTokens,
+                cacheCreationTokens: event.cacheCreationTokens,
+              }
+            } else {
+              usage.promptTokens += event.promptTokens
+              usage.completionTokens += event.completionTokens
+              usage.totalTokens += event.totalTokens
+              if (event.cacheReadTokens) {
+                usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + event.cacheReadTokens
+              }
+              if (event.cacheCreationTokens) {
+                usage.cacheCreationTokens = (usage.cacheCreationTokens ?? 0) + event.cacheCreationTokens
+              }
+            }
           }
           onEvent(event)
         }
@@ -109,7 +134,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   }
 
   onEvent({ type: 'done' })
-  return { content, reasoning }
+  return { content, reasoning, usage }
 }
 
 // ===== 非流式标题请求 =====

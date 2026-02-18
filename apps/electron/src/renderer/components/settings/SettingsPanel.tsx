@@ -9,7 +9,7 @@
 import * as React from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
-import { Settings, Radio, Palette, Info, Plug, Globe } from 'lucide-react'
+import { Settings, Radio, Palette, Info, Plug, Globe, BarChart3 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { settingsTabAtom } from '@/atoms/settings-tab'
 import type { SettingsTab } from '@/atoms/settings-tab'
@@ -22,6 +22,7 @@ import { ProxySettings } from './ProxySettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { AboutSettings } from './AboutSettings'
 import { AgentSettings } from './AgentSettings'
+import { UsageSettings } from './UsageSettings'
 
 /** 设置 Tab 定义 */
 interface TabItem {
@@ -43,6 +44,7 @@ const AGENT_TAB: TabItem = { id: 'agent', label: '配置', icon: <Plug size={16}
 /** 尾部 Tabs */
 const TAIL_TABS: TabItem[] = [
   { id: 'appearance', label: '外观', icon: <Palette size={16} /> },
+  { id: 'usage', label: '统计', icon: <BarChart3 size={16} /> },
   { id: 'about', label: '关于', icon: <Info size={16} /> },
 ]
 
@@ -59,6 +61,8 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <AgentSettings />
     case 'appearance':
       return <AppearanceSettings />
+    case 'usage':
+      return <UsageSettings />
     case 'about':
       return <AboutSettings />
   }

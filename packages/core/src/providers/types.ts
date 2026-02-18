@@ -6,7 +6,7 @@
  * core 层不依赖 Electron / Node fs，通过注入函数访问平台能力。
  */
 
-import type { ChatMessage, FileAttachment, ProviderType } from '@proma/shared'
+import type { ChatMessage, FileAttachment, ProviderType, TokenUsage } from '@proma/shared'
 
 // ===== 图片附件数据 =====
 
@@ -51,15 +51,29 @@ export interface StreamDoneEvent {
   type: 'done'
 }
 
+/** Token 使用量事件 */
+export interface StreamUsageEvent {
+  type: 'usage'
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+}
+
 /** 所有流式事件的联合类型 */
 export type StreamEvent =
   | StreamChunkEvent
   | StreamReasoningEvent
   | StreamErrorEvent
   | StreamDoneEvent
+  | StreamUsageEvent
 
 /** 流式事件回调函数 */
 export type StreamEventCallback = (event: StreamEvent) => void
+
+// ===== Re-export TokenUsage for convenience =====
+export type { TokenUsage } from '@proma/shared'
 
 // ===== HTTP 请求 =====
 

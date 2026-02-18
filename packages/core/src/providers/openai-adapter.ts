@@ -35,12 +35,23 @@ interface OpenAIMessage {
   content: string | OpenAIContentBlock[]
 }
 
+/** OpenAI Usage 数据 */
+interface OpenAIUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+  }
+}
+
 /** OpenAI SSE 数据块 */
 interface OpenAIChunkData {
   choices?: Array<{
     delta?: { content?: string; reasoning_content?: string }
     finish_reason?: string | null
   }>
+  usage?: OpenAIUsage
 }
 
 /** OpenAI 标题响应 */
@@ -135,6 +146,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         model: input.modelId,
         messages,
         stream: true,
+        stream_options: { include_usage: true },
       }),
     }
   }
@@ -142,9 +154,10 @@ export class OpenAIAdapter implements ProviderAdapter {
   parseSSELine(jsonLine: string): StreamEvent[] {
     try {
       const chunk = JSON.parse(jsonLine) as OpenAIChunkData
-      const delta = chunk.choices?.[0]?.delta
       const events: StreamEvent[] = []
 
+      // 处理内容增量
+      const delta = chunk.choices?.[0]?.delta
       if (delta?.content) {
         events.push({ type: 'chunk', delta: delta.content })
       }
@@ -152,6 +165,17 @@ export class OpenAIAdapter implements ProviderAdapter {
       // DeepSeek 等供应商的推理内容
       if (delta?.reasoning_content) {
         events.push({ type: 'reasoning', delta: delta.reasoning_content })
+      }
+
+      // 处理 usage（OpenAI 在最后一个 chunk 中返回，此时 choices 为空）
+      if (chunk.usage) {
+        events.push({
+          type: 'usage',
+          promptTokens: chunk.usage.prompt_tokens,
+          completionTokens: chunk.usage.completion_tokens,
+          totalTokens: chunk.usage.total_tokens,
+          cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens,
+        })
       }
 
       return events

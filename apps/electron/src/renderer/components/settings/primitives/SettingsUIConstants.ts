@@ -17,8 +17,8 @@ export const SECTION_TITLE_CLASS = 'text-base font-semibold text-foreground'
 /** 区块描述样式 */
 export const SECTION_DESCRIPTION_CLASS = 'text-sm text-muted-foreground mt-1'
 
-/** 卡片容器样式 */
-export const CARD_CLASS = 'rounded-xl bg-card shadow-minimal overflow-hidden'
+/** 卡片容器样式 - 科技蓝调风格 */
+export const CARD_CLASS = 'rounded-2xl bg-card border border-border/50 dark:border-border/30 shadow-sm dark:shadow-none overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-border/50'
 
 /** 卡片内行样式 */
 export const ROW_CLASS = 'flex items-center justify-between px-4 py-3'

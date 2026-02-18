@@ -60,6 +60,22 @@ export interface FileDialogResult {
 export type MessageRole = 'user' | 'assistant' | 'system'
 
 /**
+ * Token 使用量统计
+ */
+export interface TokenUsage {
+  /** 输入 Token 数量 */
+  promptTokens: number
+  /** 输出 Token 数量 */
+  completionTokens: number
+  /** 总 Token 数量 */
+  totalTokens: number
+  /** 缓存读取 Token 数量（Anthropic 等供应商支持） */
+  cacheReadTokens?: number
+  /** 缓存创建 Token 数量（Anthropic 等供应商支持） */
+  cacheCreationTokens?: number
+}
+
+/**
  * 聊天消息
  */
 export interface ChatMessage {
@@ -79,6 +95,8 @@ export interface ChatMessage {
   stopped?: boolean
   /** 文件附件列表 */
   attachments?: FileAttachment[]
+  /** Token 使用量统计（assistant 消息） */
+  usage?: TokenUsage
 }
 
 // ===== 对话相关 =====

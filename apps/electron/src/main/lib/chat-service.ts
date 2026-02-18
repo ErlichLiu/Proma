@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { CHAT_IPC_CHANNELS } from '@proma/shared'
-import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment } from '@proma/shared'
+import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment, TokenUsage } from '@proma/shared'
 import {
   getAdapter,
   streamSSE,
@@ -238,6 +238,7 @@ export async function sendMessage(
   // 在 try 外累积流式内容，abort 时 catch 块仍可访问
   let accumulatedContent = ''
   let accumulatedReasoning = ''
+  let usage: TokenUsage | undefined
 
   try {
     // 7. 获取适配器 + 构建请求 + 执行流式 SSE
@@ -257,7 +258,7 @@ export async function sendMessage(
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
 
-    const { content, reasoning } = await streamSSE({
+    const { content, reasoning, usage: streamUsage } = await streamSSE({
       request,
       adapter,
       signal: controller.signal,
@@ -283,6 +284,9 @@ export async function sendMessage(
       },
     })
 
+    // 保存 usage 数据
+    usage = streamUsage
+
     // 8. 保存 assistant 消息（空内容不保存）
     const assistantMsgId = randomUUID()
     if (content.trim()) {
@@ -293,6 +297,7 @@ export async function sendMessage(
         createdAt: Date.now(),
         model: modelId,
         reasoning: reasoning || undefined,
+        usage: usage || undefined,
       }
       appendMessage(conversationId, assistantMsg)
 
@@ -327,6 +332,7 @@ export async function sendMessage(
           model: modelId,
           reasoning: accumulatedReasoning || undefined,
           stopped: true,
+          usage: usage || undefined,
         }
         appendMessage(conversationId, partialMsg)
 

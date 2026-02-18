@@ -49,6 +49,12 @@ interface GoogleStreamData {
     }
     finishReason?: string
   }>
+  /** 使用量统计（在最后一个 chunk 中返回） */
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+    totalTokenCount?: number
+  }
 }
 
 /** Google 标题响应 */
@@ -169,22 +175,33 @@ export class GoogleAdapter implements ProviderAdapter {
   parseSSELine(jsonLine: string): StreamEvent[] {
     try {
       const parsed = JSON.parse(jsonLine) as GoogleStreamData
-      const parts = parsed.candidates?.[0]?.content?.parts
-      if (!parts) return []
-
       const events: StreamEvent[] = []
 
-      // 遍历所有 parts，区分推理内容和正常文本
-      for (const part of parts) {
-        if (!part.text) continue
+      // 处理内容部分
+      const parts = parsed.candidates?.[0]?.content?.parts
+      if (parts) {
+        // 遍历所有 parts，区分推理内容和正常文本
+        for (const part of parts) {
+          if (!part.text) continue
 
-        if (part.thought) {
-          // Gemini 2.5/3 思考过程
-          events.push({ type: 'reasoning', delta: part.text })
-        } else {
-          // 正常回复内容
-          events.push({ type: 'chunk', delta: part.text })
+          if (part.thought) {
+            // Gemini 2.5/3 思考过程
+            events.push({ type: 'reasoning', delta: part.text })
+          } else {
+            // 正常回复内容
+            events.push({ type: 'chunk', delta: part.text })
+          }
         }
+      }
+
+      // 处理 usage（在最后一个 chunk 中返回）
+      if (parsed.usageMetadata) {
+        events.push({
+          type: 'usage',
+          promptTokens: parsed.usageMetadata.promptTokenCount ?? 0,
+          completionTokens: parsed.usageMetadata.candidatesTokenCount ?? 0,
+          totalTokens: parsed.usageMetadata.totalTokenCount ?? 0,
+        })
       }
 
       return events
