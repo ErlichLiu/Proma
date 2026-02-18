@@ -19,6 +19,7 @@ import {
   getDefaultSkillsDir,
 } from './config-paths'
 import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, WorkspaceCapabilities, PromaPermissionMode } from '@proma/shared'
+import { PROMA_PERMISSION_MODE_ORDER } from '@proma/shared'
 
 /**
  * 工作区索引文件格式
@@ -458,7 +459,13 @@ function writeWorkspaceConfig(workspaceSlug: string, config: WorkspaceConfig): v
  */
 export function getWorkspacePermissionMode(workspaceSlug: string): PromaPermissionMode {
   const config = readWorkspaceConfig(workspaceSlug)
-  return config.permissionMode ?? 'smart'
+  const mode = config.permissionMode
+  // 校验：无效值回退到 'smart'
+  if (mode && !PROMA_PERMISSION_MODE_ORDER.includes(mode as PromaPermissionMode)) {
+    console.warn(`[Agent 工作区] 无效的权限模式: ${mode}，回退到 smart`)
+    return 'smart'
+  }
+  return (mode as PromaPermissionMode) ?? 'smart'
 }
 
 /**

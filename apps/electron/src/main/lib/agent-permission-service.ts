@@ -89,26 +89,26 @@ export class AgentPermissionService {
 
       // 自动模式：全部允许（理论上不会到这里，auto 模式使用 bypassPermissions）
       if (mode === 'auto') {
-        return { behavior: 'allow' as const, updatedInput: {} }
+        return { behavior: 'allow' as const, updatedInput: input }
       }
 
       // 智能模式：只读工具自动允许
       if (mode === 'smart') {
         if (this.isReadOnlyTool(toolName, input)) {
-          return { behavior: 'allow' as const, updatedInput: {} }
+          return { behavior: 'allow' as const, updatedInput: input }
         }
         if (this.isWhitelisted(sessionId, toolName, input)) {
-          return { behavior: 'allow' as const, updatedInput: {} }
+          return { behavior: 'allow' as const, updatedInput: input }
         }
       }
 
       // 监督模式：安全工具自动允许 + 检查白名单
       if (mode === 'supervised') {
         if (this.isReadOnlyTool(toolName, input)) {
-          return { behavior: 'allow' as const, updatedInput: {} }
+          return { behavior: 'allow' as const, updatedInput: input }
         }
         if (this.isWhitelisted(sessionId, toolName, input)) {
-          return { behavior: 'allow' as const, updatedInput: {} }
+          return { behavior: 'allow' as const, updatedInput: input }
         }
       }
 
@@ -148,7 +148,7 @@ export class AgentPermissionService {
 
     pending.resolve(
       behavior === 'allow'
-        ? { behavior: 'allow' as const, updatedInput: {} }
+        ? { behavior: 'allow' as const, updatedInput: pending.request.toolInput }
         : { behavior: 'deny' as const, message: '用户拒绝了此操作' }
     )
     this.pendingPermissions.delete(requestId)
