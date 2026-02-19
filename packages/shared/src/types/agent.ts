@@ -174,6 +174,8 @@ export interface AgentSessionMeta {
   createdAt: number
   /** 更新时间戳 */
   updatedAt: number
+  /** 是否已归档 */
+  archived?: boolean
 }
 
 /**
@@ -396,6 +398,8 @@ export const AGENT_IPC_CHANNELS = {
   UPDATE_TITLE: 'agent:update-title',
   /** 删除会话 */
   DELETE_SESSION: 'agent:delete-session',
+  /** 切换归档状态 */
+  TOGGLE_ARCHIVE: 'agent:toggle-archive',
 
   // 工作区管理
   /** 获取工作区列表 */

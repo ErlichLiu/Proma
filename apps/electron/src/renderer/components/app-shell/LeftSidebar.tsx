@@ -10,7 +10,7 @@
 
 import * as React from 'react'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
-import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap } from 'lucide-react'
+import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, Archive, ArchiveRestore, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModeSwitcher } from './ModeSwitcher'
 import { activeViewAtom } from '@/atoms/active-view'
@@ -30,6 +30,9 @@ import {
   currentAgentWorkspaceIdAtom,
   agentWorkspacesAtom,
   workspaceCapabilitiesVersionAtom,
+  showArchivedSessionsAtom,
+  sessionSearchKeywordAtom,
+  filteredAgentSessionsAtom,
 } from '@/atoms/agent-atoms'
 import { userProfileAtom } from '@/atoms/user-profile'
 import { hasUpdateAtom } from '@/atoms/updater'
@@ -52,8 +55,67 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { Input } from '@/components/ui/input'
 import type { ActiveView } from '@/atoms/active-view'
 import type { ConversationMeta, AgentSessionMeta, WorkspaceCapabilities } from '@proma/shared'
+
+// ===== 可复用的编辑状态 Hook =====
+
+interface UseEditableTitleReturn {
+  editing: boolean
+  editTitle: string
+  inputRef: React.RefObject<HTMLInputElement>
+  startEdit: (currentTitle: string) => void
+  saveTitle: (currentTitle: string, onSave: (title: string) => Promise<void>) => Promise<void>
+  setEditTitle: (title: string) => void
+  cancelEdit: () => void
+}
+
+function useEditableTitle(): UseEditableTitleReturn {
+  const [editing, setEditing] = React.useState(false)
+  const [editTitle, setEditTitle] = React.useState('')
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const justStartedEditing = React.useRef(false)
+
+  const startEdit = React.useCallback((currentTitle: string) => {
+    setEditTitle(currentTitle)
+    setEditing(true)
+    justStartedEditing.current = true
+    setTimeout(() => {
+      justStartedEditing.current = false
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 300)
+  }, [])
+
+  const saveTitle = React.useCallback(async (
+    currentTitle: string,
+    onSave: (title: string) => Promise<void>
+  ): Promise<void> => {
+    if (justStartedEditing.current) return
+    const trimmed = editTitle.trim()
+    if (!trimmed || trimmed === currentTitle) {
+      setEditing(false)
+      return
+    }
+    await onSave(trimmed)
+    setEditing(false)
+  }, [editTitle])
+
+  const cancelEdit = React.useCallback(() => {
+    setEditing(false)
+  }, [])
+
+  return {
+    editing,
+    editTitle,
+    inputRef,
+    startEdit,
+    saveTitle,
+    setEditTitle,
+    cancelEdit,
+  }
+}
 
 interface SidebarItemProps {
   icon: React.ReactNode
@@ -154,6 +216,9 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const agentChannelId = useAtomValue(agentChannelIdAtom)
   const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const workspaces = useAtomValue(agentWorkspacesAtom)
+  const [showArchived, setShowArchived] = useAtom(showArchivedSessionsAtom)
+  const [searchKeyword, setSearchKeyword] = useAtom(sessionSearchKeywordAtom)
+  const filteredAgentSessions = useAtomValue(filteredAgentSessionsAtom)
 
   // 工作区能力（MCP + Skill 计数）
   const [capabilities, setCapabilities] = React.useState<WorkspaceCapabilities | null>(null)
@@ -342,26 +407,29 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   /** 重命名 Agent 会话标题 */
   const handleAgentRename = async (id: string, newTitle: string): Promise<void> => {
     try {
-      await window.electronAPI.updateAgentSessionTitle(id, newTitle)
+      const updated = await window.electronAPI.updateAgentSessionTitle(id, newTitle)
       setAgentSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, title: newTitle, updatedAt: Date.now() } : s))
+        prev.map((s) => (s.id === id ? updated : s))
       )
     } catch (error) {
       console.error('[侧边栏] 重命名 Agent 会话失败:', error)
     }
   }
 
-  /** Agent 会话按工作区过滤 */
-  const filteredAgentSessions = React.useMemo(
-    () => agentSessions.filter((s) => s.workspaceId === currentWorkspaceId),
-    [agentSessions, currentWorkspaceId]
-  )
+  /** 切换 Agent 会话归档状态 */
+  const handleToggleArchive = async (id: string): Promise<void> => {
+    try {
+      const updated = await window.electronAPI.toggleArchiveAgentSession(id)
+      setAgentSessions((prev) =>
+        prev.map((s) => (s.id === id ? updated : s))
+      )
+    } catch (error) {
+      console.error('[侧边栏] 切换归档状态失败:', error)
+    }
+  }
 
   /** Agent 会话按日期分组 */
-  const agentSessionGroups = React.useMemo(
-    () => groupByDate(filteredAgentSessions),
-    [filteredAgentSessions]
-  )
+  const agentSessionGroups = groupByDate(filteredAgentSessions)
 
   return (
     <div
@@ -374,10 +442,56 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         <ModeSwitcher />
       </div>
 
-      {/* Agent 模式：工作区选择器 */}
+      {/* Agent 模式：工作区选择器 + 归档切换 + 搜索 */}
       {mode === 'agent' && (
-        <div className="px-3 pt-3">
+        <div className="px-3 pt-3 space-y-2">
           <WorkspaceSelector />
+
+          {/* 归档切换 */}
+          <div className="flex rounded-lg bg-muted p-1 gap-1">
+            <button
+              onClick={() => setShowArchived(false)}
+              className={cn(
+                'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                !showArchived
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              活跃
+            </button>
+            <button
+              onClick={() => setShowArchived(true)}
+              className={cn(
+                'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors flex items-center justify-center gap-1.5',
+                showArchived
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              归档
+            </button>
+          </div>
+
+          {/* 搜索输入框 */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/60" />
+            <Input
+              type="text"
+              placeholder="搜索会话..."
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              className="h-8 pl-8 text-[13px] bg-foreground/[0.03] border-0 focus-visible:ring-1 focus-visible:ring-primary/30"
+            />
+            {searchKeyword && (
+              <button
+                onClick={() => setSearchKeyword('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -465,29 +579,35 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           ))
         ) : (
           /* Agent 模式：Agent 会话按日期分组 */
-          agentSessionGroups.map((group) => (
-            <div key={group.label} className="mb-1">
-              <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none">
-                {group.label}
+          agentSessionGroups.length > 0 ? (
+            agentSessionGroups.map((group) => (
+              <div key={group.label} className="mb-1">
+                <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none">
+                  {group.label}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map((session) => (
+                    <AgentSessionItem
+                      key={session.id}
+                      session={session}
+                      active={session.id === currentAgentSessionId}
+                      hovered={session.id === hoveredId}
+                      running={agentRunningIds.has(session.id)}
+                      onSelect={() => handleSelectAgentSession(session.id)}
+                      onRequestDelete={() => handleRequestDelete(session.id)}
+                      onRename={handleAgentRename}
+                      onToggleArchive={handleToggleArchive}
+                      onMouseEnter={() => setHoveredId(session.id)}
+                      onMouseLeave={() => setHoveredId(null)}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-col gap-0.5">
-                {group.items.map((session) => (
-                  <AgentSessionItem
-                    key={session.id}
-                    session={session}
-                    active={session.id === currentAgentSessionId}
-                    hovered={session.id === hoveredId}
-                    running={agentRunningIds.has(session.id)}
-                    onSelect={() => handleSelectAgentSession(session.id)}
-                    onRequestDelete={() => handleRequestDelete(session.id)}
-                    onRename={handleAgentRename}
-                    onMouseEnter={() => setHoveredId(session.id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))
+            ))
+          ) : (
+            /* 空状态 */
+            <EmptyState searchKeyword={searchKeyword} showArchived={showArchived} />
+          )
         )}
       </div>
 
@@ -564,6 +684,137 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   )
 }
 
+// ===== 空状态组件 =====
+
+interface EmptyStateProps {
+  searchKeyword: string
+  showArchived: boolean
+}
+
+function EmptyState({ searchKeyword, showArchived }: EmptyStateProps): React.ReactElement {
+  if (searchKeyword) {
+    return (
+      <div className="px-3 py-8 text-center">
+        <Search size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+        <div className="text-[13px] text-muted-foreground">
+          未找到 &quot;{searchKeyword}&quot; 相关的会话
+        </div>
+      </div>
+    )
+  }
+
+  if (showArchived) {
+    return (
+      <div className="px-3 py-8 text-center">
+        <Archive size={32} className="mx-auto mb-2 text-muted-foreground/40" />
+        <div className="text-[13px] text-muted-foreground">暂无归档会话</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-3 py-8 text-center">
+      <div className="text-[13px] text-muted-foreground">当前工作区暂无会话</div>
+      <div className="text-[11px] text-muted-foreground/60 mt-1">
+        点击上方按钮创建新会话
+      </div>
+    </div>
+  )
+}
+
+// ===== 可复用的标题输入组件 =====
+
+interface TitleInputProps {
+  value: string
+  onChange: (value: string) => void
+  onSave: () => void
+  onCancel: () => void
+  inputRef: React.RefObject<HTMLInputElement>
+}
+
+function TitleInput({ value, onChange, onSave, onCancel, inputRef }: TitleInputProps): React.ReactElement {
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      onSave()
+    } else if (e.key === 'Escape') {
+      onCancel()
+    }
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={onSave}
+      onClick={(e) => e.stopPropagation()}
+      className="w-full bg-transparent text-[13px] leading-5 text-foreground border-b border-primary/50 outline-none px-0 py-0"
+      maxLength={100}
+    />
+  )
+}
+
+// ===== 可复用的列表项容器 =====
+
+interface ListItemContainerProps {
+  children: React.ReactNode
+  active: boolean
+  hovered: boolean
+  editing: boolean
+  onSelect: () => void
+  onStartEdit: () => void
+  onMouseEnter: () => void
+  onMouseLeave: () => void
+  deleteButton: React.ReactNode
+  extraButton?: React.ReactNode
+}
+
+function ListItemContainer({
+  children,
+  active,
+  hovered,
+  editing,
+  onSelect,
+  onStartEdit,
+  onMouseEnter,
+  onMouseLeave,
+  deleteButton,
+  extraButton,
+}: ListItemContainerProps): React.ReactElement {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onStartEdit()
+      }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={cn(
+        'w-full flex items-center gap-2 px-3 py-[7px] rounded-[10px] transition-colors duration-100 titlebar-no-drag text-left',
+        active
+          ? 'bg-foreground/[0.08] dark:bg-foreground/[0.08] shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
+          : 'hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04]'
+      )}
+    >
+      <div className="flex-1 min-w-0">{children}</div>
+      <div
+        className={cn(
+          'flex-shrink-0 flex items-center gap-1 transition-all duration-100',
+          hovered && !editing ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        )}
+      >
+        {extraButton}
+        {deleteButton}
+      </div>
+    </div>
+  )
+}
+
 // ===== 对话列表项 =====
 
 interface ConversationItemProps {
@@ -571,7 +822,6 @@ interface ConversationItemProps {
   active: boolean
   hovered: boolean
   streaming: boolean
-  /** 是否在标题旁显示 Pin 图标 */
   showPinIcon: boolean
   onSelect: () => void
   onRequestDelete: () => void
@@ -594,140 +844,78 @@ function ConversationItem({
   onMouseEnter,
   onMouseLeave,
 }: ConversationItemProps): React.ReactElement {
-  const [editing, setEditing] = React.useState(false)
-  const [editTitle, setEditTitle] = React.useState('')
-  const inputRef = React.useRef<HTMLInputElement>(null)
-  const justStartedEditing = React.useRef(false)
-
-  /** 进入编辑模式 */
-  const startEdit = (): void => {
-    setEditTitle(conversation.title)
-    setEditing(true)
-    justStartedEditing.current = true
-    // 延迟聚焦，等待 ContextMenu 完全关闭后再 focus
-    setTimeout(() => {
-      justStartedEditing.current = false
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    }, 300)
-  }
-
-  /** 保存标题 */
-  const saveTitle = async (): Promise<void> => {
-    // ContextMenu 关闭导致的 blur，忽略
-    if (justStartedEditing.current) return
-    const trimmed = editTitle.trim()
-    if (!trimmed || trimmed === conversation.title) {
-      setEditing(false)
-      return
-    }
-    await onRename(conversation.id, trimmed)
-    setEditing(false)
-  }
-
-  /** 键盘事件 */
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      saveTitle()
-    } else if (e.key === 'Escape') {
-      setEditing(false)
-    }
-  }
-
+  const { editing, editTitle, inputRef, startEdit, saveTitle, setEditTitle, cancelEdit } = useEditableTitle()
   const isPinned = !!conversation.pinned
+
+  const handleSave = async (): Promise<void> => {
+    await saveTitle(conversation.title, (newTitle) => onRename(conversation.id, newTitle))
+  }
+
+  const handleStartEdit = (): void => {
+    startEdit(conversation.title)
+  }
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onSelect}
-          onDoubleClick={(e) => {
-            e.stopPropagation()
-            startEdit()
-          }}
+        <ListItemContainer
+          active={active}
+          hovered={hovered}
+          editing={editing}
+          onSelect={onSelect}
+          onStartEdit={handleStartEdit}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
-          className={cn(
-            'w-full flex items-center gap-2 px-3 py-[7px] rounded-[10px] transition-colors duration-100 titlebar-no-drag text-left',
-            active
-              ? 'bg-foreground/[0.08] dark:bg-foreground/[0.08] shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-              : 'hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04]'
-          )}
+          deleteButton={
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRequestDelete()
+              }}
+              className="p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-all duration-100"
+              title="删除对话"
+            >
+              <Trash2 size={13} />
+            </button>
+          }
         >
-          <div className="flex-1 min-w-0">
-            {editing ? (
-              <input
-                ref={inputRef}
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onBlur={saveTitle}
-                onClick={(e) => e.stopPropagation()}
-                className="w-full bg-transparent text-[13px] leading-5 text-foreground border-b border-primary/50 outline-none px-0 py-0"
-                maxLength={100}
-              />
-            ) : (
-              <div className={cn(
-                'truncate text-[13px] leading-5 flex items-center gap-1.5',
-                active ? 'text-foreground' : 'text-foreground/80'
-              )}>
-                {/* 流式输出绿色呼吸点指示器 */}
-                {streaming && (
-                  <span className="relative flex-shrink-0 size-2">
-                    <span className="absolute inset-0 rounded-full bg-green-500/60 animate-ping" />
-                    <span className="relative block size-2 rounded-full bg-green-500" />
-                  </span>
-                )}
-                {/* 置顶标记 */}
-                {showPinIcon && (
-                  <Pin size={11} className="flex-shrink-0 text-primary/60" />
-                )}
-                <span className="truncate">{conversation.title}</span>
-              </div>
-            )}
-          </div>
-
-          {/* 删除按钮（始终渲染，hover 时可见） */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onRequestDelete()
-            }}
-            className={cn(
-              'flex-shrink-0 p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-all duration-100',
-              hovered && !editing ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            )}
-            title="删除对话"
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
+          {editing ? (
+            <TitleInput
+              value={editTitle}
+              onChange={setEditTitle}
+              onSave={handleSave}
+              onCancel={cancelEdit}
+              inputRef={inputRef}
+            />
+          ) : (
+            <div className={cn(
+              'truncate text-[13px] leading-5 flex items-center gap-1.5',
+              active ? 'text-foreground' : 'text-foreground/80'
+            )}>
+              {streaming && (
+                <span className="relative flex-shrink-0 size-2">
+                  <span className="absolute inset-0 rounded-full bg-green-500/60 animate-ping" />
+                  <span className="relative block size-2 rounded-full bg-green-500" />
+                </span>
+              )}
+              {showPinIcon && <Pin size={11} className="flex-shrink-0 text-primary/60" />}
+              <span className="truncate">{conversation.title}</span>
+            </div>
+          )}
+        </ListItemContainer>
       </ContextMenuTrigger>
 
-      {/* 右键菜单 */}
       <ContextMenuContent className="w-40">
-        <ContextMenuItem
-          className="gap-2 text-[13px]"
-          onSelect={() => onTogglePin(conversation.id)}
-        >
+        <ContextMenuItem className="gap-2 text-[13px]" onSelect={() => onTogglePin(conversation.id)}>
           {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
           {isPinned ? '取消置顶' : '置顶对话'}
         </ContextMenuItem>
-        <ContextMenuItem
-          className="gap-2 text-[13px]"
-          onSelect={startEdit}
-        >
+        <ContextMenuItem className="gap-2 text-[13px]" onSelect={handleStartEdit}>
           <Pencil size={14} />
           重命名
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          className="gap-2 text-[13px] text-destructive focus:text-destructive"
-          onSelect={onRequestDelete}
-        >
+        <ContextMenuItem className="gap-2 text-[13px] text-destructive focus:text-destructive" onSelect={onRequestDelete}>
           <Trash2 size={14} />
           删除对话
         </ContextMenuItem>
@@ -746,6 +934,7 @@ interface AgentSessionItemProps {
   onSelect: () => void
   onRequestDelete: () => void
   onRename: (id: string, newTitle: string) => Promise<void>
+  onToggleArchive: (id: string) => Promise<void>
   onMouseEnter: () => void
   onMouseLeave: () => void
 }
@@ -758,123 +947,92 @@ function AgentSessionItem({
   onSelect,
   onRequestDelete,
   onRename,
+  onToggleArchive,
   onMouseEnter,
   onMouseLeave,
 }: AgentSessionItemProps): React.ReactElement {
-  const [editing, setEditing] = React.useState(false)
-  const [editTitle, setEditTitle] = React.useState('')
-  const inputRef = React.useRef<HTMLInputElement>(null)
-  const justStartedEditing = React.useRef(false)
+  const { editing, editTitle, inputRef, startEdit, saveTitle, setEditTitle, cancelEdit } = useEditableTitle()
 
-  const startEdit = (): void => {
-    setEditTitle(session.title)
-    setEditing(true)
-    justStartedEditing.current = true
-    setTimeout(() => {
-      justStartedEditing.current = false
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    }, 300)
+  const handleSave = async (): Promise<void> => {
+    await saveTitle(session.title, (newTitle) => onRename(session.id, newTitle))
   }
 
-  const saveTitle = async (): Promise<void> => {
-    if (justStartedEditing.current) return
-    const trimmed = editTitle.trim()
-    if (!trimmed || trimmed === session.title) {
-      setEditing(false)
-      return
-    }
-    await onRename(session.id, trimmed)
-    setEditing(false)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      saveTitle()
-    } else if (e.key === 'Escape') {
-      setEditing(false)
-    }
+  const handleStartEdit = (): void => {
+    startEdit(session.title)
   }
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onSelect}
-          onDoubleClick={(e) => {
-            e.stopPropagation()
-            startEdit()
-          }}
+        <ListItemContainer
+          active={active}
+          hovered={hovered}
+          editing={editing}
+          onSelect={onSelect}
+          onStartEdit={handleStartEdit}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
-          className={cn(
-            'w-full flex items-center gap-2 px-3 py-[7px] rounded-[10px] transition-colors duration-100 titlebar-no-drag text-left',
-            active
-              ? 'bg-foreground/[0.08] dark:bg-foreground/[0.08] shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-              : 'hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04]'
-          )}
+          extraButton={
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleArchive(session.id)
+              }}
+              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/10 hover:text-foreground transition-all duration-100"
+              title={session.archived ? '取消归档' : '归档会话'}
+            >
+              {session.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+            </button>
+          }
+          deleteButton={
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRequestDelete()
+              }}
+              className="p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-all duration-100"
+              title="删除会话"
+            >
+              <Trash2 size={13} />
+            </button>
+          }
         >
-          <div className="flex-1 min-w-0">
-            {editing ? (
-              <input
-                ref={inputRef}
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onBlur={saveTitle}
-                onClick={(e) => e.stopPropagation()}
-                className="w-full bg-transparent text-[13px] leading-5 text-foreground border-b border-primary/50 outline-none px-0 py-0"
-                maxLength={100}
-              />
-            ) : (
-              <div className={cn(
-                'truncate text-[13px] leading-5 flex items-center gap-1.5',
-                active ? 'text-foreground' : 'text-foreground/80'
-              )}>
-                {running && (
-                  <span className="relative flex-shrink-0 size-4 flex items-center justify-center">
-                    <span className="absolute size-2 rounded-full bg-blue-500/60 animate-ping" />
-                    <span className="relative block size-2 rounded-full bg-blue-500" />
-                  </span>
-                )}
-                <span className="truncate">{session.title}</span>
-              </div>
-            )}
-          </div>
-
-          {/* 删除按钮（始终渲染，hover 时可见） */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onRequestDelete()
-            }}
-            className={cn(
-              'flex-shrink-0 p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-all duration-100',
-              hovered && !editing ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            )}
-            title="删除会话"
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
+          {editing ? (
+            <TitleInput
+              value={editTitle}
+              onChange={setEditTitle}
+              onSave={handleSave}
+              onCancel={cancelEdit}
+              inputRef={inputRef}
+            />
+          ) : (
+            <div className={cn(
+              'truncate text-[13px] leading-5 flex items-center gap-1.5',
+              active ? 'text-foreground' : 'text-foreground/80'
+            )}>
+              {running && (
+                <span className="relative flex-shrink-0 size-4 flex items-center justify-center">
+                  <span className="absolute size-2 rounded-full bg-blue-500/60 animate-ping" />
+                  <span className="relative block size-2 rounded-full bg-blue-500" />
+                </span>
+              )}
+              <span className="truncate">{session.title}</span>
+            </div>
+          )}
+        </ListItemContainer>
       </ContextMenuTrigger>
 
       <ContextMenuContent className="w-40">
-        <ContextMenuItem
-          className="gap-2 text-[13px]"
-          onSelect={startEdit}
-        >
+        <ContextMenuItem className="gap-2 text-[13px]" onSelect={handleStartEdit}>
           <Pencil size={14} />
           重命名
         </ContextMenuItem>
+        <ContextMenuItem className="gap-2 text-[13px]" onSelect={() => onToggleArchive(session.id)}>
+          {session.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+          {session.archived ? '取消归档' : '归档会话'}
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem
-          className="gap-2 text-[13px] text-destructive focus:text-destructive"
-          onSelect={onRequestDelete}
-        >
+        <ContextMenuItem className="gap-2 text-[13px] text-destructive focus:text-destructive" onSelect={onRequestDelete}>
           <Trash2 size={14} />
           删除会话
         </ContextMenuItem>

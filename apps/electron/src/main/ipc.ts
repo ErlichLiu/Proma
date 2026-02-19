@@ -5,7 +5,7 @@
  */
 
 import { ipcMain, nativeTheme, shell, dialog, BrowserWindow } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, USAGE_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -44,6 +44,9 @@ import type {
   SystemProxyDetectResult,
   GitHubRelease,
   GitHubReleaseListOptions,
+  UsageStats,
+  ConversationUsage,
+  UsageSettings,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus } from './lib/runtime-init'
@@ -109,6 +112,12 @@ import {
   listReleases as listGitHubReleases,
   getReleaseByTag,
 } from './lib/github-release-service'
+import {
+  getUsageStats,
+  getConversationUsage,
+  getUsageSettings,
+  updateUsageSettings,
+} from './lib/usage-service'
 
 /**
  * 注册 IPC 处理器
@@ -541,6 +550,17 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 切换 Agent 会话归档状态
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.TOGGLE_ARCHIVE,
+    async (_, id: string): Promise<AgentSessionMeta> => {
+      const sessions = listAgentSessions()
+      const current = sessions.find((s) => s.id === id)
+      if (!current) throw new Error(`会话不存在: ${id}`)
+      return updateAgentSessionMeta(id, { archived: !current.archived })
+    }
+  )
+
   // ===== Agent 工作区管理相关 =====
 
   // 确保默认工作区存在
@@ -857,6 +877,40 @@ export function registerIpcHandlers(): void {
     GITHUB_RELEASE_IPC_CHANNELS.GET_RELEASE_BY_TAG,
     async (_, tag: string): Promise<GitHubRelease | null> => {
       return getReleaseByTag(tag)
+    }
+  )
+
+  // ===== 使用统计相关 =====
+
+  // 获取使用量统计总览
+  ipcMain.handle(
+    USAGE_IPC_CHANNELS.GET_USAGE_STATS,
+    async (_, days: number = 30): Promise<UsageStats> => {
+      return getUsageStats(days)
+    }
+  )
+
+  // 获取指定对话的使用量详情
+  ipcMain.handle(
+    USAGE_IPC_CHANNELS.GET_CONVERSATION_USAGE,
+    async (_, conversationId: string): Promise<ConversationUsage | null> => {
+      return getConversationUsage(conversationId)
+    }
+  )
+
+  // 获取使用统计设置
+  ipcMain.handle(
+    USAGE_IPC_CHANNELS.GET_USAGE_SETTINGS,
+    async (): Promise<UsageSettings> => {
+      return getUsageSettings()
+    }
+  )
+
+  // 更新使用统计设置
+  ipcMain.handle(
+    USAGE_IPC_CHANNELS.UPDATE_USAGE_SETTINGS,
+    async (_, settings: UsageSettings): Promise<UsageSettings> => {
+      return updateUsageSettings(settings)
     }
   )
 

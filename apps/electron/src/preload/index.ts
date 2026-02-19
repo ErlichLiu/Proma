@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, USAGE_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -50,6 +50,9 @@ import type {
   SystemProxyDetectResult,
   GitHubRelease,
   GitHubReleaseListOptions,
+  UsageStats,
+  ConversationUsage,
+  UsageSettings,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 
@@ -239,6 +242,9 @@ export interface ElectronAPI {
   /** 删除 Agent 会话 */
   deleteAgentSession: (id: string) => Promise<void>
 
+  /** 切换 Agent 会话归档状态 */
+  toggleArchiveAgentSession: (id: string) => Promise<AgentSessionMeta>
+
   /** 生成 Agent 会话标题 */
   generateAgentTitle: (input: AgentGenerateTitleInput) => Promise<string | null>
 
@@ -361,6 +367,20 @@ export interface ElectronAPI {
   // 工作区文件变化通知
   onCapabilitiesChanged: (callback: () => void) => () => void
   onWorkspaceFilesChanged: (callback: () => void) => () => void
+
+  // ===== 使用统计相关 =====
+
+  /** 获取使用量统计总览 */
+  getUsageStats: (days?: number) => Promise<UsageStats>
+
+  /** 获取指定对话的使用量详情 */
+  getConversationUsage: (conversationId: string) => Promise<ConversationUsage | null>
+
+  /** 获取使用统计设置 */
+  getUsageSettings: () => Promise<UsageSettings>
+
+  /** 更新使用统计设置 */
+  updateUsageSettings: (settings: UsageSettings) => Promise<UsageSettings>
 }
 
 /**
@@ -594,6 +614,10 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.DELETE_SESSION, id)
   },
 
+  toggleArchiveAgentSession: (id: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.TOGGLE_ARCHIVE, id)
+  },
+
   generateAgentTitle: (input: AgentGenerateTitleInput) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GENERATE_TITLE, input)
   },
@@ -753,6 +777,23 @@ const electronAPI: ElectronAPI = {
 
   getReleaseByTag: (tag) => {
     return ipcRenderer.invoke(GITHUB_RELEASE_IPC_CHANNELS.GET_RELEASE_BY_TAG, tag)
+  },
+
+  // 使用统计
+  getUsageStats: (days?: number) => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.GET_USAGE_STATS, days)
+  },
+
+  getConversationUsage: (conversationId: string) => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.GET_CONVERSATION_USAGE, conversationId)
+  },
+
+  getUsageSettings: () => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.GET_USAGE_SETTINGS)
+  },
+
+  updateUsageSettings: (settings: UsageSettings) => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.UPDATE_USAGE_SETTINGS, settings)
   },
 }
 

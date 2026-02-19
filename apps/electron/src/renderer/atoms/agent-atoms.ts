@@ -444,6 +444,55 @@ export const currentAgentSessionDraftAtom = atom(
   }
 )
 
+// ===== 会话归档与搜索 =====
+
+/** 归档视图切换 */
+export const showArchivedSessionsAtom = atom<boolean>(false)
+
+/** 会话搜索关键词 */
+export const sessionSearchKeywordAtom = atom<string>('')
+
+/** 获取活跃会话（按工作区过滤 + 排除归档） */
+export const activeAgentSessionsAtom = atom((get) => {
+  const sessions = get(agentSessionsAtom)
+  const currentWorkspaceId = get(currentAgentWorkspaceIdAtom)
+  return sessions.filter(
+    (s) => s.workspaceId === currentWorkspaceId && !s.archived,
+  )
+})
+
+/** 获取归档会话 */
+export const archivedAgentSessionsAtom = atom((get) => {
+  const sessions = get(agentSessionsAtom)
+  const currentWorkspaceId = get(currentAgentWorkspaceIdAtom)
+  return sessions.filter(
+    (s) => s.workspaceId === currentWorkspaceId && s.archived,
+  )
+})
+
+/** 过滤后的会话列表（结合工作区、归档状态、搜索关键词） */
+export const filteredAgentSessionsAtom = atom((get) => {
+  const sessions = get(agentSessionsAtom)
+  const currentWorkspaceId = get(currentAgentWorkspaceIdAtom)
+  const showArchived = get(showArchivedSessionsAtom)
+  const keyword = get(sessionSearchKeywordAtom)
+
+  return sessions.filter((s) => {
+    // 工作区筛选
+    if (s.workspaceId !== currentWorkspaceId) return false
+
+    // 归档状态筛选
+    if (showArchived !== !!s.archived) return false
+
+    // 关键词搜索
+    if (keyword.trim()) {
+      return s.title.toLowerCase().includes(keyword.toLowerCase())
+    }
+
+    return true
+  })
+})
+
 // ===== 后台任务管理 =====
 
 /**
