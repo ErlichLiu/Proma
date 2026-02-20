@@ -18,7 +18,7 @@ import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment } f
 import {
   getAdapter,
   streamSSE,
-  fetchTitle,
+  fetchTitleWithDiagnostics,
 } from '@proma/core'
 import type { ImageAttachmentData } from '@proma/core'
 import { listChannels, decryptApiKey } from './channel-manager'
@@ -410,6 +410,8 @@ function logTitleEvent(
     modelId: string
     provider?: string
     detail?: string
+    status?: number | null
+    dataPreview?: string
   },
 ): void {
   console.log('[title_event]', { reason, ...context })
@@ -497,27 +499,34 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
 
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
-    const title = await fetchTitle(request, adapter, fetchFn)
-    if (!title) {
-      console.warn('[标题生成] API 返回空标题')
-      logTitleEvent('title_failed_parse', {
+    const titleResult = await fetchTitleWithDiagnostics(request, adapter, fetchFn)
+    if (!titleResult.title) {
+      const failureReason =
+        titleResult.reason === 'http_non_200'
+          ? 'title_failed_request'
+          : 'title_failed_parse'
+      logTitleEvent(failureReason, {
         conversationId,
         channelId,
         modelId,
         provider: channel.provider,
-        detail: 'empty_remote_title',
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
       })
       logTitleEvent('title_generated_fallback', {
         conversationId,
         channelId,
         modelId,
         provider: channel.provider,
-        detail: 'empty_remote_title',
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
       })
       return fallbackTitle
     }
 
-    const result = sanitizeTitleCandidate(title, MAX_TITLE_LENGTH)
+    const result = sanitizeTitleCandidate(titleResult.title, MAX_TITLE_LENGTH)
     if (!result) {
       logTitleEvent('title_failed_parse', {
         conversationId,

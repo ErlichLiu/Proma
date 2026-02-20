@@ -115,18 +115,61 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
 
 // ===== 非流式标题请求 =====
 
+export type FetchTitleFailureReason = 'http_non_200' | 'empty_content' | 'parse_failed'
+
+export interface FetchTitleDiagnostics {
+  title: string | null
+  status: number | null
+  reason: 'success' | FetchTitleFailureReason
+  dataPreview?: string
+}
+
+function stringifyPreview(value: unknown): string {
+  try {
+    return JSON.stringify(value).slice(0, 500)
+  } catch {
+    return String(value).slice(0, 500)
+  }
+}
+
+function hasKnownTitleShape(value: unknown, depth = 0): boolean {
+  if (depth > 4 || value == null) return false
+  if (typeof value === 'string') return true
+  if (Array.isArray(value)) {
+    return value.some((item) => hasKnownTitleShape(item, depth + 1))
+  }
+  if (typeof value !== 'object') return false
+
+  const record = value as Record<string, unknown>
+  if (
+    'output_text' in record ||
+    'text' in record ||
+    'content' in record ||
+    'choices' in record ||
+    'candidates' in record ||
+    'message' in record ||
+    'delta' in record
+  ) {
+    return true
+  }
+
+  if ('data' in record) {
+    return hasKnownTitleShape(record.data, depth + 1)
+  }
+
+  return Object.values(record).some((item) => hasKnownTitleShape(item, depth + 1))
+}
+
 /**
- * 执行非流式标题生成请求
- *
- * @param request 构建好的 HTTP 请求配置
- * @param adapter 供应商适配器（用于解析响应）
- * @returns 提取的标题文本，失败返回 null
+ * 执行非流式标题请求，并返回诊断信息（失败原因、HTTP 状态、响应预览）。
  */
-export async function fetchTitle(
+export async function fetchTitleWithDiagnostics(
   request: ProviderRequest,
   adapter: ProviderAdapter,
   fetchFn: typeof globalThis.fetch = fetch,
-): Promise<string | null> {
+): Promise<FetchTitleDiagnostics> {
+  let status: number | null = null
+
   try {
     console.log('[fetchTitle] 发送请求:', {
       url: request.url,
@@ -139,6 +182,7 @@ export async function fetchTitle(
       headers: request.headers,
       body: request.body,
     })
+    status = response.status
 
     console.log('[fetchTitle] 收到响应:', {
       status: response.status,
@@ -148,30 +192,93 @@ export async function fetchTitle(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'unknown')
+      const dataPreview = errorText.slice(0, 500)
       console.warn('[fetchTitle] 请求失败:', {
         status: response.status,
-        error: errorText.slice(0, 500),
+        error: dataPreview,
       })
-      return null
+      return {
+        title: null,
+        status: response.status,
+        reason: 'http_non_200',
+        dataPreview,
+      }
     }
 
-    const data: unknown = await response.json()
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch (error) {
+      const dataPreview = error instanceof Error ? error.message.slice(0, 500) : 'json_parse_failed'
+      console.warn('[fetchTitle] 解析 JSON 失败:', { status: response.status, error: dataPreview })
+      return {
+        title: null,
+        status: response.status,
+        reason: 'parse_failed',
+        dataPreview,
+      }
+    }
+
+    const dataPreview = stringifyPreview(data)
     console.log('[fetchTitle] 解析响应体:', {
       provider: adapter.providerType,
-      dataPreview: JSON.stringify(data).slice(0, 500),
+      dataPreview,
     })
 
     const adapterTitle = adapter.parseTitleResponse(data)?.trim() || null
     if (adapterTitle) {
       console.log('[fetchTitle] 解析标题结果:', { source: 'adapter', title: adapterTitle })
-      return adapterTitle
+      return {
+        title: adapterTitle,
+        status: response.status,
+        reason: 'success',
+        dataPreview,
+      }
     }
 
     const fallbackTitle = extractTitleFromCommonResponse(data)?.trim() || null
-    console.log('[fetchTitle] 解析标题结果:', { source: fallbackTitle ? 'generic-fallback' : 'none', title: fallbackTitle })
-    return fallbackTitle
+    if (fallbackTitle) {
+      console.log('[fetchTitle] 解析标题结果:', { source: 'generic-fallback', title: fallbackTitle })
+      return {
+        title: fallbackTitle,
+        status: response.status,
+        reason: 'success',
+        dataPreview,
+      }
+    }
+
+    const reason: FetchTitleFailureReason = hasKnownTitleShape(data) ? 'empty_content' : 'parse_failed'
+    console.log('[fetchTitle] 解析标题结果:', { source: 'none', reason, status: response.status })
+    return {
+      title: null,
+      status: response.status,
+      reason,
+      dataPreview,
+    }
   } catch (error) {
+    const dataPreview = error instanceof Error ? error.message.slice(0, 500) : 'unknown_error'
     console.error('[fetchTitle] 异常:', error)
-    return null
+    return {
+      title: null,
+      status,
+      reason: 'parse_failed',
+      dataPreview,
+    }
   }
+}
+
+/**
+ * 执行非流式标题生成请求
+ *
+ * @param request 构建好的 HTTP 请求配置
+ * @param adapter 供应商适配器（用于解析响应）
+ * @returns 提取的标题文本，失败返回 null
+ */
+export async function fetchTitle(
+  request: ProviderRequest,
+  adapter: ProviderAdapter,
+  fetchFn: typeof globalThis.fetch = fetch,
+): Promise<string | null> {
+  const result = await fetchTitleWithDiagnostics(request, adapter, fetchFn)
+  return result.title
 }

@@ -32,7 +32,7 @@ import {
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import {
   getAdapter,
-  fetchTitle,
+  fetchTitleWithDiagnostics,
 } from '@proma/core'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
@@ -1347,6 +1347,8 @@ function logAgentTitleEvent(
     modelId: string
     provider?: string
     detail?: string
+    status?: number | null
+    dataPreview?: string
   },
 ): void {
   console.log('[agent_title_event]', { reason, ...context })
@@ -1421,25 +1423,32 @@ export async function generateAgentTitle(input: AgentGenerateTitleInput): Promis
 
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
-    const title = await fetchTitle(request, adapter, fetchFn)
-    if (!title) {
-      console.warn('[Agent 标题生成] API 返回空标题')
-      logAgentTitleEvent('title_failed_parse', {
+    const titleResult = await fetchTitleWithDiagnostics(request, adapter, fetchFn)
+    if (!titleResult.title) {
+      const failureReason =
+        titleResult.reason === 'http_non_200'
+          ? 'title_failed_request'
+          : 'title_failed_parse'
+      logAgentTitleEvent(failureReason, {
         channelId,
         modelId,
         provider: channel.provider,
-        detail: 'empty_remote_title',
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
       })
       logAgentTitleEvent('title_generated_fallback', {
         channelId,
         modelId,
         provider: channel.provider,
-        detail: 'empty_remote_title',
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
       })
       return fallbackTitle
     }
 
-    const result = sanitizeTitleCandidate(title, MAX_TITLE_LENGTH)
+    const result = sanitizeTitleCandidate(titleResult.title, MAX_TITLE_LENGTH)
     if (!result) {
       logAgentTitleEvent('title_failed_parse', {
         channelId,
