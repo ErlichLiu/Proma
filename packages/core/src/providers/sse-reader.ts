@@ -10,6 +10,7 @@
  */
 
 import type { ProviderAdapter, ProviderRequest, StreamEventCallback } from './types.ts'
+import { extractTitleFromCommonResponse } from './title-extract.ts'
 
 // ===== 流式请求 =====
 
@@ -160,9 +161,15 @@ export async function fetchTitle(
       dataPreview: JSON.stringify(data).slice(0, 500),
     })
 
-    const title = adapter.parseTitleResponse(data)
-    console.log('[fetchTitle] 解析标题结果:', { title })
-    return title
+    const adapterTitle = adapter.parseTitleResponse(data)?.trim() || null
+    if (adapterTitle) {
+      console.log('[fetchTitle] 解析标题结果:', { source: 'adapter', title: adapterTitle })
+      return adapterTitle
+    }
+
+    const fallbackTitle = extractTitleFromCommonResponse(data)?.trim() || null
+    console.log('[fetchTitle] 解析标题结果:', { source: fallbackTitle ? 'generic-fallback' : 'none', title: fallbackTitle })
+    return fallbackTitle
   } catch (error) {
     console.error('[fetchTitle] 异常:', error)
     return null

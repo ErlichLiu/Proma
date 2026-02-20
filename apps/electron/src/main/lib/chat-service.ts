@@ -27,6 +27,7 @@ import { readAttachmentAsBase64, isImageAttachment } from './attachment-service'
 import { extractTextFromAttachment, isDocumentAttachment } from './document-parser'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
+import { deriveFallbackTitle, MAX_CHAT_TITLE_LENGTH, sanitizeTitleCandidate } from './title-utils'
 
 /** 活跃的 AbortController 映射（conversationId → controller） */
 const activeControllers = new Map<string, AbortController>()
@@ -393,7 +394,26 @@ const TITLE_PROMPT = '根据用户的第一条消息，生成一个简短的对�
 const SHORT_MESSAGE_THRESHOLD = 4
 
 /** 最大标题长度 */
-const MAX_TITLE_LENGTH = 20
+const MAX_TITLE_LENGTH = MAX_CHAT_TITLE_LENGTH
+
+type TitleReason =
+  | 'title_generated_remote'
+  | 'title_generated_fallback'
+  | 'title_failed_parse'
+  | 'title_failed_request'
+
+function logTitleEvent(
+  reason: TitleReason,
+  context: {
+    conversationId?: string
+    channelId: string
+    modelId: string
+    provider?: string
+    detail?: string
+  },
+): void {
+  console.log('[title_event]', { reason, ...context })
+}
 
 /**
  * 调用 AI 生成对话标题
@@ -405,15 +425,22 @@ const MAX_TITLE_LENGTH = 20
  * @returns 生成的标题，失败时返回 null
  */
 export async function generateTitle(input: GenerateTitleInput): Promise<string | null> {
-  const { userMessage, channelId, modelId } = input
-  console.log('[标题生成] 开始生成标题:', { channelId, modelId, userMessage: userMessage.slice(0, 50) })
+  const { conversationId, userMessage, channelId, modelId } = input
+  console.log('[标题生成] 开始生成标题:', { conversationId, channelId, modelId, userMessage: userMessage.slice(0, 50) })
+
+  const fallbackTitle = deriveFallbackTitle(userMessage, MAX_TITLE_LENGTH)
 
   // 短消息直接使用原文作为标题，避免 AI 幻觉
   const trimmedMessage = userMessage.trim()
   if (trimmedMessage.length <= SHORT_MESSAGE_THRESHOLD) {
-    const shortTitle = trimmedMessage.slice(0, MAX_TITLE_LENGTH)
-    console.log('[标题生成] 消息过短，直接使用原文作为标题:', shortTitle)
-    return shortTitle
+    logTitleEvent('title_generated_fallback', {
+      conversationId,
+      channelId,
+      modelId,
+      detail: 'short_message',
+    })
+    console.log('[标题生成] 消息过短，直接使用本地兜底标题:', fallbackTitle)
+    return fallbackTitle
   }
 
   // 查找渠道
@@ -421,7 +448,19 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
   const channel = channels.find((c) => c.id === channelId)
   if (!channel) {
     console.warn('[标题生成] 渠道不存在:', channelId)
-    return null
+    logTitleEvent('title_failed_request', {
+      conversationId,
+      channelId,
+      modelId,
+      detail: 'channel_not_found',
+    })
+    logTitleEvent('title_generated_fallback', {
+      conversationId,
+      channelId,
+      modelId,
+      detail: 'channel_not_found',
+    })
+    return fallbackTitle
   }
 
   // 解密 API Key
@@ -430,7 +469,21 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
     apiKey = decryptApiKey(channelId)
   } catch {
     console.warn('[标题生成] 解密 API Key 失败')
-    return null
+    logTitleEvent('title_failed_request', {
+      conversationId,
+      channelId,
+      modelId,
+      provider: channel.provider,
+      detail: 'decrypt_api_key_failed',
+    })
+    logTitleEvent('title_generated_fallback', {
+      conversationId,
+      channelId,
+      modelId,
+      provider: channel.provider,
+      detail: 'decrypt_api_key_failed',
+    })
+    return fallbackTitle
   }
 
   try {
@@ -447,16 +500,66 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
     const title = await fetchTitle(request, adapter, fetchFn)
     if (!title) {
       console.warn('[标题生成] API 返回空标题')
-      return null
+      logTitleEvent('title_failed_parse', {
+        conversationId,
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'empty_remote_title',
+      })
+      logTitleEvent('title_generated_fallback', {
+        conversationId,
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'empty_remote_title',
+      })
+      return fallbackTitle
     }
 
-    // 截断到最大长度并清理引号
-    const cleaned = title.trim().replace(/^["'""'']+|["'""'']+$/g, '').trim()
-    const result = cleaned.slice(0, MAX_TITLE_LENGTH) || null
+    const result = sanitizeTitleCandidate(title, MAX_TITLE_LENGTH)
+    if (!result) {
+      logTitleEvent('title_failed_parse', {
+        conversationId,
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'invalid_remote_title',
+      })
+      logTitleEvent('title_generated_fallback', {
+        conversationId,
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'invalid_remote_title',
+      })
+      return fallbackTitle
+    }
+
+    logTitleEvent('title_generated_remote', {
+      conversationId,
+      channelId,
+      modelId,
+      provider: channel.provider,
+    })
     console.log('[标题生成] 成功生成标题:', result)
     return result
   } catch (error) {
     console.warn('[标题生成] 请求失败:', error)
-    return null
+    logTitleEvent('title_failed_request', {
+      conversationId,
+      channelId,
+      modelId,
+      provider: channel.provider,
+      detail: error instanceof Error ? error.message : 'unknown_error',
+    })
+    logTitleEvent('title_generated_fallback', {
+      conversationId,
+      channelId,
+      modelId,
+      provider: channel.provider,
+      detail: 'remote_request_failed',
+    })
+    return fallbackTitle
   }
 }

@@ -19,6 +19,7 @@ import type {
   ImageAttachmentData,
 } from './types.ts'
 import { normalizeBaseUrl } from './url-utils.ts'
+import { extractTextFromContentLike, extractTitleFromCommonResponse } from './title-extract.ts'
 
 // ===== OpenAI 特有类型 =====
 
@@ -45,7 +46,13 @@ interface OpenAIChunkData {
 
 /** OpenAI 标题响应 */
 interface OpenAITitleResponse {
-  choices?: Array<{ message?: { content?: string } }>
+  output_text?: string
+  choices?: Array<{
+    text?: string
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>
+    }
+  }>
 }
 
 // ===== 消息转换 =====
@@ -179,6 +186,16 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   parseTitleResponse(responseBody: unknown): string | null {
     const data = responseBody as OpenAITitleResponse
-    return data.choices?.[0]?.message?.content ?? null
+    const primary = extractTextFromContentLike(data.choices?.[0]?.message?.content)
+    if (primary) return primary
+
+    const alt = data.choices?.[0]?.text
+    if (typeof alt === 'string' && alt.trim()) return alt
+
+    if (typeof data.output_text === 'string' && data.output_text.trim()) {
+      return data.output_text
+    }
+
+    return extractTitleFromCommonResponse(responseBody)
   }
 }
