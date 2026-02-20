@@ -18,6 +18,7 @@ import type {
   ImageAttachmentData,
 } from './types.ts'
 import { normalizeAnthropicBaseUrl } from './url-utils.ts'
+import { extractTitleFromCommonResponse } from './title-extract.ts'
 
 // ===== Anthropic 特有类型 =====
 
@@ -56,6 +57,7 @@ interface AnthropicTitleResponse {
     type: string
     text?: string
     thinking?: string
+    content?: string
   }>
 }
 
@@ -209,34 +211,36 @@ export class AnthropicAdapter implements ProviderAdapter {
         model: input.modelId,
         max_tokens: 50,
         messages: [{ role: 'user', content: input.prompt }],
-        // 禁用 extended thinking（MiniMax 等供应商也会遵循此设置）
-        thinking: { type: 'disabled' },
+        // 兼容代理网关：标题请求不显式传 thinking，避免部分网关校验失败（422）
       }),
     }
   }
 
   parseTitleResponse(responseBody: unknown): string | null {
     const data = responseBody as AnthropicTitleResponse
-    if (!data.content || data.content.length === 0) return null
+    if (data.content && data.content.length > 0) {
+      // 优先查找 type === "text" 的块
+      const textBlock = data.content.find((block) => block.type === 'text')
+      if (textBlock?.text) return textBlock.text
 
-    // 优先查找 type === "text" 的块
-    const textBlock = data.content.find((block) => block.type === 'text')
-    if (textBlock?.text) return textBlock.text
+      // 兼容一些网关把文本放在 content 字段
+      if (textBlock?.content?.trim()) return textBlock.content
 
-    // 如果没有 text 块，尝试从第一个 thinking 块中提取（MiniMax 兼容）
-    const thinkingBlock = data.content.find((block) => block.type === 'thinking')
-    if (thinkingBlock?.thinking) {
-      // thinking 内容可能很长，尝试提取最后一行或关键部分
-      const lines = thinkingBlock.thinking.trim().split('\n')
-      const lastLine = lines[lines.length - 1]?.trim()
-      // 如果最后一行以 "- " 开头，提取它（常见的标题格式）
-      if (lastLine?.startsWith('- ')) {
-        return lastLine.slice(2).trim()
+      // 如果没有 text 块，尝试从第一个 thinking 块中提取（MiniMax 兼容）
+      const thinkingBlock = data.content.find((block) => block.type === 'thinking')
+      if (thinkingBlock?.thinking) {
+        // thinking 内容可能很长，尝试提取最后一行或关键部分
+        const lines = thinkingBlock.thinking.trim().split('\n')
+        const lastLine = lines[lines.length - 1]?.trim()
+        // 如果最后一行以 "- " 开头，提取它（常见的标题格式）
+        if (lastLine?.startsWith('- ')) {
+          return lastLine.slice(2).trim()
+        }
+        // 否则返回最后一行
+        return lastLine || null
       }
-      // 否则返回最后一行
-      return lastLine || null
     }
 
-    return null
+    return extractTitleFromCommonResponse(responseBody)
   }
 }

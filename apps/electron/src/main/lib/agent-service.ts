@@ -32,7 +32,7 @@ import {
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import {
   getAdapter,
-  fetchTitle,
+  fetchTitleWithDiagnostics,
 } from '@proma/core'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
@@ -47,6 +47,8 @@ import { askUserService } from './agent-ask-user-service'
 import { getWorkspacePermissionMode } from './agent-workspace-manager'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
+import { deriveAgentFallbackTitle, DEFAULT_AGENT_SESSION_TITLE, MAX_AGENT_TITLE_LENGTH, isDefaultAgentTitle } from './agent-title-utils'
+import { sanitizeTitleCandidate } from './title-utils'
 
 /** 活跃的 AbortController 映射（sessionId → controller） */
 const activeControllers = new Map<string, AbortController>()
@@ -1326,30 +1328,91 @@ export async function runAgent(
 const TITLE_PROMPT = '根据用户的第一条消息，生成一个简短的对话标题（10字以内）。只输出标题，不要有任何其他内容、标点符号或引号。\n\n用户消息：'
 
 /** 标题最大长度 */
-const MAX_TITLE_LENGTH = 20
+const MAX_TITLE_LENGTH = MAX_AGENT_TITLE_LENGTH
 
-/** 默认会话标题（用于判断是否需要自动生成） */
-const DEFAULT_SESSION_TITLE = '新 Agent 会话'
+/** 短消息阈值：低于此长度直接使用原文作为标题 */
+const SHORT_MESSAGE_THRESHOLD = 4
+
+type AgentTitleReason =
+  | 'title_generated_remote'
+  | 'title_generated_fallback'
+  | 'title_failed_parse'
+  | 'title_failed_request'
+
+function logAgentTitleEvent(
+  reason: AgentTitleReason,
+  context: {
+    sessionId?: string
+    channelId: string
+    modelId: string
+    provider?: string
+    detail?: string
+    status?: number | null
+    dataPreview?: string
+  },
+): void {
+  console.log('[agent_title_event]', { reason, ...context })
+}
 
 /**
  * 生成 Agent 会话标题
  *
  * 使用 Provider 适配器系统，支持 Anthropic / OpenAI / Google 等所有渠道。
- * 任何错误返回 null，不影响主流程。
+ * 远端失败时回退到本地确定性标题，避免保持默认标题。
  */
 export async function generateAgentTitle(input: AgentGenerateTitleInput): Promise<string | null> {
   const { userMessage, channelId, modelId } = input
   console.log('[Agent 标题生成] 开始生成标题:', { channelId, modelId, userMessage: userMessage.slice(0, 50) })
+  const fallbackTitle = deriveAgentFallbackTitle(userMessage, MAX_TITLE_LENGTH)
+
+  const trimmedMessage = userMessage.trim()
+  if (trimmedMessage.length <= SHORT_MESSAGE_THRESHOLD) {
+    logAgentTitleEvent('title_generated_fallback', {
+      channelId,
+      modelId,
+      detail: 'short_message',
+    })
+    console.log('[Agent 标题生成] 消息过短，直接使用本地兜底标题:', fallbackTitle)
+    return fallbackTitle
+  }
 
   try {
     const channels = listChannels()
     const channel = channels.find((c) => c.id === channelId)
     if (!channel) {
       console.warn('[Agent 标题生成] 渠道不存在:', channelId)
-      return null
+      logAgentTitleEvent('title_failed_request', {
+        channelId,
+        modelId,
+        detail: 'channel_not_found',
+      })
+      logAgentTitleEvent('title_generated_fallback', {
+        channelId,
+        modelId,
+        detail: 'channel_not_found',
+      })
+      return fallbackTitle
     }
 
-    const apiKey = decryptApiKey(channelId)
+    let apiKey: string
+    try {
+      apiKey = decryptApiKey(channelId)
+    } catch {
+      logAgentTitleEvent('title_failed_request', {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'decrypt_api_key_failed',
+      })
+      logAgentTitleEvent('title_generated_fallback', {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'decrypt_api_key_failed',
+      })
+      return fallbackTitle
+    }
+
     const adapter = getAdapter(channel.provider)
     const request = adapter.buildTitleRequest({
       baseUrl: channel.baseUrl,
@@ -1360,20 +1423,68 @@ export async function generateAgentTitle(input: AgentGenerateTitleInput): Promis
 
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
-    const title = await fetchTitle(request, adapter, fetchFn)
-    if (!title) {
-      console.warn('[Agent 标题生成] API 返回空标题')
-      return null
+    const titleResult = await fetchTitleWithDiagnostics(request, adapter, fetchFn)
+    if (!titleResult.title) {
+      const failureReason =
+        titleResult.reason === 'http_non_200'
+          ? 'title_failed_request'
+          : 'title_failed_parse'
+      logAgentTitleEvent(failureReason, {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
+      })
+      logAgentTitleEvent('title_generated_fallback', {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: titleResult.reason,
+        status: titleResult.status,
+        dataPreview: titleResult.dataPreview,
+      })
+      return fallbackTitle
     }
 
-    const cleaned = title.trim().replace(/^["'""''「《]+|["'""''」》]+$/g, '').trim()
-    const result = cleaned.slice(0, MAX_TITLE_LENGTH) || null
+    const result = sanitizeTitleCandidate(titleResult.title, MAX_TITLE_LENGTH)
+    if (!result) {
+      logAgentTitleEvent('title_failed_parse', {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'invalid_remote_title',
+      })
+      logAgentTitleEvent('title_generated_fallback', {
+        channelId,
+        modelId,
+        provider: channel.provider,
+        detail: 'invalid_remote_title',
+      })
+      return fallbackTitle
+    }
 
+    logAgentTitleEvent('title_generated_remote', {
+      channelId,
+      modelId,
+      provider: channel.provider,
+    })
     console.log(`[Agent 标题生成] 生成标题成功: "${result}"`)
     return result
   } catch (error) {
     console.warn('[Agent 标题生成] 生成失败:', error)
-    return null
+    logAgentTitleEvent('title_failed_request', {
+      channelId,
+      modelId,
+      detail: error instanceof Error ? error.message : 'unknown_error',
+    })
+    logAgentTitleEvent('title_generated_fallback', {
+      channelId,
+      modelId,
+      detail: 'remote_request_failed',
+    })
+    return fallbackTitle
   }
 }
 
@@ -1393,7 +1504,7 @@ async function autoGenerateTitle(
 ): Promise<void> {
   try {
     const meta = getAgentSessionMeta(sessionId)
-    if (!meta || meta.title !== DEFAULT_SESSION_TITLE) return
+    if (!meta || !isDefaultAgentTitle(meta.title)) return
 
     const title = await generateAgentTitle({ userMessage, channelId, modelId })
     if (!title) return

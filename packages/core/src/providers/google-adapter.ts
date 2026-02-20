@@ -19,6 +19,7 @@ import type {
   ImageAttachmentData,
 } from './types.ts'
 import { normalizeBaseUrl } from './url-utils.ts'
+import { extractTextFromContentLike, extractTitleFromCommonResponse } from './title-extract.ts'
 
 // ===== Google 特有类型 =====
 
@@ -53,9 +54,11 @@ interface GoogleStreamData {
 
 /** Google 标题响应 */
 interface GoogleTitleResponse {
+  text?: string
   candidates?: Array<{
+    text?: string
     content?: {
-      parts?: Array<{ text?: string }>
+      parts?: Array<{ text?: string; thought?: boolean }>
     }
   }>
 }
@@ -210,6 +213,15 @@ export class GoogleAdapter implements ProviderAdapter {
 
   parseTitleResponse(responseBody: unknown): string | null {
     const data = responseBody as GoogleTitleResponse
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null
+    const fromParts = extractTextFromContentLike(data.candidates?.[0]?.content?.parts)
+    if (fromParts) return fromParts
+
+    const fromCandidate = extractTextFromContentLike(data.candidates?.[0]?.text)
+    if (fromCandidate) return fromCandidate
+
+    const fromRoot = extractTextFromContentLike(data.text)
+    if (fromRoot) return fromRoot
+
+    return extractTitleFromCommonResponse(responseBody)
   }
 }

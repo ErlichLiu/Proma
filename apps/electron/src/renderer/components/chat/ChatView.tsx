@@ -19,6 +19,7 @@ import { ChatHeader } from './ChatHeader'
 import { ChatMessages } from './ChatMessages'
 import { ChatInput } from './ChatInput'
 import type { InlineEditSubmitPayload } from './ChatMessageItem'
+import { decideTitleTrigger } from './title-trigger'
 import {
   currentConversationIdAtom,
   currentConversationAtom,
@@ -49,9 +50,16 @@ import type {
   AttachmentSaveInput,
 } from '@proma/shared'
 
+const DEFAULT_CONVERSATION_TITLE = '新对话'
+
+function logTitleEvent(reason: string, context: Record<string, unknown>): void {
+  console.log('[title_event]', { reason, ...context })
+}
+
 export function ChatView(): React.ReactElement {
   const currentConversationId = useAtomValue(currentConversationIdAtom)
   const currentConversation = useAtomValue(currentConversationAtom)
+  const conversations = useAtomValue(conversationsAtom)
   const [currentMessages, setCurrentMessages] = useAtom(currentMessagesAtom)
   const setStreamingStates = useSetAtom(streamingStatesAtom)
   const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)
@@ -69,6 +77,12 @@ export function ChatView(): React.ReactElement {
 
   // 首条消息标题生成相关 ref（支持多对话并行）
   const pendingTitleRef = React.useRef<Map<string, GenerateTitleInput>>(new Map())
+  const firstTurnTriggeredRef = React.useRef<Set<string>>(new Set())
+  const conversationsRef = React.useRef(conversations)
+
+  React.useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
 
   // 当前对话 ID 的 ref，供 IPC 回调使用（避免闭包捕获旧值）
   const currentConvIdRef = React.useRef(currentConversationId)
@@ -88,6 +102,10 @@ export function ChatView(): React.ReactElement {
       setHasMoreMessages(false)
       return
     }
+
+    // 会话切换后先清空当前列表，避免旧会话消息残留导致首条消息判定错误
+    setCurrentMessages([])
+    setHasMoreMessages(false)
 
     // 仅加载最近 N 条消息，避免大量消息导致渲染卡顿
     window.electronAPI
@@ -175,31 +193,64 @@ export function ChatView(): React.ReactElement {
         }
 
         // 刷新对话列表（updatedAt 已更新）
-        window.electronAPI
+        const refreshConversationsPromise = window.electronAPI
           .listConversations()
-          .then(setConversations)
-          .catch(console.error)
+          .then((list) => {
+            setConversations(list)
+            return list
+          })
+          .catch((error) => {
+            console.error(error)
+            return conversationsRef.current
+          })
 
         // 第一条消息回复完成后，生成对话标题
         const titleInput = pendingTitleRef.current.get(event.conversationId)
         console.log('[ChatView] 流式完成 - conversationId:', event.conversationId, 'titleInput:', titleInput)
         if (titleInput) {
           pendingTitleRef.current.delete(event.conversationId)
+          firstTurnTriggeredRef.current.delete(event.conversationId)
           console.log('[ChatView] 开始生成标题:', titleInput)
           window.electronAPI.generateTitle(titleInput).then((title) => {
             console.log('[ChatView] 标题生成结果:', title)
-            if (!title) return
-            window.electronAPI
-              .updateConversationTitle(event.conversationId, title)
-              .then((updated) => {
-                console.log('[ChatView] 标题更新成功:', updated.title)
-                setConversations((prev) =>
-                  prev.map((c) => (c.id === updated.id ? updated : c))
-                )
+            if (!title) {
+              logTitleEvent('title_not_triggered', {
+                conversationId: event.conversationId,
+                reason: 'empty_generated_title',
+              })
+              return
+            }
+
+            refreshConversationsPromise
+              .then((latestConversations) => {
+                const latest = latestConversations.find((c) => c.id === event.conversationId)
+                if (latest && latest.title !== DEFAULT_CONVERSATION_TITLE) {
+                  logTitleEvent('title_not_triggered', {
+                    conversationId: event.conversationId,
+                    reason: 'title_already_customized',
+                    currentTitle: latest.title,
+                  })
+                  return
+                }
+
+                window.electronAPI
+                  .updateConversationTitle(event.conversationId, title)
+                  .then((updated) => {
+                    console.log('[ChatView] 标题更新成功:', updated.title)
+                    setConversations((prev) =>
+                      prev.map((c) => (c.id === updated.id ? updated : c))
+                    )
+                  })
+                  .catch(console.error)
               })
               .catch(console.error)
           }).catch((error) => {
             console.error('[ChatView] 标题生成失败:', error)
+          })
+        } else {
+          logTitleEvent('title_not_triggered', {
+            conversationId: event.conversationId,
+            reason: 'missing_pending_title_input',
           })
         }
       }
@@ -211,6 +262,16 @@ export function ChatView(): React.ReactElement {
 
         // 清理 Map 中的流式状态
         removeState(event.conversationId)
+
+        // 首轮失败时清理触发态，允许下次发送重新触发自动标题
+        if (pendingTitleRef.current.has(event.conversationId)) {
+          pendingTitleRef.current.delete(event.conversationId)
+          firstTurnTriggeredRef.current.delete(event.conversationId)
+          logTitleEvent('title_not_triggered', {
+            conversationId: event.conversationId,
+            reason: 'stream_error_before_title_generation',
+          })
+        }
 
         // 存储错误消息，供 UI 显示
         setChatStreamErrors((prev) => {
@@ -268,11 +329,13 @@ export function ChatView(): React.ReactElement {
       consumePendingAttachments?: boolean
       messageCountBeforeSend?: number
       contextDividersOverride?: string[]
+      skipAutoTitle?: boolean
     },
   ): Promise<void> => {
     if (!currentConversationId || !selectedModel) return
 
     const consumePending = options?.consumePendingAttachments ?? true
+    const skipAutoTitle = options?.skipAutoTitle ?? false
 
     // 清除当前对话的错误消息
     setChatStreamErrors((prev) => {
@@ -282,17 +345,40 @@ export function ChatView(): React.ReactElement {
       return map
     })
 
-    // 判断是否为第一条消息（发送前历史为空）
-    const messageCountBeforeSend = options?.messageCountBeforeSend ?? currentMessages.length
-    const isFirstMessage = messageCountBeforeSend === 0
-    console.log('[ChatView] 发送消息 - isFirstMessage:', isFirstMessage, 'messageCountBeforeSend:', messageCountBeforeSend, 'conversationId:', currentConversationId)
-    if (isFirstMessage && content) {
+    // 判断是否为第一条消息：优先使用调用方提供值，否则查询持久化消息总数，避免切会话时读到旧状态
+    let messageCountBeforeSend = options?.messageCountBeforeSend
+    if (messageCountBeforeSend === undefined) {
+      try {
+        const recent = await window.electronAPI.getRecentMessages(currentConversationId, 1)
+        messageCountBeforeSend = recent.total
+      } catch (error) {
+        console.warn('[ChatView] 获取消息总数失败，回退到内存计数:', error)
+        messageCountBeforeSend = currentMessages.length
+      }
+    }
+
+    const decision = decideTitleTrigger({
+      skipAutoTitle,
+      messageCountBeforeSend,
+      content,
+      alreadyTriggered: firstTurnTriggeredRef.current.has(currentConversationId),
+    })
+    console.log('[ChatView] 发送消息 - titleDecision:', decision.reason, 'messageCountBeforeSend:', messageCountBeforeSend, 'conversationId:', currentConversationId)
+    if (!decision.shouldQueue) {
+      logTitleEvent('title_not_triggered', {
+        conversationId: currentConversationId,
+        reason: decision.reason,
+        messageCountBeforeSend,
+      })
+    } else {
       console.log('[ChatView] 设置待生成标题:', { conversationId: currentConversationId, userMessage: content.slice(0, 50) })
       pendingTitleRef.current.set(currentConversationId, {
+        conversationId: currentConversationId,
         userMessage: content,
         channelId: selectedModel.channelId,
         modelId: selectedModel.modelId,
       })
+      firstTurnTriggeredRef.current.add(currentConversationId)
     }
 
     let savedAttachments: FileAttachment[] = options?.attachments ?? []
@@ -370,6 +456,14 @@ export function ChatView(): React.ReactElement {
 
     window.electronAPI.sendMessage(input).catch((error) => {
       console.error('[ChatView] 发送消息失败:', error)
+      if (pendingTitleRef.current.has(currentConversationId)) {
+        pendingTitleRef.current.delete(currentConversationId)
+        firstTurnTriggeredRef.current.delete(currentConversationId)
+        logTitleEvent('title_not_triggered', {
+          conversationId: currentConversationId,
+          reason: 'send_message_rejected',
+        })
+      }
       setStreamingStates((prev) => {
         if (!prev.has(currentConversationId)) return prev
         const map = new Map(prev)
@@ -486,6 +580,7 @@ export function ChatView(): React.ReactElement {
         consumePendingAttachments: false,
         messageCountBeforeSend: truncated.messageCountBeforeSend,
         contextDividersOverride: truncated.contextDividersAfterTruncate,
+        skipAutoTitle: true,
       })
     } catch (error) {
       console.error('[ChatView] 重新发送失败:', error)
@@ -539,6 +634,7 @@ export function ChatView(): React.ReactElement {
         consumePendingAttachments: false,
         messageCountBeforeSend: truncated.messageCountBeforeSend,
         contextDividersOverride: truncated.contextDividersAfterTruncate,
+        skipAutoTitle: true,
       })
       setInlineEditingMessageId(null)
     } catch (error) {
