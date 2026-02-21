@@ -10,10 +10,9 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, Brain } from 'lucide-react'
+import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Input } from '@/components/ui/input'
 import {
   agentWorkspacesAtom,
   currentAgentWorkspaceIdAtom,
@@ -26,7 +25,7 @@ import {
 } from '@/atoms/agent-atoms'
 import { activeViewAtom } from '@/atoms/active-view'
 import { appModeAtom } from '@/atoms/app-mode'
-import type { McpServerEntry, SkillMeta, WorkspaceMcpConfig, MemoryConfig } from '@proma/shared'
+import type { McpServerEntry, SkillMeta, WorkspaceMcpConfig } from '@proma/shared'
 import { SettingsSection, SettingsCard, SettingsRow } from './primitives'
 import { McpServerForm } from './McpServerForm'
 
@@ -64,10 +63,6 @@ export function AgentSettings(): React.ReactElement {
   const [skills, setSkills] = React.useState<SkillMeta[]>([])
   const [loading, setLoading] = React.useState(true)
 
-  // 记忆配置
-  const [memoryConfig, setMemoryConfig] = React.useState<MemoryConfig>({ enabled: false, apiKey: '', userId: '' })
-  const [memorySaving, setMemorySaving] = React.useState(false)
-
   /** 加载 MCP 配置和 Skills */
   const loadData = React.useCallback(async () => {
     if (!workspaceSlug) {
@@ -76,14 +71,12 @@ export function AgentSettings(): React.ReactElement {
     }
 
     try {
-      const [config, skillList, memConfig] = await Promise.all([
+      const [config, skillList] = await Promise.all([
         window.electronAPI.getWorkspaceMcpConfig(workspaceSlug),
         window.electronAPI.getWorkspaceSkills(workspaceSlug),
-        window.electronAPI.getMemoryConfig(workspaceSlug),
       ])
       setMcpConfig(config)
       setSkills(skillList)
-      setMemoryConfig(memConfig)
     } catch (error) {
       console.error('[Agent 设置] 加载工作区配置失败:', error)
     } finally {
@@ -277,20 +270,6 @@ ${skillList}
     setEditingServer(null)
   }
 
-  /** 保存记忆配置 */
-  const handleMemorySave = async (updated: MemoryConfig): Promise<void> => {
-    setMemorySaving(true)
-    try {
-      await window.electronAPI.setMemoryConfig(workspaceSlug, updated)
-      setMemoryConfig(updated)
-      bumpCapabilitiesVersion((v) => v + 1)
-    } catch (error) {
-      console.error('[Agent 设置] 保存记忆配置失败:', error)
-    } finally {
-      setMemorySaving(false)
-    }
-  }
-
   // 表单视图
   if (viewMode === 'create' || viewMode === 'edit') {
     return (
@@ -404,13 +383,6 @@ ${skillList}
           <span>跟 Proma Agent 对话完成配置</span>
         </Button>
       </SettingsSection>
-
-      {/* 区块三：记忆 */}
-      <MemorySection
-        config={memoryConfig}
-        saving={memorySaving}
-        onSave={handleMemorySave}
-      />
     </div>
   )
 }
@@ -474,72 +446,5 @@ function McpServerRow({ name, entry, onEdit, onDelete, onToggle }: McpServerRowP
         />
       </div>
     </SettingsRow>
-  )
-}
-
-// ===== 记忆设置子组件 =====
-
-interface MemorySectionProps {
-  config: MemoryConfig
-  saving: boolean
-  onSave: (config: MemoryConfig) => void
-}
-
-function MemorySection({ config, saving, onSave }: MemorySectionProps): React.ReactElement {
-  const [apiKey, setApiKey] = React.useState(config.apiKey)
-  const [userId, setUserId] = React.useState(config.userId)
-
-  // 外部 config 变化时同步本地状态
-  React.useEffect(() => {
-    setApiKey(config.apiKey)
-    setUserId(config.userId)
-  }, [config.apiKey, config.userId])
-
-  const dirty = apiKey !== config.apiKey || userId !== config.userId
-
-  return (
-    <SettingsSection
-      title="记忆"
-      description="启用后 Agent 可跨会话记住重要信息"
-      action={
-        <Switch
-          checked={config.enabled}
-          onCheckedChange={(checked) => onSave({ ...config, apiKey, userId, enabled: checked })}
-          disabled={saving}
-        />
-      }
-    >
-      <SettingsCard divided={false}>
-        <div className="space-y-4 p-4">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">API Key</label>
-            <Input
-              type="password"
-              placeholder="memos API Key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">User ID</label>
-            <Input
-              placeholder="proma-user"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">用于隔离不同用户的记忆数据</p>
-          </div>
-          {dirty && (
-            <Button
-              size="sm"
-              disabled={saving}
-              onClick={() => onSave({ ...config, apiKey, userId })}
-            >
-              {saving ? '保存中...' : '保存'}
-            </Button>
-          )}
-        </div>
-      </SettingsCard>
-    </SettingsSection>
   )
 }

@@ -890,7 +890,7 @@ export async function runAgent(
         try {
           const { z } = await import('zod')
           const memosServer = sdk.createSdkMcpServer({
-            name: 'memos-builtin',
+            name: 'mem',
             version: '1.0.0',
             tools: [
               sdk.tool(
@@ -926,8 +926,8 @@ export async function runAgent(
               ),
             ],
           })
-          mcpServers['memos-builtin'] = memosServer as unknown as Record<string, unknown>
-          console.log(`[Agent 服务] 已注入内置记忆工具 (memos-builtin)`)
+          mcpServers['mem'] = memosServer as unknown as Record<string, unknown>
+          console.log(`[Agent 服务] 已注入内置记忆工具 (mem)`)
         } catch (err) {
           console.error(`[Agent 服务] 注入记忆工具失败:`, err)
         }
