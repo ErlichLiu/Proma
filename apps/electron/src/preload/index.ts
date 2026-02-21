@@ -60,6 +60,7 @@ import type {
   SystemPrompt,
   SystemPromptCreateInput,
   SystemPromptUpdateInput,
+  MemoryConfig,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 
@@ -322,6 +323,12 @@ export interface ElectronAPI {
 
   /** 设置工作区权限模式 */
   setPermissionMode: (workspaceSlug: string, mode: PromaPermissionMode) => Promise<void>
+
+  /** 获取工作区记忆配置 */
+  getMemoryConfig: (workspaceSlug: string) => Promise<MemoryConfig>
+
+  /** 保存工作区记忆配置 */
+  setMemoryConfig: (workspaceSlug: string, config: MemoryConfig) => Promise<void>
 
   /** 订阅权限请求事件（返回清理函数） */
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => () => void
@@ -745,6 +752,14 @@ const electronAPI: ElectronAPI = {
 
   setPermissionMode: (workspaceSlug: string, mode: PromaPermissionMode) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SET_PERMISSION_MODE, workspaceSlug, mode)
+  },
+
+  getMemoryConfig: (workspaceSlug: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_MEMORY_CONFIG, workspaceSlug)
+  },
+
+  setMemoryConfig: (workspaceSlug: string, config: MemoryConfig) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SET_MEMORY_CONFIG, workspaceSlug, config)
   },
 
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => {

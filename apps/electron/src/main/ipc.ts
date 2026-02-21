@@ -51,6 +51,7 @@ import type {
   SystemPrompt,
   SystemPromptCreateInput,
   SystemPromptUpdateInput,
+  MemoryConfig,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus } from './lib/runtime-init'
@@ -114,6 +115,8 @@ import {
   deleteWorkspaceSkill,
   getWorkspacePermissionMode,
   setWorkspacePermissionMode,
+  getWorkspaceMemoryConfig,
+  setWorkspaceMemoryConfig,
 } from './lib/agent-workspace-manager'
 import {
   getSystemPromptConfig,
@@ -746,6 +749,22 @@ export function registerIpcHandlers(): void {
         throw new Error(`无效的权限模式: ${mode}`)
       }
       setWorkspacePermissionMode(workspaceSlug, mode)
+    }
+  )
+
+  // 获取工作区记忆配置
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.GET_MEMORY_CONFIG,
+    async (_, workspaceSlug: string): Promise<MemoryConfig> => {
+      return getWorkspaceMemoryConfig(workspaceSlug)
+    }
+  )
+
+  // 保存工作区记忆配置
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.SET_MEMORY_CONFIG,
+    async (_, workspaceSlug: string, config: MemoryConfig): Promise<void> => {
+      setWorkspaceMemoryConfig(workspaceSlug, config)
     }
   )
 

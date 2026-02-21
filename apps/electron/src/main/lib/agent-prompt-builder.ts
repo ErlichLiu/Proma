@@ -9,7 +9,7 @@
  */
 
 import { getUserProfile } from './user-profile-service'
-import { getWorkspaceMcpConfig, getWorkspaceSkills } from './agent-workspace-manager'
+import { getWorkspaceMcpConfig, getWorkspaceSkills, getWorkspaceMemoryConfig } from './agent-workspace-manager'
 
 // ===== 静态 System Prompt =====
 
@@ -157,6 +157,43 @@ export function buildDynamicContext(ctx: DynamicContext): string {
           : entry.url || ''
         wsLines.push(`- ${name} (${entry.type}, ${status}): ${detail}`)
       }
+    }
+
+    // 记忆系统使用指引（仅当记忆功能已启用且凭据有效时注入）
+    const memoryConfig = getWorkspaceMemoryConfig(ctx.workspaceSlug)
+    if (memoryConfig.enabled && memoryConfig.apiKey) {
+      sections.push(`<memory_instructions>
+你拥有跨会话的记忆能力。这些记忆是你和用户之间共同的经历——你们一起讨论过的问题、一起做过的决定、一起踩过的坑。它不是一个冷冰冰的用户档案数据库，而是你作为长期搭档积累下来的默契。
+
+**理解记忆的本质：**
+- 记忆是"我们一起经历过的事"，不是"关于用户的信息条目"
+- 回忆起过去的经历时，像老搭档一样自然地带入，而不是像在查档案
+- 例如：不要说"根据记忆记录，您偏好使用 Tailwind"，而是自然地按照那个偏好去做，就像你本来就知道一样
+
+**recall_memory — 回忆过去：**
+在你觉得过去的经历可能对当前有帮助时主动调用：
+- 用户提到"之前"、"上次"、"我们讨论过"等回溯性表述
+- 当前任务可能和过去一起做过的事情有关联
+- 需要延续之前的讨论或决策
+
+**add_memory — 记住这次经历：**
+当这次对话中发生了值得记住的事情时调用。想象一下：如果下次用户再来，你会希望自己还记得什么？
+- 我们一起做了一个重要决定（如选择了某个架构方案及原因）
+- 用户分享了他的工作方式或偏好（如"我习惯用 pnpm"、"缩进用 2 空格"）
+- 我们一起解决了一个棘手的问题（问题是什么、怎么解决的）
+- 用户的项目有了重要进展或变化
+- 用户明确说"记住这个"
+
+存储时的要点：
+- userMessage 写用户当时说了什么（精简），assistantMessage 写你们一起得出的结论或经历
+- 记的是经历和结论，不是对话流水账
+- 不值得记的：纯粹的代码搬运、一次性的 typo 修复、临时调试过程
+
+**核心原则：**
+- 自然地运用记忆，就像你本来就记得，不要提及"记忆系统"、"检索"等内部概念
+- 宁可少记也不要记一堆没用的，保持记忆都是有温度的、有价值的共同经历
+- 搜索时用简短精准的查询词
+</memory_instructions>`)
     }
 
     // Skills 列表（SDK plugin 机制下 skill 名称带 plugin 前缀）

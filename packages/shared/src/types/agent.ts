@@ -4,6 +4,20 @@
  * 包含 Agent SDK 集成所需的事件类型、会话管理、消息持久化和 IPC 通道常量。
  */
 
+// ===== 记忆配置 =====
+
+/** 工作区记忆配置（MemOS Cloud） */
+export interface MemoryConfig {
+  /** 是否启用记忆功能 */
+  enabled: boolean
+  /** MemOS Cloud API Key */
+  apiKey: string
+  /** 用户标识 */
+  userId: string
+  /** 自定义 API 地址（可选，默认 MemOS Cloud） */
+  baseUrl?: string
+}
+
 // ===== Agent 工作区 =====
 
 /** Agent 工作区 */
@@ -249,6 +263,8 @@ export interface McpServerEntry {
   headers?: Record<string, string>
   /** 是否启用 */
   enabled: boolean
+  /** 是否为内置 MCP（不可删除，仅可配置 env） */
+  isBuiltin?: boolean
   /** 最后一次测试结果 */
   lastTestResult?: {
     success: boolean
@@ -590,4 +606,10 @@ export const AGENT_IPC_CHANNELS = {
   ASK_USER_REQUEST: 'agent:ask-user:request',
   /** AskUser 响应（渲染进程 → 主进程） */
   ASK_USER_RESPOND: 'agent:ask-user:respond',
+
+  // 记忆配置
+  /** 获取记忆配置（渲染进程 → 主进程） */
+  GET_MEMORY_CONFIG: 'agent:get-memory-config',
+  /** 保存记忆配置（渲染进程 → 主进程） */
+  SET_MEMORY_CONFIG: 'agent:set-memory-config',
 } as const

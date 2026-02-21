@@ -18,7 +18,7 @@ import {
   getWorkspaceSkillsDir,
   getDefaultSkillsDir,
 } from './config-paths'
-import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, WorkspaceCapabilities, PromaPermissionMode } from '@proma/shared'
+import type { AgentWorkspace, McpServerEntry, WorkspaceMcpConfig, SkillMeta, WorkspaceCapabilities, PromaPermissionMode, MemoryConfig } from '@proma/shared'
 
 /**
  * 工作区索引文件格式
@@ -216,37 +216,37 @@ export function deleteAgentWorkspace(id: string): void {
  */
 export function ensureDefaultWorkspace(): AgentWorkspace {
   const index = readIndex()
-  const existing = index.workspaces.find((w) => w.slug === 'default')
+  let defaultWs = index.workspaces.find((w) => w.slug === 'default')
 
-  if (existing) {
+  if (!defaultWs) {
+    const now = Date.now()
+    defaultWs = {
+      id: randomUUID(),
+      name: '默认工作区',
+      slug: 'default',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // 创建工作区目录
+    getAgentWorkspacePath('default')
+
+    // 创建 SDK plugin manifest
+    ensurePluginManifest('default', '默认工作区')
+
+    // 复制默认 Skills 模板
+    copyDefaultSkills('default')
+
+    index.workspaces.push(defaultWs)
+    writeIndex(index)
+
+    console.log('[Agent 工作区] 已创建默认工作区')
+  } else {
     // 迁移兼容：确保已有默认工作区包含 plugin manifest 和 skills
-    ensurePluginManifest(existing.slug, existing.name)
-    return existing
+    ensurePluginManifest(defaultWs.slug, defaultWs.name)
   }
 
-  const now = Date.now()
-  const workspace: AgentWorkspace = {
-    id: randomUUID(),
-    name: '默认工作区',
-    slug: 'default',
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  // 创建工作区目录
-  getAgentWorkspacePath('default')
-
-  // 创建 SDK plugin manifest
-  ensurePluginManifest('default', '默认工作区')
-
-  // 复制默认 Skills 模板
-  copyDefaultSkills('default')
-
-  index.workspaces.push(workspace)
-  writeIndex(index)
-
-  console.log('[Agent 工作区] 已创建默认工作区')
-  return workspace
+  return defaultWs
 }
 
 // ===== Plugin Manifest（SDK 插件发现） =====
@@ -417,6 +417,7 @@ export function deleteWorkspaceSkill(workspaceSlug: string, skillSlug: string): 
 /** 工作区配置文件格式 */
 interface WorkspaceConfig {
   permissionMode?: PromaPermissionMode
+  memory?: MemoryConfig
 }
 
 /**
@@ -470,4 +471,73 @@ export function setWorkspacePermissionMode(workspaceSlug: string, mode: PromaPer
   const updated: WorkspaceConfig = { ...config, permissionMode: mode }
   writeWorkspaceConfig(workspaceSlug, updated)
   console.log(`[Agent 工作区] 权限模式已更新: ${workspaceSlug} → ${mode}`)
+}
+
+// ===== 记忆配置管理 =====
+
+/** 默认记忆配置 */
+const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
+  enabled: false,
+  apiKey: '',
+  userId: '',
+}
+
+/**
+ * 获取工作区记忆配置
+ *
+ * 首次读取时，如果 mcp.json 中存在 memos-cloud 凭据，自动迁移到 config.json。
+ */
+export function getWorkspaceMemoryConfig(workspaceSlug: string): MemoryConfig {
+  const config = readWorkspaceConfig(workspaceSlug)
+
+  // 已有记忆配置，直接返回
+  if (config.memory) {
+    return config.memory
+  }
+
+  // 尝试从 mcp.json 中的 memos-cloud 迁移
+  const migrated = migrateMemoryFromMcp(workspaceSlug)
+  if (migrated) {
+    const updated: WorkspaceConfig = { ...config, memory: migrated }
+    writeWorkspaceConfig(workspaceSlug, updated)
+    console.log(`[Agent 工作区] 已从 MCP 配置迁移记忆设置: ${workspaceSlug}`)
+    return migrated
+  }
+
+  return { ...DEFAULT_MEMORY_CONFIG }
+}
+
+/**
+ * 保存工作区记忆配置
+ */
+export function setWorkspaceMemoryConfig(workspaceSlug: string, memory: MemoryConfig): void {
+  const config = readWorkspaceConfig(workspaceSlug)
+  const updated: WorkspaceConfig = { ...config, memory }
+  writeWorkspaceConfig(workspaceSlug, updated)
+  console.log(`[Agent 工作区] 记忆配置已更新: ${workspaceSlug} (enabled: ${memory.enabled})`)
+}
+
+/**
+ * 从 mcp.json 的 memos-cloud 条目迁移凭据到独立记忆配置
+ *
+ * 仅在 memos-cloud 存在且有非空 API Key 时迁移。
+ */
+function migrateMemoryFromMcp(workspaceSlug: string): MemoryConfig | null {
+  try {
+    const mcpConfig = getWorkspaceMcpConfig(workspaceSlug)
+    const memosEntry = mcpConfig.servers['memos-cloud']
+    if (!memosEntry?.env) return null
+
+    const apiKey = memosEntry.env.MEMOS_API_KEY || memosEntry.env.MEMOS_API_KEY?.trim()
+    if (!apiKey) return null
+
+    return {
+      enabled: memosEntry.enabled ?? false,
+      apiKey,
+      userId: memosEntry.env.MEMOS_USER_ID || 'proma-user',
+      baseUrl: memosEntry.env.MEMOS_BASE_URL || undefined,
+    }
+  } catch {
+    return null
+  }
 }
