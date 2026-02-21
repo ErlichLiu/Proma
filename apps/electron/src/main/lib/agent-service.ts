@@ -885,6 +885,7 @@ export async function runAgent(
 
       // 8.1 注入 SDK 内置记忆工具（替代 memos-cloud MCP 进程）
       const memoryConfig = getWorkspaceMemoryConfig(workspaceSlug)
+      const memUserId = memoryConfig.userId?.trim() || 'proma-user'
       if (memoryConfig.enabled && memoryConfig.apiKey) {
         try {
           const { z } = await import('zod')
@@ -898,7 +899,7 @@ export async function runAgent(
                 { query: z.string().describe('Search query for memory retrieval'), limit: z.number().optional().describe('Max results (default 6)') },
                 async (args) => {
                   const result = await searchMemory(
-                    { apiKey: memoryConfig.apiKey, userId: memoryConfig.userId, baseUrl: memoryConfig.baseUrl },
+                    { apiKey: memoryConfig.apiKey, userId: memUserId, baseUrl: memoryConfig.baseUrl },
                     args.query,
                     args.limit,
                   )
@@ -917,7 +918,7 @@ export async function runAgent(
                 },
                 async (args) => {
                   await addMemory(
-                    { apiKey: memoryConfig.apiKey, userId: memoryConfig.userId, baseUrl: memoryConfig.baseUrl },
+                    { apiKey: memoryConfig.apiKey, userId: memUserId, baseUrl: memoryConfig.baseUrl },
                     args,
                   )
                   return { content: [{ type: 'text' as const, text: 'Memory stored successfully.' }] }

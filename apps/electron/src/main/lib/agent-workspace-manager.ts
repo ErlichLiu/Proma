@@ -528,7 +528,7 @@ function migrateMemoryFromMcp(workspaceSlug: string): MemoryConfig | null {
     const memosEntry = mcpConfig.servers['memos-cloud']
     if (!memosEntry?.env) return null
 
-    const apiKey = memosEntry.env.MEMOS_API_KEY || memosEntry.env.MEMOS_API_KEY?.trim()
+    const apiKey = memosEntry.env.MEMOS_API_KEY?.trim()
     if (!apiKey) return null
 
     return {

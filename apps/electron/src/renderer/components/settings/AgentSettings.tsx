@@ -303,7 +303,9 @@ ${skillList}
     )
   }
 
-  const serverEntries = Object.entries(mcpConfig.servers ?? {})
+  const serverEntries = Object.entries(mcpConfig.servers ?? {}).filter(
+    ([name]) => name !== 'memos-cloud', // 记忆功能已迁移到独立配置，隐藏旧 MCP 条目
+  )
 
   // 列表视图
   return (
