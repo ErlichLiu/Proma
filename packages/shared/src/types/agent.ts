@@ -6,7 +6,7 @@
 
 // ===== 记忆配置 =====
 
-/** 工作区记忆配置（MemOS Cloud） */
+/** 全局记忆配置（MemOS Cloud） */
 export interface MemoryConfig {
   /** 是否启用记忆功能 */
   enabled: boolean
@@ -17,6 +17,16 @@ export interface MemoryConfig {
   /** 自定义 API 地址（可选，默认 MemOS Cloud） */
   baseUrl?: string
 }
+
+/**
+ * 全局记忆配置 IPC 通道常量
+ */
+export const MEMORY_IPC_CHANNELS = {
+  /** 获取全局记忆配置 */
+  GET_CONFIG: 'memory:get-config',
+  /** 保存全局记忆配置 */
+  SET_CONFIG: 'memory:set-config',
+} as const
 
 // ===== Agent 工作区 =====
 
@@ -606,10 +616,4 @@ export const AGENT_IPC_CHANNELS = {
   ASK_USER_REQUEST: 'agent:ask-user:request',
   /** AskUser 响应（渲染进程 → 主进程） */
   ASK_USER_RESPOND: 'agent:ask-user:respond',
-
-  // 记忆配置
-  /** 获取记忆配置（渲染进程 → 主进程） */
-  GET_MEMORY_CONFIG: 'agent:get-memory-config',
-  /** 保存记忆配置（渲染进程 → 主进程） */
-  SET_MEMORY_CONFIG: 'agent:set-memory-config',
 } as const

@@ -5,7 +5,7 @@
  */
 
 import { ipcMain, nativeTheme, shell, dialog, BrowserWindow } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -115,9 +115,8 @@ import {
   deleteWorkspaceSkill,
   getWorkspacePermissionMode,
   setWorkspacePermissionMode,
-  getWorkspaceMemoryConfig,
-  setWorkspaceMemoryConfig,
 } from './lib/agent-workspace-manager'
+import { getMemoryConfig, setMemoryConfig } from './lib/memory-service'
 import {
   getSystemPromptConfig,
   createSystemPrompt,
@@ -752,19 +751,18 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  // 获取工作区记忆配置
+  // 全局记忆配置
   ipcMain.handle(
-    AGENT_IPC_CHANNELS.GET_MEMORY_CONFIG,
-    async (_, workspaceSlug: string): Promise<MemoryConfig> => {
-      return getWorkspaceMemoryConfig(workspaceSlug)
+    MEMORY_IPC_CHANNELS.GET_CONFIG,
+    async (): Promise<MemoryConfig> => {
+      return getMemoryConfig()
     }
   )
 
-  // 保存工作区记忆配置
   ipcMain.handle(
-    AGENT_IPC_CHANNELS.SET_MEMORY_CONFIG,
-    async (_, workspaceSlug: string, config: MemoryConfig): Promise<void> => {
-      setWorkspaceMemoryConfig(workspaceSlug, config)
+    MEMORY_IPC_CHANNELS.SET_CONFIG,
+    async (_, config: MemoryConfig): Promise<void> => {
+      setMemoryConfig(config)
     }
   )
 

@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -25,6 +25,7 @@ import type {
   StreamReasoningEvent,
   StreamCompleteEvent,
   StreamErrorEvent,
+  StreamToolActivityEvent,
   AttachmentSaveInput,
   AttachmentSaveResult,
   FileDialogResult,
@@ -324,11 +325,11 @@ export interface ElectronAPI {
   /** 设置工作区权限模式 */
   setPermissionMode: (workspaceSlug: string, mode: PromaPermissionMode) => Promise<void>
 
-  /** 获取工作区记忆配置 */
-  getMemoryConfig: (workspaceSlug: string) => Promise<MemoryConfig>
+  /** 获取全局记忆配置 */
+  getMemoryConfig: () => Promise<MemoryConfig>
 
-  /** 保存工作区记忆配置 */
-  setMemoryConfig: (workspaceSlug: string, config: MemoryConfig) => Promise<void>
+  /** 保存全局记忆配置 */
+  setMemoryConfig: (config: MemoryConfig) => Promise<void>
 
   /** 订阅权限请求事件（返回清理函数） */
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => () => void
@@ -632,6 +633,12 @@ const electronAPI: ElectronAPI = {
     return () => { ipcRenderer.removeListener(CHAT_IPC_CHANNELS.STREAM_ERROR, listener) }
   },
 
+  onStreamToolActivity: (callback: (event: StreamToolActivityEvent) => void) => {
+    const listener = (_: unknown, event: StreamToolActivityEvent): void => callback(event)
+    ipcRenderer.on(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, listener)
+    return () => { ipcRenderer.removeListener(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, listener) }
+  },
+
   // Agent 会话管理
   listAgentSessions: () => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_SESSIONS)
@@ -754,12 +761,12 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SET_PERMISSION_MODE, workspaceSlug, mode)
   },
 
-  getMemoryConfig: (workspaceSlug: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_MEMORY_CONFIG, workspaceSlug)
+  getMemoryConfig: () => {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.GET_CONFIG)
   },
 
-  setMemoryConfig: (workspaceSlug: string, config: MemoryConfig) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SET_MEMORY_CONFIG, workspaceSlug, config)
+  setMemoryConfig: (config: MemoryConfig) => {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.SET_CONFIG, config)
   },
 
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => {

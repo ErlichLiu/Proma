@@ -78,12 +78,12 @@ export function SettingsPanel(): React.ReactElement {
   const hasUpdate = useAtomValue(hasUpdateAtom)
   const hasEnvironmentIssues = useAtomValue(hasEnvironmentIssuesAtom)
 
-  // Agent 模式时在渠道后插入 Agent Tab
+  // Agent 模式时在渠道后插入 Agent Tab，记忆 tab 两种模式都显示
   const tabs = React.useMemo(() => {
     if (appMode === 'agent') {
       return [...BASE_TABS, AGENT_TAB, MEMORY_TAB, ...TAIL_TABS]
     }
-    return [...BASE_TABS, ...TAIL_TABS]
+    return [...BASE_TABS, MEMORY_TAB, ...TAIL_TABS]
   }, [appMode])
 
   return (

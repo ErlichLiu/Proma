@@ -9,7 +9,8 @@
  */
 
 import { getUserProfile } from './user-profile-service'
-import { getWorkspaceMcpConfig, getWorkspaceSkills, getWorkspaceMemoryConfig } from './agent-workspace-manager'
+import { getWorkspaceMcpConfig, getWorkspaceSkills } from './agent-workspace-manager'
+import { getMemoryConfig } from './memory-service'
 
 // ===== 静态 System Prompt =====
 
@@ -159,11 +160,33 @@ export function buildDynamicContext(ctx: DynamicContext): string {
       }
     }
 
-    // 记忆系统使用指引（仅当记忆功能已启用且凭据有效时注入）
-    const memoryConfig = getWorkspaceMemoryConfig(ctx.workspaceSlug)
-    if (memoryConfig.enabled && memoryConfig.apiKey) {
-      sections.push(`<memory_instructions>
+    // Skills 列表（SDK plugin 机制下 skill 名称带 plugin 前缀）
+    const skills = getWorkspaceSkills(ctx.workspaceSlug)
+    if (skills.length > 0) {
+      const pluginPrefix = `proma-workspace-${ctx.workspaceSlug}`
+      wsLines.push(`Skills（调用 Skill 工具时必须使用含前缀的完整名称，如 ${pluginPrefix}:skill-name，不可省略前缀）:`)
+      for (const skill of skills) {
+        const qualifiedName = `${pluginPrefix}:${skill.slug}`
+        const desc = skill.description ? `: ${skill.description}` : ''
+        wsLines.push(`- ${qualifiedName}${desc}`)
+      }
+    }
+
+    if (wsLines.length > 0) {
+      sections.push(`<workspace_state>\n${wsLines.join('\n')}\n</workspace_state>`)
+    }
+  }
+
+  // 记忆系统使用指引（全局，不依赖工作区）
+  const memoryConfig = getMemoryConfig()
+  if (memoryConfig.enabled && memoryConfig.apiKey) {
+    sections.push(`<memory_instructions>
 你拥有跨会话的记忆能力。这些记忆是你和用户之间共同的经历——你们一起讨论过的问题、一起做过的决定、一起踩过的坑。它不是一个冷冰冰的用户档案数据库，而是你作为长期搭档积累下来的默契。
+
+**重要：记忆工具是 MCP 工具，不是文件操作！**
+- 存储和回忆记忆必须通过 mcp__mem__recall_memory 和 mcp__mem__add_memory 工具调用
+- 绝对不要把记忆写入 MEMORY.md 或任何本地文件来替代记忆工具
+- 这两个工具连接的是云端记忆服务，能真正跨会话持久化
 
 **理解记忆的本质：**
 - 记忆是"我们一起经历过的事"，不是"关于用户的信息条目"
@@ -194,23 +217,6 @@ export function buildDynamicContext(ctx: DynamicContext): string {
 - 宁可少记也不要记一堆没用的，保持记忆都是有温度的、有价值的共同经历
 - 搜索时用简短精准的查询词
 </memory_instructions>`)
-    }
-
-    // Skills 列表（SDK plugin 机制下 skill 名称带 plugin 前缀）
-    const skills = getWorkspaceSkills(ctx.workspaceSlug)
-    if (skills.length > 0) {
-      const pluginPrefix = `proma-workspace-${ctx.workspaceSlug}`
-      wsLines.push(`Skills（调用 Skill 工具时必须使用含前缀的完整名称，如 ${pluginPrefix}:skill-name，不可省略前缀）:`)
-      for (const skill of skills) {
-        const qualifiedName = `${pluginPrefix}:${skill.slug}`
-        const desc = skill.description ? `: ${skill.description}` : ''
-        wsLines.push(`- ${qualifiedName}${desc}`)
-      }
-    }
-
-    if (wsLines.length > 0) {
-      sections.push(`<workspace_state>\n${wsLines.join('\n')}\n</workspace_state>`)
-    }
   }
 
   // 工作目录
