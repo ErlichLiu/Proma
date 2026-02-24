@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import { ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,10 @@ export function MemorySettings(): React.ReactElement {
   // 本地编辑状态
   const [apiKey, setApiKey] = React.useState('')
   const [showApiKey, setShowApiKey] = React.useState(false)
+
+  // 连接测试状态
+  const [testing, setTesting] = React.useState(false)
+  const [testResult, setTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
 
   // 加载全局配置
   React.useEffect(() => {
@@ -43,6 +47,23 @@ export function MemorySettings(): React.ReactElement {
       console.error('[记忆设置] 保存失败:', error)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleTest = async (): Promise<void> => {
+    // 如果有未保存的 API Key，先保存再测试
+    if (apiKey !== config.apiKey) {
+      await handleSave({ ...config, apiKey })
+    }
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.electronAPI.testMemoryConnection()
+      setTestResult(result)
+    } catch (error) {
+      setTestResult({ success: false, message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -69,7 +90,7 @@ export function MemorySettings(): React.ReactElement {
           <div className="space-y-4 p-4">
             {/* 引导说明 */}
             <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm text-muted-foreground">
-              <p>记忆功能由 <span className="font-medium text-foreground">MemOS Cloud</span> 提供，启用后能跨会话记住你的偏好、决策和项目上下文。</p>
+              <p>记忆功能由 <span className="font-medium text-foreground">MemOS Cloud</span> 提供，启用后能跨会话记住你的偏好、决策和项目上下文。免费用户每月提供 5 万次添加记忆，2 万次查询记忆，对于绝大部分用户均足够。</p>
               <p className="text-xs">配置步骤：</p>
               <ol className="text-xs list-decimal list-inside space-y-1">
                 <li>
@@ -91,7 +112,17 @@ export function MemorySettings(): React.ReactElement {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">API Key</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">API Key</label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={testing || !apiKey}
+                  onClick={handleTest}
+                >
+                  {testing ? <><Loader2 size={14} className="animate-spin mr-1.5" />测试中...</> : '测试连接'}
+                </Button>
+              </div>
               <div className="relative">
                 <Input
                   type={showApiKey ? 'text' : 'password'}
@@ -110,6 +141,7 @@ export function MemorySettings(): React.ReactElement {
                 </button>
               </div>
             </div>
+
             {dirty && (
               <Button
                 size="sm"
@@ -118,6 +150,13 @@ export function MemorySettings(): React.ReactElement {
               >
                 {saving ? '保存中...' : '保存'}
               </Button>
+            )}
+
+            {testResult && (
+              <div className={`flex items-start gap-2 rounded-lg p-3 text-sm ${testResult.success ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-destructive/10 text-destructive'}`}>
+                {testResult.success ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <XCircle size={16} className="mt-0.5 shrink-0" />}
+                <span>{testResult.message}</span>
+              </div>
             )}
           </div>
         </SettingsCard>

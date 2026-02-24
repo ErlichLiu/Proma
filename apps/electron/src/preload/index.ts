@@ -331,6 +331,9 @@ export interface ElectronAPI {
   /** 保存全局记忆配置 */
   setMemoryConfig: (config: MemoryConfig) => Promise<void>
 
+  /** 测试记忆连接 */
+  testMemoryConnection: () => Promise<{ success: boolean; message: string }>
+
   /** 订阅权限请求事件（返回清理函数） */
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => () => void
 
@@ -767,6 +770,10 @@ const electronAPI: ElectronAPI = {
 
   setMemoryConfig: (config: MemoryConfig) => {
     return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.SET_CONFIG, config)
+  },
+
+  testMemoryConnection: () => {
+    return ipcRenderer.invoke(MEMORY_IPC_CHANNELS.TEST_CONNECTION)
   },
 
   onPermissionRequest: (callback: (data: { sessionId: string; request: PermissionRequest }) => void) => {

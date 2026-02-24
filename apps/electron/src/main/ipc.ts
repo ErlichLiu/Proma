@@ -766,6 +766,28 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    MEMORY_IPC_CHANNELS.TEST_CONNECTION,
+    async (): Promise<{ success: boolean; message: string }> => {
+      const config = getMemoryConfig()
+      if (!config.apiKey) {
+        return { success: false, message: '请先填写 API Key' }
+      }
+      try {
+        const { searchMemory } = await import('./lib/memos-client')
+        const result = await searchMemory(
+          { apiKey: config.apiKey, userId: config.userId?.trim() || 'proma-user', baseUrl: config.baseUrl },
+          'test connection',
+          1,
+        )
+        return { success: true, message: `连接成功，已检索到 ${result.facts.length} 条事实、${result.preferences.length} 条偏好` }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        return { success: false, message: `连接失败: ${msg}` }
+      }
+    }
+  )
+
   // ===== AskUserQuestion 交互式问答 =====
 
   // 响应 AskUser 请求

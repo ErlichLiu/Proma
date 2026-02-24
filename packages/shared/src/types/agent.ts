@@ -26,6 +26,8 @@ export const MEMORY_IPC_CHANNELS = {
   GET_CONFIG: 'memory:get-config',
   /** 保存全局记忆配置 */
   SET_CONFIG: 'memory:set-config',
+  /** 测试记忆连接 */
+  TEST_CONNECTION: 'memory:test-connection',
 } as const
 
 // ===== Agent 工作区 =====
