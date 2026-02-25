@@ -44,6 +44,8 @@ export function PermissionModeSelector(): React.ReactElement | null {
   const [mode, setMode] = useAtom(agentPermissionModeAtom)
   const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const workspaces = useAtomValue(agentWorkspacesAtom)
+  const [tooltipOpen, setTooltipOpen] = React.useState(false)
+  const keepOpenRef = React.useRef(false)
 
   // 获取当前工作区的 slug
   const workspaceSlug = React.useMemo(() => {
@@ -83,16 +85,36 @@ export function PermissionModeSelector(): React.ReactElement | null {
     }
   }, [mode, workspaceSlug, setMode])
 
+  /** 处理点击：切换模式并保持 tooltip 显示 */
+  const handleClick = React.useCallback(() => {
+    cycleMode()
+    keepOpenRef.current = true
+    setTooltipOpen(true)
+    // 短暂忽略点击后的关闭请求，之后允许正常 hover 行为
+    setTimeout(() => {
+      keepOpenRef.current = false
+    }, 100)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+  }, [cycleMode])
+
+  /** 处理 tooltip 状态变化，点击后保持打开 */
+  const handleOpenChange = React.useCallback((open: boolean) => {
+    if (!open && keepOpenRef.current) {
+      return // 点击后保持打开，忽略关闭请求
+    }
+    setTooltipOpen(open)
+  }, [])
+
   const config = MODE_CONFIG[mode]
   const Icon = config.icon
 
   return (
     <TooltipProvider delayDuration={300}>
-      <Tooltip>
+      <Tooltip open={tooltipOpen} onOpenChange={handleOpenChange}>
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => { cycleMode(); requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus()) }}
+            onClick={handleClick}
             className={`flex items-center gap-1 px-1.5 py-1 rounded text-xs font-medium transition-colors ${config.className}`}
           >
             <Icon className="size-3.5" />
