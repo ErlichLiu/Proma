@@ -471,6 +471,29 @@ export function registerIpcHandlers(): void {
     })
   })
 
+  // 设置 Electron 原生缩放因子（全局模式）
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.SET_ZOOM_FACTOR,
+    async (event, zoomFactor: number): Promise<void> => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win) {
+        win.webContents.setZoomFactor(zoomFactor)
+      }
+    }
+  )
+
+  // 获取当前 Electron 原生缩放因子
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.GET_ZOOM_FACTOR,
+    async (event): Promise<number> => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win) {
+        return win.webContents.getZoomFactor()
+      }
+      return 1.0
+    }
+  )
+
   // ===== 环境检测相关 =====
 
   // 执行环境检测
