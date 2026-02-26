@@ -421,35 +421,39 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
       {/* Chat 模式：导航菜单（置顶区域） */}
       {mode === 'chat' && (
-        <div className="flex flex-col gap-1 pt-3 px-3">
-          <SidebarItem
-            icon={<Pin size={16} />}
-            label="置顶对话"
-            suffix={
-              pinnedConversations.length > 0 ? (
-                pinnedExpanded
-                  ? <ChevronDown size={14} className="text-foreground/40" />
-                  : <ChevronRight size={14} className="text-foreground/40" />
-              ) : undefined
-            }
+        <div className="px-3 pt-3">
+          <button
             onClick={() => handleItemClick('pinned')}
-          />
+            className="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[13px] transition-colors duration-100 titlebar-no-drag text-foreground/60 hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Pin size={14} />
+              <span>置顶对话</span>
+            </div>
+            {pinnedConversations.length > 0 && (
+              pinnedExpanded
+                ? <ChevronDown size={14} className="text-foreground/40" />
+                : <ChevronRight size={14} className="text-foreground/40" />
+            )}
+          </button>
         </div>
       )}
 
       {/* Agent 模式：导航菜单（置顶区域） */}
       {mode === 'agent' && pinnedAgentSessions.length > 0 && (
-        <div className="flex flex-col gap-1 pt-3 px-3">
-          <SidebarItem
-            icon={<Pin size={16} />}
-            label="置顶会话"
-            suffix={
-              pinnedAgentExpanded
-                ? <ChevronDown size={14} className="text-foreground/40" />
-                : <ChevronRight size={14} className="text-foreground/40" />
-            }
+        <div className="px-3 pt-3">
+          <button
             onClick={() => setPinnedAgentExpanded(!pinnedAgentExpanded)}
-          />
+            className="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[13px] transition-colors duration-100 titlebar-no-drag text-foreground/60 hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Pin size={14} />
+              <span>置顶会话</span>
+            </div>
+            {pinnedAgentExpanded
+              ? <ChevronDown size={14} className="text-foreground/40" />
+              : <ChevronRight size={14} className="text-foreground/40" />}
+          </button>
         </div>
       )}
 
