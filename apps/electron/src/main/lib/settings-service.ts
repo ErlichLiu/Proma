@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { getSettingsPath } from './config-paths'
-import { DEFAULT_THEME_MODE } from '../../types'
+import { DEFAULT_THEME_MODE, DEFAULT_CHAT_SHORTCUT, DEFAULT_AGENT_SHORTCUT } from '../../types'
 import type { AppSettings } from '../../types'
 
 /**
@@ -24,6 +24,8 @@ export function getSettings(): AppSettings {
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
+      chatShortcut: DEFAULT_CHAT_SHORTCUT,
+      agentShortcut: DEFAULT_AGENT_SHORTCUT,
     }
   }
 
@@ -39,6 +41,8 @@ export function getSettings(): AppSettings {
       environmentCheckSkipped: data.environmentCheckSkipped ?? false,
       lastEnvironmentCheck: data.lastEnvironmentCheck,
       notificationsEnabled: data.notificationsEnabled ?? true,
+      chatShortcut: data.chatShortcut || DEFAULT_CHAT_SHORTCUT,
+      agentShortcut: data.agentShortcut || DEFAULT_AGENT_SHORTCUT,
     }
   } catch (error) {
     console.error('[设置] 读取失败:', error)
@@ -47,6 +51,8 @@ export function getSettings(): AppSettings {
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
+      chatShortcut: DEFAULT_CHAT_SHORTCUT,
+      agentShortcut: DEFAULT_AGENT_SHORTCUT,
     }
   }
 }
