@@ -44,6 +44,7 @@ import {
   agentStartedAtAtom,
 } from '@/atoms/agent-atoms'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { messageAreaZoomLevelAtom, zoomModeAtom } from '@/atoms/zoom-atoms'
 import { cn } from '@/lib/utils'
 import type { AgentMessage, RetryAttempt } from '@proma/shared'
 import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
@@ -479,6 +480,8 @@ export function AgentMessages(): React.ReactElement {
   const agentStreamingModel = useAtomValue(agentStreamingModelAtom)
   const retrying = useAtomValue(agentRetryingAtom)
   const startedAt = useAtomValue(agentStartedAtAtom)
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const zoomLevel = useAtomValue(messageAreaZoomLevelAtom)
 
   // 获取后台任务列表
   const { tasks: backgroundTasks } = useBackgroundTasks(currentSessionId || '')
@@ -500,8 +503,11 @@ export function AgentMessages(): React.ReactElement {
     [messages, userProfile.avatar]
   )
 
+  // 计算 zoom 样式（仅在消息区域缩放模式下应用）
+  const zoomStyle = zoomMode === 'message-area' ? { zoom: zoomLevel, transition: 'zoom 0.2s ease-out' } : {}
+
   return (
-    <Conversation>
+    <Conversation style={zoomStyle}>
       <ConversationContent>
         {messages.length === 0 && !streaming ? (
           <EmptyState />

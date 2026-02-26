@@ -427,6 +427,17 @@ export interface ElectronAPI {
   // 工作区文件变化通知
   onCapabilitiesChanged: (callback: () => void) => () => void
   onWorkspaceFilesChanged: (callback: () => void) => () => void
+
+  // ===== 缩放事件订阅（返回清理函数） =====
+
+  /** 订阅放大事件 */
+  onZoomIn: (callback: () => void) => () => void
+
+  /** 订阅缩小事件 */
+  onZoomOut: (callback: () => void) => () => void
+
+  /** 订阅重置缩放事件 */
+  onZoomReset: (callback: () => void) => () => void
 }
 
 /**
@@ -888,6 +899,26 @@ const electronAPI: ElectronAPI = {
 
   getReleaseByTag: (tag) => {
     return ipcRenderer.invoke(GITHUB_RELEASE_IPC_CHANNELS.GET_RELEASE_BY_TAG, tag)
+  },
+
+  // ===== 缩放事件订阅 =====
+
+  onZoomIn: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:in', listener)
+    return () => { ipcRenderer.removeListener('zoom:in', listener) }
+  },
+
+  onZoomOut: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:out', listener)
+    return () => { ipcRenderer.removeListener('zoom:out', listener) }
+  },
+
+  onZoomReset: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:reset', listener)
+    return () => { ipcRenderer.removeListener('zoom:reset', listener) }
   },
 }
 

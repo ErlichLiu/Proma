@@ -50,6 +50,8 @@ export function getSettings(): AppSettings {
     console.error('[设置] 读取失败:', error)
     return {
       themeMode: DEFAULT_THEME_MODE,
+      zoomMode: DEFAULT_ZOOM_MODE,
+      messageAreaZoomLevel: DEFAULT_MESSAGE_AREA_ZOOM_LEVEL,
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,

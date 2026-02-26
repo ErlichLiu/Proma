@@ -24,10 +24,17 @@ export const DEFAULT_MESSAGE_AREA_ZOOM_LEVEL = 1.0
 /** 默认全局缩放级别 */
 export const DEFAULT_GLOBAL_ZOOM_LEVEL = 1.0
 
-/** 缩放级别范围 */
+/** 缩放级别范围（消息区域和全局共用） */
 export const ZOOM_MIN = 0.5
 export const ZOOM_MAX = 2.0
 export const ZOOM_STEP = 0.1
+
+/** @deprecated 使用 ZOOM_MIN */
+export const MESSAGE_AREA_ZOOM_MIN = ZOOM_MIN
+/** @deprecated 使用 ZOOM_MAX */
+export const MESSAGE_AREA_ZOOM_MAX = ZOOM_MAX
+/** @deprecated 使用 ZOOM_STEP */
+export const MESSAGE_AREA_ZOOM_STEP = ZOOM_STEP
 
 /** 应用设置 */
 export interface AppSettings {

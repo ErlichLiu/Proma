@@ -16,6 +16,17 @@ import {
   initializeTheme,
 } from './atoms/theme'
 import {
+  zoomModeAtom,
+  messageAreaZoomLevelAtom,
+  globalZoomLevelAtom,
+  initializeZoom,
+  updateMessageAreaZoomLevel,
+  updateGlobalZoomLevel,
+  zoomIn,
+  zoomOut,
+  resetZoom,
+} from './atoms/zoom-atoms'
+import {
   agentChannelIdAtom,
   agentModelIdAtom,
   agentWorkspacesAtom,
@@ -28,17 +39,6 @@ import {
   notificationsEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
-import {
-  zoomModeAtom,
-  messageAreaZoomLevelAtom,
-  globalZoomLevelAtom,
-  initializeZoom,
-  updateMessageAreaZoomLevel,
-  updateGlobalZoomLevel,
-  zoomIn,
-  zoomOut,
-  resetZoom,
-} from './atoms/zoom-atoms'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { Toaster } from './components/ui/sonner'
 import { UpdateDialog } from './components/settings/UpdateDialog'
@@ -172,7 +172,7 @@ function NotificationsInitializer(): null {
 /**
  * 缩放初始化组件
  *
- * 从主进程加载缩放设置并监听缩放事件。
+ * 从主进程加载缩放设置，监听缩放事件。
  */
 function ZoomInitializer(): null {
   const setZoomMode = useSetAtom(zoomModeAtom)
