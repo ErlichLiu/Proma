@@ -28,6 +28,17 @@ import {
   notificationsEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
+import { loadShortcutsAtom } from './atoms/shortcut-atoms'
+import { appModeAtom } from './atoms/app-mode'
+import { activeViewAtom } from './atoms/active-view'
+import {
+  conversationsAtom,
+  currentConversationIdAtom,
+} from './atoms/chat-atoms'
+import {
+  agentSessionsAtom,
+  currentAgentSessionIdAtom,
+} from './atoms/agent-atoms'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { Toaster } from './components/ui/sonner'
 import { UpdateDialog } from './components/settings/UpdateDialog'
@@ -159,6 +170,77 @@ function NotificationsInitializer(): null {
 }
 
 /**
+ * 快捷键初始化组件
+ *
+ * 负责加载快捷键配置并监听快捷键触发事件。
+ */
+function ShortcutInitializer(): null {
+  const setAppMode = useSetAtom(appModeAtom)
+  const setActiveView = useSetAtom(activeViewAtom)
+  const setCurrentConversationId = useSetAtom(currentConversationIdAtom)
+  const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
+  const conversations = useAtomValue(conversationsAtom)
+  const agentSessions = useAtomValue(agentSessionsAtom)
+  const loadShortcuts = useSetAtom(loadShortcutsAtom)
+
+  // Task 12: 加载快捷键配置
+  useEffect(() => {
+    loadShortcuts()
+  }, [loadShortcuts])
+
+  // Task 11: 监听快捷键触发事件
+  useEffect(() => {
+    const handleChatShortcut = async (behavior: 'new-conversation' | 'current-conversation'): Promise<void> => {
+      // 切换到 Chat 模式
+      setAppMode('chat')
+      setActiveView('conversations')
+
+      if (behavior === 'new-conversation') {
+        // 创建新对话
+        const newConv = await window.electronAPI.createConversation()
+        setCurrentConversationId(newConv.id)
+      } else {
+        // 打开当前对话，如果没有对话则创建新的
+        if (conversations.length === 0) {
+          const newConv = await window.electronAPI.createConversation()
+          setCurrentConversationId(newConv.id)
+        }
+        // 如果有对话，保持当前对话不变（已经在 atom 中）
+      }
+    }
+
+    const handleAgentShortcut = async (behavior: 'new-conversation' | 'current-conversation'): Promise<void> => {
+      // 切换到 Agent 模式
+      setAppMode('agent')
+      setActiveView('conversations')
+
+      if (behavior === 'new-conversation') {
+        // 创建新会话
+        const newSession = await window.electronAPI.createAgentSession()
+        setCurrentAgentSessionId(newSession.id)
+      } else {
+        // 打开当前会话，如果没有会话则创建新的
+        if (agentSessions.length === 0) {
+          const newSession = await window.electronAPI.createAgentSession()
+          setCurrentAgentSessionId(newSession.id)
+        }
+        // 如果有会话，保持当前会话不变（已经在 atom 中）
+      }
+    }
+
+    const cleanupChat = window.electronAPI.onChatShortcut(handleChatShortcut)
+    const cleanupAgent = window.electronAPI.onAgentShortcut(handleAgentShortcut)
+
+    return () => {
+      cleanupChat()
+      cleanupAgent()
+    }
+  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, conversations, agentSessions])
+
+  return null
+}
+
+/**
  * Agent IPC 监听器初始化组件
  *
  * 全局挂载，永不销毁。确保 Agent 流式事件、权限请求
@@ -174,6 +256,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeInitializer />
     <AgentSettingsInitializer />
     <NotificationsInitializer />
+    <ShortcutInitializer />
     <AgentListenersInitializer />
     <UpdaterInitializer />
     <App />
