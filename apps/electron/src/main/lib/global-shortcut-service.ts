@@ -33,8 +33,18 @@ function showAndFocusWindow(): void {
 
 /**
  * 处理 Chat 快捷键触发
+ * 每次触发时重新读取最新设置，确保使用最新的 behavior 配置
  */
-function handleChatShortcut(config: ShortcutConfig): void {
+function handleChatShortcut(): void {
+  // 重新读取最新设置
+  const settings = getSettings()
+  const config = settings.chatShortcut
+
+  if (!config || !config.enabled) {
+    console.log('[快捷键] Chat 快捷键已禁用，忽略触发')
+    return
+  }
+
   console.log('[快捷键] Chat 快捷键触发:', config)
 
   showAndFocusWindow()
@@ -47,8 +57,18 @@ function handleChatShortcut(config: ShortcutConfig): void {
 
 /**
  * 处理 Agent 快捷键触发
+ * 每次触发时重新读取最新设置，确保使用最新的 behavior 配置
  */
-function handleAgentShortcut(config: ShortcutConfig): void {
+function handleAgentShortcut(): void {
+  // 重新读取最新设置
+  const settings = getSettings()
+  const config = settings.agentShortcut
+
+  if (!config || !config.enabled) {
+    console.log('[快捷键] Agent 快捷键已禁用，忽略触发')
+    return
+  }
+
   console.log('[快捷键] Agent 快捷键触发:', config)
 
   showAndFocusWindow()
@@ -61,16 +81,20 @@ function handleAgentShortcut(config: ShortcutConfig): void {
 
 /**
  * 注册全局快捷键
+ * 注册前先注销所有旧的快捷键，确保配置更新生效
  */
 export function registerShortcuts(): boolean {
   try {
+    // 先注销所有旧的快捷键
+    unregisterShortcuts()
+
     const settings = getSettings()
 
     // 注册 Chat 快捷键
     if (settings.chatShortcut?.enabled && settings.chatShortcut.accelerator) {
       const registered = globalShortcut.register(
         settings.chatShortcut.accelerator,
-        () => handleChatShortcut(settings.chatShortcut!)
+        handleChatShortcut
       )
 
       if (!registered) {
@@ -85,7 +109,7 @@ export function registerShortcuts(): boolean {
     if (settings.agentShortcut?.enabled && settings.agentShortcut.accelerator) {
       const registered = globalShortcut.register(
         settings.agentShortcut.accelerator,
-        () => handleAgentShortcut(settings.agentShortcut!)
+        handleAgentShortcut
       )
 
       if (!registered) {
