@@ -61,4 +61,6 @@ export const SETTINGS_IPC_CHANNELS = {
   UPDATE: 'settings:update',
   GET_SYSTEM_THEME: 'settings:get-system-theme',
   ON_SYSTEM_THEME_CHANGED: 'settings:system-theme-changed',
+  SET_ZOOM_FACTOR: 'settings:set-zoom-factor',
+  GET_ZOOM_FACTOR: 'settings:get-zoom-factor',
 } as const

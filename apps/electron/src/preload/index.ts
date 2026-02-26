@@ -204,6 +204,12 @@ export interface ElectronAPI {
   /** 订阅系统主题变化事件（返回清理函数） */
   onSystemThemeChanged: (callback: (isDark: boolean) => void) => () => void
 
+  /** 设置 Electron 原生缩放因子（全局模式） */
+  setZoomFactor: (zoomFactor: number) => Promise<void>
+
+  /** 获取当前 Electron 原生缩放因子 */
+  getZoomFactor: () => Promise<number>
+
   // ===== 环境检测相关 =====
 
   /** 执行环境检测 */
@@ -588,6 +594,14 @@ const electronAPI: ElectronAPI = {
     const listener = (_: unknown, isDark: boolean): void => callback(isDark)
     ipcRenderer.on(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener)
     return () => { ipcRenderer.removeListener(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener) }
+  },
+
+  setZoomFactor: (zoomFactor: number) => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.SET_ZOOM_FACTOR, zoomFactor)
+  },
+
+  getZoomFactor: () => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.GET_ZOOM_FACTOR)
   },
 
   // 环境检测

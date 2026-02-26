@@ -140,14 +140,33 @@ export async function initializeZoom(
   cacheZoomMode(mode)
   cacheMessageAreaZoomLevel(messageAreaLevel)
   cacheGlobalZoomLevel(globalLevel)
+
+  // 如果是全局模式，设置 Electron 原生缩放
+  if (mode === 'global') {
+    await window.electronAPI.setZoomFactor(globalLevel)
+  }
 }
 
 /**
  * 更新缩放模式并持久化
+ *
+ * 切换到全局模式时，设置 Electron 原生缩放
+ * 切换到消息区域模式时，重置 Electron 原生缩放为 100%
  */
 export async function updateZoomMode(mode: ZoomMode): Promise<void> {
   cacheZoomMode(mode)
   await window.electronAPI.updateSettings({ zoomMode: mode })
+
+  // 根据模式设置 Electron 原生缩放
+  if (mode === 'global') {
+    // 切换到全局模式：应用全局缩放级别
+    const settings = await window.electronAPI.getSettings()
+    const globalLevel = settings.globalZoomLevel || DEFAULT_GLOBAL_ZOOM_LEVEL
+    await window.electronAPI.setZoomFactor(globalLevel)
+  } else {
+    // 切换到消息区域模式：重置 Electron 原生缩放为 100%
+    await window.electronAPI.setZoomFactor(1.0)
+  }
 }
 
 /**
@@ -162,11 +181,18 @@ export async function updateMessageAreaZoomLevel(level: number): Promise<void> {
 
 /**
  * 更新全局缩放级别并持久化
+ *
+ * 使用 Electron 原生缩放（webContents.setZoomFactor），不会出现滚动条
  */
 export async function updateGlobalZoomLevel(level: number): Promise<void> {
   // 确保级别在有效范围内
   const clampedLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, level))
   cacheGlobalZoomLevel(clampedLevel)
+
+  // 设置 Electron 原生缩放因子
+  await window.electronAPI.setZoomFactor(clampedLevel)
+
+  // 持久化到设置
   await window.electronAPI.updateSettings({ globalZoomLevel: clampedLevel })
 }
 
