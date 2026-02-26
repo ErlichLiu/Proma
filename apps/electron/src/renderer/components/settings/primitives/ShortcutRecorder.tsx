@@ -16,6 +16,32 @@ interface ShortcutRecorderProps {
   placeholder?: string
 }
 
+/**
+ * 格式化快捷键显示
+ * 将 Electron accelerator 格式转换为更友好的显示格式
+ */
+function formatAccelerator(accelerator: string): string {
+  if (!accelerator) return ''
+
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+
+  return accelerator
+    .split('+')
+    .map((part) => {
+      switch (part) {
+        case 'CommandOrControl':
+          return isMac ? 'Cmd' : 'Ctrl'
+        case 'Alt':
+          return isMac ? 'Option' : 'Alt'
+        case 'Shift':
+          return 'Shift'
+        default:
+          return part
+      }
+    })
+    .join('+')
+}
+
 export function ShortcutRecorder({
   value,
   onChange,
@@ -72,7 +98,7 @@ export function ShortcutRecorder({
     <div className="flex items-center gap-2">
       <Input
         ref={inputRef}
-        value={isRecording ? '等待输入...' : value}
+        value={isRecording ? '等待输入...' : formatAccelerator(value)}
         onFocus={() => setIsRecording(true)}
         onBlur={() => setIsRecording(false)}
         onKeyDown={handleKeyDown}
