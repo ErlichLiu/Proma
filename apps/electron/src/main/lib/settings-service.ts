@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { getSettingsPath } from './config-paths'
-import { DEFAULT_THEME_MODE } from '../../types'
+import { DEFAULT_THEME_MODE, DEFAULT_ZOOM_MODE, DEFAULT_MESSAGE_AREA_ZOOM_LEVEL, DEFAULT_GLOBAL_ZOOM_LEVEL } from '../../types'
 import type { AppSettings } from '../../types'
 
 /**
@@ -21,6 +21,9 @@ export function getSettings(): AppSettings {
   if (!existsSync(filePath)) {
     return {
       themeMode: DEFAULT_THEME_MODE,
+      zoomMode: DEFAULT_ZOOM_MODE,
+      messageAreaZoomLevel: DEFAULT_MESSAGE_AREA_ZOOM_LEVEL,
+      globalZoomLevel: DEFAULT_GLOBAL_ZOOM_LEVEL,
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
@@ -32,6 +35,9 @@ export function getSettings(): AppSettings {
     const data = JSON.parse(raw) as Partial<AppSettings>
     return {
       themeMode: data.themeMode || DEFAULT_THEME_MODE,
+      zoomMode: data.zoomMode || DEFAULT_ZOOM_MODE,
+      messageAreaZoomLevel: data.messageAreaZoomLevel ?? DEFAULT_MESSAGE_AREA_ZOOM_LEVEL,
+      globalZoomLevel: data.globalZoomLevel ?? DEFAULT_GLOBAL_ZOOM_LEVEL,
       agentChannelId: data.agentChannelId,
       agentModelId: data.agentModelId,
       agentWorkspaceId: data.agentWorkspaceId,

@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import { useAtom } from 'jotai'
+import { useAtom, useAtomValue } from 'jotai'
 import {
   SettingsSection,
   SettingsCard,
@@ -14,6 +14,7 @@ import {
   SettingsSegmentedControl,
 } from './primitives'
 import { themeModeAtom, updateThemeMode } from '@/atoms/theme'
+import { zoomModeAtom, messageAreaZoomLevelAtom, globalZoomLevelAtom } from '@/atoms/zoom-atoms'
 import type { ThemeMode } from '../../../types'
 
 /** 主题选项 */
@@ -31,6 +32,12 @@ const ZOOM_HINT = isMac
 
 export function AppearanceSettings(): React.ReactElement {
   const [themeMode, setThemeMode] = useAtom(themeModeAtom)
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const messageAreaZoomLevel = useAtomValue(messageAreaZoomLevelAtom)
+  const globalZoomLevel = useAtomValue(globalZoomLevelAtom)
+
+  // 根据当前模式显示对应的缩放级别
+  const currentZoomLevel = zoomMode === 'message-area' ? messageAreaZoomLevel : globalZoomLevel
 
   /** 切换主题模式 */
   const handleThemeChange = React.useCallback((value: string) => {
@@ -54,7 +61,11 @@ export function AppearanceSettings(): React.ReactElement {
         />
         <SettingsRow
           label="界面缩放"
-          description={ZOOM_HINT}
+          description={
+            <>
+              <span className="font-bold">当前缩放级别</span>: {Math.round(currentZoomLevel * 100)}% · {ZOOM_HINT}
+            </>
+          }
         />
       </SettingsCard>
     </SettingsSection>

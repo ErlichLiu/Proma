@@ -28,6 +28,17 @@ import {
   notificationsEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
+import {
+  zoomModeAtom,
+  messageAreaZoomLevelAtom,
+  globalZoomLevelAtom,
+  initializeZoom,
+  updateMessageAreaZoomLevel,
+  updateGlobalZoomLevel,
+  zoomIn,
+  zoomOut,
+  resetZoom,
+} from './atoms/zoom-atoms'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { Toaster } from './components/ui/sonner'
 import { UpdateDialog } from './components/settings/UpdateDialog'
@@ -159,6 +170,71 @@ function NotificationsInitializer(): null {
 }
 
 /**
+ * 缩放初始化组件
+ *
+ * 从主进程加载缩放设置并监听缩放事件。
+ */
+function ZoomInitializer(): null {
+  const setZoomMode = useSetAtom(zoomModeAtom)
+  const setMessageAreaZoomLevel = useSetAtom(messageAreaZoomLevelAtom)
+  const setGlobalZoomLevel = useSetAtom(globalZoomLevelAtom)
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const messageAreaZoomLevel = useAtomValue(messageAreaZoomLevelAtom)
+  const globalZoomLevel = useAtomValue(globalZoomLevelAtom)
+
+  // 初始化：从主进程加载设置
+  useEffect(() => {
+    initializeZoom(setZoomMode, setMessageAreaZoomLevel, setGlobalZoomLevel).catch(console.error)
+  }, [setZoomMode, setMessageAreaZoomLevel, setGlobalZoomLevel])
+
+  // 监听主进程发送的缩放事件
+  useEffect(() => {
+    const cleanupZoomIn = window.electronAPI.onZoomIn(() => {
+      if (zoomMode === 'message-area') {
+        const newLevel = zoomIn(messageAreaZoomLevel)
+        setMessageAreaZoomLevel(newLevel)
+        updateMessageAreaZoomLevel(newLevel).catch(console.error)
+      } else {
+        const newLevel = zoomIn(globalZoomLevel)
+        setGlobalZoomLevel(newLevel)
+        updateGlobalZoomLevel(newLevel).catch(console.error)
+      }
+    })
+
+    const cleanupZoomOut = window.electronAPI.onZoomOut(() => {
+      if (zoomMode === 'message-area') {
+        const newLevel = zoomOut(messageAreaZoomLevel)
+        setMessageAreaZoomLevel(newLevel)
+        updateMessageAreaZoomLevel(newLevel).catch(console.error)
+      } else {
+        const newLevel = zoomOut(globalZoomLevel)
+        setGlobalZoomLevel(newLevel)
+        updateGlobalZoomLevel(newLevel).catch(console.error)
+      }
+    })
+
+    const cleanupZoomReset = window.electronAPI.onZoomReset(() => {
+      const newLevel = resetZoom()
+      if (zoomMode === 'message-area') {
+        setMessageAreaZoomLevel(newLevel)
+        updateMessageAreaZoomLevel(newLevel).catch(console.error)
+      } else {
+        setGlobalZoomLevel(newLevel)
+        updateGlobalZoomLevel(newLevel).catch(console.error)
+      }
+    })
+
+    return () => {
+      cleanupZoomIn()
+      cleanupZoomOut()
+      cleanupZoomReset()
+    }
+  }, [zoomMode, messageAreaZoomLevel, globalZoomLevel, setMessageAreaZoomLevel, setGlobalZoomLevel])
+
+  return null
+}
+
+/**
  * Agent IPC 监听器初始化组件
  *
  * 全局挂载，永不销毁。确保 Agent 流式事件、权限请求
@@ -172,6 +248,7 @@ function AgentListenersInitializer(): null {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeInitializer />
+    <ZoomInitializer />
     <AgentSettingsInitializer />
     <NotificationsInitializer />
     <AgentListenersInitializer />

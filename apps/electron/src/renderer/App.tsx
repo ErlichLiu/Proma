@@ -1,15 +1,25 @@
 import * as React from 'react'
-import { useSetAtom } from 'jotai'
+import { useSetAtom, useAtomValue } from 'jotai'
 import { AppShell } from './components/app-shell/AppShell'
 import { OnboardingView } from './components/onboarding/OnboardingView'
 import { TooltipProvider } from './components/ui/tooltip'
 import { environmentCheckResultAtom } from './atoms/environment'
+import { zoomModeAtom, globalZoomLevelAtom } from './atoms/zoom-atoms'
 import type { AppShellContextType } from './contexts/AppShellContext'
 
 export default function App(): React.ReactElement {
   const setEnvironmentResult = useSetAtom(environmentCheckResultAtom)
   const [isLoading, setIsLoading] = React.useState(true)
   const [showOnboarding, setShowOnboarding] = React.useState(false)
+
+  // 读取缩放设置
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const globalZoomLevel = useAtomValue(globalZoomLevelAtom)
+
+  // 计算全局缩放样式（仅在全局模式下应用）
+  const globalZoomStyle = zoomMode === 'global'
+    ? { zoom: globalZoomLevel, transition: 'zoom 0.2s ease-out' }
+    : {}
 
   // 初始化：检查 onboarding 状态和环境
   React.useEffect(() => {
@@ -67,7 +77,7 @@ export default function App(): React.ReactElement {
 
   // 显示主界面
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={200} style={globalZoomStyle}>
       <AppShell contextValue={contextValue} />
     </TooltipProvider>
   )
