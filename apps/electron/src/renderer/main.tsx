@@ -179,6 +179,8 @@ function ShortcutInitializer(): null {
   const setActiveView = useSetAtom(activeViewAtom)
   const setCurrentConversationId = useSetAtom(currentConversationIdAtom)
   const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
+  const setConversations = useSetAtom(conversationsAtom)
+  const setAgentSessions = useSetAtom(agentSessionsAtom)
   const conversations = useAtomValue(conversationsAtom)
   const agentSessions = useAtomValue(agentSessionsAtom)
   const loadShortcuts = useSetAtom(loadShortcutsAtom)
@@ -199,11 +201,19 @@ function ShortcutInitializer(): null {
         // 创建新对话
         const newConv = await window.electronAPI.createConversation()
         setCurrentConversationId(newConv.id)
+
+        // 刷新对话列表，确保新对话立即显示
+        const updatedList = await window.electronAPI.listConversations()
+        setConversations(updatedList)
       } else {
         // 打开当前对话，如果没有对话则创建新的
         if (conversations.length === 0) {
           const newConv = await window.electronAPI.createConversation()
           setCurrentConversationId(newConv.id)
+
+          // 刷新对话列表
+          const updatedList = await window.electronAPI.listConversations()
+          setConversations(updatedList)
         }
         // 如果有对话，保持当前对话不变（已经在 atom 中）
       }
@@ -218,11 +228,19 @@ function ShortcutInitializer(): null {
         // 创建新会话
         const newSession = await window.electronAPI.createAgentSession()
         setCurrentAgentSessionId(newSession.id)
+
+        // 刷新会话列表，确保新会话立即显示
+        const updatedList = await window.electronAPI.listAgentSessions()
+        setAgentSessions(updatedList)
       } else {
         // 打开当前会话，如果没有会话则创建新的
         if (agentSessions.length === 0) {
           const newSession = await window.electronAPI.createAgentSession()
           setCurrentAgentSessionId(newSession.id)
+
+          // 刷新会话列表
+          const updatedList = await window.electronAPI.listAgentSessions()
+          setAgentSessions(updatedList)
         }
         // 如果有会话，保持当前会话不变（已经在 atom 中）
       }
@@ -235,7 +253,7 @@ function ShortcutInitializer(): null {
       cleanupChat()
       cleanupAgent()
     }
-  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, conversations, agentSessions])
+  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions])
 
   return null
 }
