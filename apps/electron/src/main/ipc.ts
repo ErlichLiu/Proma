@@ -52,6 +52,8 @@ import type {
   SystemPromptCreateInput,
   SystemPromptUpdateInput,
   MemoryConfig,
+  MigrateToAgentInput,
+  MigrateToAgentResult,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus } from './lib/runtime-init'
@@ -78,6 +80,7 @@ import {
   updateContextDividers,
 } from './lib/conversation-manager'
 import { sendMessage, stopGeneration, generateTitle } from './lib/chat-service'
+import { migrateToAgent } from './lib/chat-migration-service'
 import {
   saveAttachment,
   readAttachmentAsBase64,
@@ -373,6 +376,15 @@ export function registerIpcHandlers(): void {
     CHAT_IPC_CHANNELS.GENERATE_TITLE,
     async (_, input: GenerateTitleInput): Promise<string | null> => {
       return generateTitle(input)
+    }
+  )
+
+  // ===== Chat → Agent 迁移 =====
+
+  ipcMain.handle(
+    CHAT_IPC_CHANNELS.MIGRATE_TO_AGENT,
+    async (_, input: MigrateToAgentInput): Promise<MigrateToAgentResult> => {
+      return migrateToAgent(input)
     }
   )
 

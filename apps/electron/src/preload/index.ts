@@ -62,6 +62,9 @@ import type {
   SystemPromptCreateInput,
   SystemPromptUpdateInput,
   MemoryConfig,
+  MigrateToAgentInput,
+  MigrateToAgentResult,
+  StreamAgentSuggestionEvent,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 
@@ -165,6 +168,11 @@ export interface ElectronAPI {
   /** 生成对话标题 */
   generateTitle: (input: GenerateTitleInput) => Promise<string | null>
 
+  // ===== Chat → Agent 迁移 =====
+
+  /** 将 Chat 对话迁移到 Agent 模式 */
+  migrateToAgent: (input: MigrateToAgentInput) => Promise<MigrateToAgentResult>
+
   // ===== 附件管理相关 =====
 
   /** 保存附件到本地 */
@@ -236,6 +244,9 @@ export interface ElectronAPI {
 
   /** 订阅流式工具活动事件 */
   onStreamToolActivity: (callback: (event: StreamToolActivityEvent) => void) => () => void
+
+  /** 订阅 Agent 模式建议事件 */
+  onStreamAgentSuggestion: (callback: (event: StreamAgentSuggestionEvent) => void) => () => void
 
   // ===== Agent 会话管理相关 =====
 
@@ -541,6 +552,11 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(CHAT_IPC_CHANNELS.GENERATE_TITLE, input)
   },
 
+  // Chat → Agent 迁移
+  migrateToAgent: (input: MigrateToAgentInput) => {
+    return ipcRenderer.invoke(CHAT_IPC_CHANNELS.MIGRATE_TO_AGENT, input)
+  },
+
   // 附件管理
   saveAttachment: (input: AttachmentSaveInput) => {
     return ipcRenderer.invoke(CHAT_IPC_CHANNELS.SAVE_ATTACHMENT, input)
@@ -637,6 +653,12 @@ const electronAPI: ElectronAPI = {
     const listener = (_: unknown, event: StreamToolActivityEvent): void => callback(event)
     ipcRenderer.on(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, listener)
     return () => { ipcRenderer.removeListener(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, listener) }
+  },
+
+  onStreamAgentSuggestion: (callback: (event: StreamAgentSuggestionEvent) => void) => {
+    const listener = (_: unknown, event: StreamAgentSuggestionEvent): void => callback(event)
+    ipcRenderer.on(CHAT_IPC_CHANNELS.STREAM_AGENT_SUGGESTION, listener)
+    return () => { ipcRenderer.removeListener(CHAT_IPC_CHANNELS.STREAM_AGENT_SUGGESTION, listener) }
   },
 
   // Agent 会话管理

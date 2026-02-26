@@ -331,6 +331,10 @@ export const CHAT_IPC_CHANNELS = {
   /** 切换对话置顶状态 */
   TOGGLE_PIN: 'chat:toggle-pin',
 
+  // 迁移相关
+  /** Chat → Agent 迁移 */
+  MIGRATE_TO_AGENT: 'chat:migrate-to-agent',
+
   // 流式事件（主进程 → 渲染进程推送）
   /** 内容片段 */
   STREAM_CHUNK: 'chat:stream:chunk',
@@ -342,4 +346,48 @@ export const CHAT_IPC_CHANNELS = {
   STREAM_ERROR: 'chat:stream:error',
   /** 工具活动事件（记忆工具调用/结果指示） */
   STREAM_TOOL_ACTIVITY: 'chat:stream:tool-activity',
+  /** Agent 模式建议事件（LLM 工具触发） */
+  STREAM_AGENT_SUGGESTION: 'chat:stream:agent-suggestion',
 } as const
+
+// ===== Chat → Agent 迁移相关 =====
+
+/** 迁移到 Agent 的输入参数 */
+export interface MigrateToAgentInput {
+  /** 当前 Chat 对话 ID */
+  conversationId: string
+  /** 目标 Agent 工作区 ID（可选，未指定时使用默认工作区） */
+  workspaceId?: string
+  /** 目标 Agent 渠道 ID（可选，未指定时继承 Chat 渠道） */
+  channelId?: string
+  /** 任务摘要（来自 suggest_agent_mode 工具） */
+  taskSummary?: string
+}
+
+/** 迁移到 Agent 的结果 */
+export interface MigrateToAgentResult {
+  /** 新创建的 Agent 会话 ID */
+  sessionId: string
+  /** 构建好的上下文 prompt（含 conversation_history XML） */
+  contextPrompt: string
+  /** 会话标题（继承自 Chat） */
+  title: string
+}
+
+/** Agent 模式建议（LLM 工具触发） */
+export interface AgentModeSuggestion {
+  /** 对话 ID */
+  conversationId: string
+  /** 建议原因（模型生成） */
+  reason: string
+  /** 任务摘要（作为 Agent 会话的起始 prompt） */
+  taskSummary: string
+}
+
+/** Agent 模式建议流式事件 */
+export interface StreamAgentSuggestionEvent {
+  /** 对话 ID */
+  conversationId: string
+  /** 建议详情 */
+  suggestion: AgentModeSuggestion
+}

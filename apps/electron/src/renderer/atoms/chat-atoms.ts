@@ -7,7 +7,7 @@
 
 import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
-import type { ConversationMeta, ChatMessage, FileAttachment, ChatToolActivity } from '@proma/shared'
+import type { ConversationMeta, ChatMessage, FileAttachment, ChatToolActivity, AgentModeSuggestion } from '@proma/shared'
 
 /** 选中的模型信息 */
 interface SelectedModel {
@@ -203,3 +203,18 @@ export const currentConversationDraftAtom = atom(
     })
   }
 )
+
+// ===== Chat → Agent 迁移相关 =====
+
+/** 是否正在执行迁移（防重复点击） */
+export const migratingToAgentAtom = atom<boolean>(false)
+
+/** Agent 模式建议 Map — 以 conversationId 为 key */
+export const agentModeSuggestionsAtom = atom<Map<string, AgentModeSuggestion>>(new Map())
+
+/** 当前对话的 Agent 模式建议（派生只读原子） */
+export const currentAgentModeSuggestionAtom = atom<AgentModeSuggestion | null>((get) => {
+  const currentId = get(currentConversationIdAtom)
+  if (!currentId) return null
+  return get(agentModeSuggestionsAtom).get(currentId) ?? null
+})
