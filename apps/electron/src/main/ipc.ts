@@ -87,6 +87,7 @@ import {
 import { extractTextFromAttachment } from './lib/document-parser'
 import { getUserProfile, updateUserProfile } from './lib/user-profile-service'
 import { getSettings, updateSettings } from './lib/settings-service'
+import { registerShortcuts, unregisterShortcuts, validateShortcut } from './lib/global-shortcut-service'
 import { checkEnvironment } from './lib/environment-checker'
 import { getProxySettings, saveProxySettings } from './lib/proxy-settings-service'
 import { detectSystemProxy } from './lib/system-proxy-detector'
@@ -470,6 +471,31 @@ export function registerIpcHandlers(): void {
       win.webContents.send(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, isDark)
     })
   })
+
+  // 注册全局快捷键
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.REGISTER_SHORTCUTS,
+    async (): Promise<boolean> => {
+      return registerShortcuts()
+    }
+  )
+
+  // 注销全局快捷键
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.UNREGISTER_SHORTCUTS,
+    async (): Promise<boolean> => {
+      unregisterShortcuts()
+      return true
+    }
+  )
+
+  // 验证快捷键是否可用
+  ipcMain.handle(
+    SETTINGS_IPC_CHANNELS.VALIDATE_SHORTCUT,
+    async (_, accelerator: string): Promise<boolean> => {
+      return validateShortcut(accelerator)
+    }
+  )
 
   // ===== 环境检测相关 =====
 
