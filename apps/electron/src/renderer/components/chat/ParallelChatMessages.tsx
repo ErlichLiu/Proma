@@ -29,6 +29,7 @@ import {
   ReasoningContent,
 } from '@/components/ai-elements/reasoning'
 import { streamingModelAtom } from '@/atoms/chat-atoms'
+import { zoomModeAtom, messageAreaZoomLevelAtom } from '@/atoms/zoom-atoms'
 import { getModelLogo } from '@/lib/model-logo'
 import type { ChatMessage } from '@proma/shared'
 
@@ -242,6 +243,13 @@ export function ParallelChatMessages({
   inlineEditingMessageId,
   loadingMore = false,
 }: ParallelChatMessagesProps): React.ReactElement {
+  // 读取缩放设置
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const zoomLevel = useAtomValue(messageAreaZoomLevelAtom)
+
+  // 计算缩放样式（仅在消息区域模式下应用）
+  const zoomStyle = zoomMode === 'message-area' ? { zoom: zoomLevel, transition: 'zoom 0.2s ease-out' } : {}
+
   // 分段消息
   const segments = useMemo(
     () => segmentMessages(messages, contextDividers),
@@ -260,7 +268,7 @@ export function ParallelChatMessages({
   // 如果没有分隔线，使用简单的两列布局
   if (segments.length <= 1) {
     return (
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0" style={zoomStyle}>
         {/* 加载更多历史消息的旋转器 */}
         {loadingMore && (
           <div className="absolute top-0 left-0 right-0 z-10">
@@ -319,7 +327,7 @@ export function ParallelChatMessages({
 
   // 有分隔线的情况：分段渲染
   return (
-    <div className="relative flex-1 min-h-0">
+    <div className="relative flex-1 min-h-0" style={zoomStyle}>
       <div className="absolute inset-0 flex flex-col overflow-hidden">
         {/* 加载更多历史消息的旋转器 */}
         {loadingMore && <LoadMoreSpinner />}
