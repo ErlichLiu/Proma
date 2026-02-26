@@ -204,6 +204,15 @@ export interface ElectronAPI {
   /** 订阅系统主题变化事件（返回清理函数） */
   onSystemThemeChanged: (callback: (isDark: boolean) => void) => () => void
 
+  /** 注册全局快捷键 */
+  registerShortcuts: () => Promise<boolean>
+
+  /** 注销全局快捷键 */
+  unregisterShortcuts: () => Promise<boolean>
+
+  /** 验证快捷键是否可用 */
+  validateShortcut: (accelerator: string) => Promise<boolean>
+
   // ===== 环境检测相关 =====
 
   /** 执行环境检测 */
@@ -588,6 +597,18 @@ const electronAPI: ElectronAPI = {
     const listener = (_: unknown, isDark: boolean): void => callback(isDark)
     ipcRenderer.on(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener)
     return () => { ipcRenderer.removeListener(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener) }
+  },
+
+  registerShortcuts: () => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.REGISTER_SHORTCUTS)
+  },
+
+  unregisterShortcuts: () => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.UNREGISTER_SHORTCUTS)
+  },
+
+  validateShortcut: (accelerator: string) => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.VALIDATE_SHORTCUT, accelerator)
   },
 
   // 环境检测
