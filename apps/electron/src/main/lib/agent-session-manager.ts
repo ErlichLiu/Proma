@@ -66,11 +66,17 @@ function writeIndex(index: AgentSessionsIndex): void {
 }
 
 /**
- * 获取所有会话（按 updatedAt 降序）
+ * 获取所有会话（置顶项优先，然后按 updatedAt 降序）
  */
 export function listAgentSessions(): AgentSessionMeta[] {
   const index = readIndex()
-  return index.sessions.sort((a, b) => b.updatedAt - a.updatedAt)
+  return index.sessions.sort((a, b) => {
+    // 置顶项优先
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    // 同为置顶或同为非置顶，按更新时间降序
+    return b.updatedAt - a.updatedAt
+  })
 }
 
 /**
@@ -159,7 +165,7 @@ export function appendAgentMessage(id: string, message: AgentMessage): void {
  */
 export function updateAgentSessionMeta(
   id: string,
-  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'sdkSessionId' | 'workspaceId'>>,
+  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'sdkSessionId' | 'workspaceId' | 'pinned'>>,
 ): AgentSessionMeta {
   const index = readIndex()
   const idx = index.sessions.findIndex((s) => s.id === id)

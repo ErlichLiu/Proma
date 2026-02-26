@@ -7,8 +7,11 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { Pencil, Check, X } from 'lucide-react'
+import { Pencil, Check, X, Pin } from 'lucide-react'
 import { currentAgentSessionAtom, agentSessionsAtom } from '@/atoms/agent-atoms'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 export function AgentHeader(): React.ReactElement | null {
   const session = useAtomValue(currentAgentSessionAtom)
@@ -101,6 +104,27 @@ export function AgentHeader(): React.ReactElement | null {
           </button>
         </div>
       )}
+
+      {/* 右侧按钮组 */}
+      <div className="flex items-center gap-1 titlebar-no-drag ml-auto">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', session.pinned && 'bg-accent text-accent-foreground')}
+              onClick={async () => {
+                const updated = await window.electronAPI.togglePinAgentSession(session.id)
+                setAgentSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+              }}
+            >
+              <Pin className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom"><p>{session.pinned ? '取消置顶' : '置顶会话'}</p></TooltipContent>
+        </Tooltip>
+      </div>
     </div>
   )
 }
