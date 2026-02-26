@@ -141,6 +141,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   /** 置顶区域展开/收起 */
   const [pinnedExpanded, setPinnedExpanded] = React.useState(true)
+  /** Agent 置顶区域展开/收起 */
+  const [pinnedAgentExpanded, setPinnedAgentExpanded] = React.useState(true)
   const setUserProfile = useSetAtom(userProfileAtom)
   const selectedModel = useAtomValue(selectedModelAtom)
   const streamingIds = useAtomValue(streamingConversationIdsAtom)
@@ -289,6 +291,18 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     }
   }
 
+  /** 切换 Agent 会话置顶状态 */
+  const handleTogglePinAgent = async (id: string): Promise<void> => {
+    try {
+      const updated = await window.electronAPI.togglePinAgentSession(id)
+      setAgentSessions((prev) =>
+        prev.map((s) => (s.id === updated.id ? updated : s))
+      )
+    } catch (error) {
+      console.error('[侧边栏] 切换 Agent 会话置顶失败:', error)
+    }
+  }
+
   /** 确认删除对话 */
   const handleConfirmDelete = async (): Promise<void> => {
     if (!pendingDeleteId) return
@@ -364,6 +378,12 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     [agentSessions, currentWorkspaceId]
   )
 
+  /** 置顶 Agent 会话列表（按当前工作区过滤） */
+  const pinnedAgentSessions = React.useMemo(
+    () => filteredAgentSessions.filter((s) => s.pinned),
+    [filteredAgentSessions]
+  )
+
   /** Agent 会话按日期分组 */
   const agentSessionGroups = React.useMemo(
     () => groupByDate(filteredAgentSessions),
@@ -401,19 +421,39 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
       {/* Chat 模式：导航菜单（置顶区域） */}
       {mode === 'chat' && (
-        <div className="flex flex-col gap-1 pt-3 px-3">
-          <SidebarItem
-            icon={<Pin size={16} />}
-            label="置顶对话"
-            suffix={
-              pinnedConversations.length > 0 ? (
-                pinnedExpanded
-                  ? <ChevronDown size={14} className="text-foreground/40" />
-                  : <ChevronRight size={14} className="text-foreground/40" />
-              ) : undefined
-            }
+        <div className="px-3 pt-3">
+          <button
             onClick={() => handleItemClick('pinned')}
-          />
+            className="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[13px] transition-colors duration-100 titlebar-no-drag text-foreground/60 hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Pin size={14} />
+              <span>置顶对话</span>
+            </div>
+            {pinnedConversations.length > 0 && (
+              pinnedExpanded
+                ? <ChevronDown size={14} className="text-foreground/40" />
+                : <ChevronRight size={14} className="text-foreground/40" />
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Agent 模式：导航菜单（置顶区域） */}
+      {mode === 'agent' && pinnedAgentSessions.length > 0 && (
+        <div className="px-3 pt-3">
+          <button
+            onClick={() => setPinnedAgentExpanded(!pinnedAgentExpanded)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[13px] transition-colors duration-100 titlebar-no-drag text-foreground/60 hover:bg-foreground/[0.04] dark:hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Pin size={14} />
+              <span>置顶会话</span>
+            </div>
+            {pinnedAgentExpanded
+              ? <ChevronDown size={14} className="text-foreground/40" />
+              : <ChevronRight size={14} className="text-foreground/40" />}
+          </button>
         </div>
       )}
 
@@ -434,6 +474,30 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
                 onRename={handleRename}
                 onTogglePin={handleTogglePin}
                 onMouseEnter={() => setHoveredId(conv.id)}
+                onMouseLeave={() => setHoveredId(null)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Agent 模式：置顶会话区域 */}
+      {mode === 'agent' && pinnedAgentExpanded && pinnedAgentSessions.length > 0 && (
+        <div className="px-3 pt-1 pb-1">
+          <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-primary/20 ml-2">
+            {pinnedAgentSessions.map((session) => (
+              <AgentSessionItem
+                key={`pinned-${session.id}`}
+                session={session}
+                active={session.id === currentAgentSessionId}
+                hovered={session.id === hoveredId}
+                running={agentRunningIds.has(session.id)}
+                showPinIcon={false}
+                onSelect={() => handleSelectAgentSession(session.id)}
+                onRequestDelete={() => handleRequestDelete(session.id)}
+                onRename={handleAgentRename}
+                onTogglePin={handleTogglePinAgent}
+                onMouseEnter={() => setHoveredId(session.id)}
                 onMouseLeave={() => setHoveredId(null)}
               />
             ))}
@@ -485,9 +549,11 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
                     active={session.id === currentAgentSessionId}
                     hovered={session.id === hoveredId}
                     running={agentRunningIds.has(session.id)}
+                    showPinIcon={!!session.pinned}
                     onSelect={() => handleSelectAgentSession(session.id)}
                     onRequestDelete={() => handleRequestDelete(session.id)}
                     onRename={handleAgentRename}
+                    onTogglePin={handleTogglePinAgent}
                     onMouseEnter={() => setHoveredId(session.id)}
                     onMouseLeave={() => setHoveredId(null)}
                   />
@@ -750,9 +816,11 @@ interface AgentSessionItemProps {
   active: boolean
   hovered: boolean
   running: boolean
+  showPinIcon?: boolean
   onSelect: () => void
   onRequestDelete: () => void
   onRename: (id: string, newTitle: string) => Promise<void>
+  onTogglePin?: (id: string) => void
   onMouseEnter: () => void
   onMouseLeave: () => void
 }
@@ -762,9 +830,11 @@ function AgentSessionItem({
   active,
   hovered,
   running,
+  showPinIcon,
   onSelect,
   onRequestDelete,
   onRename,
+  onTogglePin,
   onMouseEnter,
   onMouseLeave,
 }: AgentSessionItemProps): React.ReactElement {
@@ -772,6 +842,8 @@ function AgentSessionItem({
   const [editTitle, setEditTitle] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
+
+  const isPinned = !!session.pinned
 
   const startEdit = (): void => {
     setEditTitle(session.title)
@@ -847,6 +919,10 @@ function AgentSessionItem({
                     <span className="relative block size-2 rounded-full bg-blue-500" />
                   </span>
                 )}
+                {/* 置顶标记 */}
+                {showPinIcon && (
+                  <Pin size={11} className="flex-shrink-0 text-primary/60" />
+                )}
                 <span className="truncate">{session.title}</span>
               </div>
             )}
@@ -870,6 +946,13 @@ function AgentSessionItem({
       </ContextMenuTrigger>
 
       <ContextMenuContent className="w-40">
+        <ContextMenuItem
+          className="gap-2 text-[13px]"
+          onSelect={() => onTogglePin?.(session.id)}
+        >
+          {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+          {isPinned ? '取消置顶' : '置顶会话'}
+        </ContextMenuItem>
         <ContextMenuItem
           className="gap-2 text-[13px]"
           onSelect={startEdit}
