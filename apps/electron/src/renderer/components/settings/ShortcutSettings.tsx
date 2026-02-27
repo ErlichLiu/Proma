@@ -56,7 +56,21 @@ export function ShortcutSettings(): React.ReactElement {
     updateAgentShortcut({ ...agentShortcut, enabled })
   }
 
-  const validateShortcut = async (accelerator: string): Promise<boolean> => {
+  const validateChatShortcut = async (accelerator: string): Promise<boolean> => {
+    // 检查是否与 Agent 快捷键冲突
+    if (agentShortcut?.enabled && agentShortcut.accelerator === accelerator) {
+      return false
+    }
+    // 检查系统占用
+    return window.electronAPI.validateShortcut(accelerator)
+  }
+
+  const validateAgentShortcut = async (accelerator: string): Promise<boolean> => {
+    // 检查是否与 Chat 快捷键冲突
+    if (chatShortcut?.enabled && chatShortcut.accelerator === accelerator) {
+      return false
+    }
+    // 检查系统占用
     return window.electronAPI.validateShortcut(accelerator)
   }
 
@@ -87,7 +101,7 @@ export function ShortcutSettings(): React.ReactElement {
           <ShortcutRecorder
             value={chatShortcut?.accelerator ?? ''}
             onChange={handleChatAcceleratorChange}
-            onValidate={validateShortcut}
+            onValidate={validateChatShortcut}
           />
         </SettingsRow>
 
@@ -116,7 +130,7 @@ export function ShortcutSettings(): React.ReactElement {
           <ShortcutRecorder
             value={agentShortcut?.accelerator ?? ''}
             onChange={handleAgentAcceleratorChange}
-            onValidate={validateShortcut}
+            onValidate={validateAgentShortcut}
           />
         </SettingsRow>
 
