@@ -183,6 +183,8 @@ function ShortcutInitializer(): null {
   const setAgentSessions = useSetAtom(agentSessionsAtom)
   const conversations = useAtomValue(conversationsAtom)
   const agentSessions = useAtomValue(agentSessionsAtom)
+  const currentConversationId = useAtomValue(currentConversationIdAtom)
+  const currentAgentSessionId = useAtomValue(currentAgentSessionIdAtom)
   const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const loadShortcuts = useSetAtom(loadShortcutsAtom)
 
@@ -207,16 +209,20 @@ function ShortcutInitializer(): null {
         const updatedList = await window.electronAPI.listConversations()
         setConversations(updatedList)
       } else {
-        // 打开当前对话，如果没有对话则创建新的
+        // 打开当前对话
         if (conversations.length === 0) {
+          // 没有任何对话，创建新的
           const newConv = await window.electronAPI.createConversation()
           setCurrentConversationId(newConv.id)
 
           // 刷新对话列表
           const updatedList = await window.electronAPI.listConversations()
           setConversations(updatedList)
+        } else if (!currentConversationId) {
+          // 有对话但没有选中，打开第一个
+          setCurrentConversationId(conversations[0]!.id)
         }
-        // 如果有对话，保持当前对话不变（已经在 atom 中）
+        // 如果已经有选中的对话，保持不变
       }
     }
 
@@ -238,8 +244,9 @@ function ShortcutInitializer(): null {
         const updatedList = await window.electronAPI.listAgentSessions()
         setAgentSessions(updatedList)
       } else {
-        // 打开当前会话，如果没有会话则创建新的
+        // 打开当前会话
         if (agentSessions.length === 0) {
+          // 没有任何会话，创建新的
           const newSession = await window.electronAPI.createAgentSession(
             undefined,
             undefined,
@@ -250,8 +257,11 @@ function ShortcutInitializer(): null {
           // 刷新会话列表
           const updatedList = await window.electronAPI.listAgentSessions()
           setAgentSessions(updatedList)
+        } else if (!currentAgentSessionId) {
+          // 有会话但没有选中，打开第一个
+          setCurrentAgentSessionId(agentSessions[0]!.id)
         }
-        // 如果有会话，保持当前会话不变（已经在 atom 中）
+        // 如果已经有选中的会话，保持不变
       }
     }
 
@@ -262,7 +272,7 @@ function ShortcutInitializer(): null {
       cleanupChat()
       cleanupAgent()
     }
-  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions, currentWorkspaceId])
+  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions, currentConversationId, currentAgentSessionId, currentWorkspaceId])
 
   return null
 }
