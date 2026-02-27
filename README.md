@@ -19,7 +19,7 @@ Proma 的聊天模式，支持多模型切换，支持附加文件对话。
 ![Proma Chat Mode](https://img.erlich.fun/personal-blog/uPic/tBXRKI.png)
 
 ### Agent 模式
-Proma Agent 模式，通用 Agent 能力，支持 Cladue 全系列、Minimax M2.1、Kimi K2.5、智谱 GLM 等模型，支持第三方渠道。优雅、简洁、丝滑、确信的流式输出。
+Proma Agent 模式，通用 Agent 能力，支持 Claude 全系列、Minimax M2.1、Kimi K2.5、智谱 GLM 等模型，支持第三方渠道。优雅、简洁、丝滑、确信的流式输出。
 
 ![Proma Agent Mode](https://img.erlich.fun/personal-blog/uPic/3ZHWyA.png)
 
