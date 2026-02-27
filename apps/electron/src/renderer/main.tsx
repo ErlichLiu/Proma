@@ -245,8 +245,13 @@ function ShortcutInitializer(): null {
         setAgentSessions(updatedList)
       } else {
         // 打开当前会话
-        if (agentSessions.length === 0) {
-          // 没有任何会话，创建新的
+        // 过滤出当前工作区的会话
+        const workspaceSessions = agentSessions.filter(
+          (s) => s.workspaceId === currentWorkspaceId
+        )
+
+        if (workspaceSessions.length === 0) {
+          // 当前工作区没有会话，创建新的
           const newSession = await window.electronAPI.createAgentSession(
             undefined,
             undefined,
@@ -258,8 +263,8 @@ function ShortcutInitializer(): null {
           const updatedList = await window.electronAPI.listAgentSessions()
           setAgentSessions(updatedList)
         } else if (!currentAgentSessionId) {
-          // 有会话但没有选中，打开第一个
-          setCurrentAgentSessionId(agentSessions[0]!.id)
+          // 当前工作区有会话但没有选中，打开第一个
+          setCurrentAgentSessionId(workspaceSessions[0]!.id)
         }
         // 如果已经有选中的会话，保持不变
       }
