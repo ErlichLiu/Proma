@@ -31,6 +31,10 @@ function formatAccelerator(accelerator: string): string {
       switch (part) {
         case 'CommandOrControl':
           return isMac ? 'Cmd' : 'Ctrl'
+        case 'Command':
+          return 'Cmd'
+        case 'Control':
+          return 'Ctrl'
         case 'Alt':
           return isMac ? 'Option' : 'Alt'
         case 'Shift':
@@ -61,7 +65,9 @@ export function ShortcutRecorder({
 
       // 构建 accelerator 字符串
       const modifiers: string[] = []
-      if (e.metaKey || e.ctrlKey) modifiers.push('CommandOrControl')
+      // 分别检测 Command 和 Control 键，允许用户区分它们
+      if (e.metaKey) modifiers.push('Command')
+      if (e.ctrlKey) modifiers.push('Control')
       if (e.shiftKey) modifiers.push('Shift')
       if (e.altKey) modifiers.push('Alt')
 

@@ -183,6 +183,7 @@ function ShortcutInitializer(): null {
   const setAgentSessions = useSetAtom(agentSessionsAtom)
   const conversations = useAtomValue(conversationsAtom)
   const agentSessions = useAtomValue(agentSessionsAtom)
+  const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const loadShortcuts = useSetAtom(loadShortcutsAtom)
 
   // Task 12: 加载快捷键配置
@@ -225,8 +226,12 @@ function ShortcutInitializer(): null {
       setActiveView('conversations')
 
       if (behavior === 'new-conversation') {
-        // 创建新会话
-        const newSession = await window.electronAPI.createAgentSession()
+        // 创建新会话，传递当前工作区 ID
+        const newSession = await window.electronAPI.createAgentSession(
+          undefined,
+          undefined,
+          currentWorkspaceId || undefined
+        )
         setCurrentAgentSessionId(newSession.id)
 
         // 刷新会话列表，确保新会话立即显示
@@ -235,7 +240,11 @@ function ShortcutInitializer(): null {
       } else {
         // 打开当前会话，如果没有会话则创建新的
         if (agentSessions.length === 0) {
-          const newSession = await window.electronAPI.createAgentSession()
+          const newSession = await window.electronAPI.createAgentSession(
+            undefined,
+            undefined,
+            currentWorkspaceId || undefined
+          )
           setCurrentAgentSessionId(newSession.id)
 
           // 刷新会话列表
@@ -253,7 +262,7 @@ function ShortcutInitializer(): null {
       cleanupChat()
       cleanupAgent()
     }
-  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions])
+  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions, currentWorkspaceId])
 
   return null
 }
