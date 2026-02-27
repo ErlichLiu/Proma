@@ -11,6 +11,7 @@ import { stopAllGenerations } from './lib/chat-service'
 import { initAutoUpdater, cleanupUpdater } from './lib/updater/auto-updater'
 import { startWorkspaceWatcher, stopWorkspaceWatcher } from './lib/workspace-watcher'
 import { getIsQuitting, setQuitting, isUpdating } from './lib/app-lifecycle'
+import { registerShortcuts, unregisterShortcuts, setMainWindow } from './lib/global-shortcut-service'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -177,6 +178,12 @@ app.whenReady().then(async () => {
   // Create main window (will be shown when ready)
   createWindow()
 
+  // 设置主窗口引用并注册全局快捷键
+  if (mainWindow) {
+    setMainWindow(mainWindow)
+    registerShortcuts()
+  }
+
   // 启动工作区文件监听（Agent MCP/Skills + 文件浏览器自动刷新）
   if (mainWindow) {
     startWorkspaceWatcher(mainWindow)
@@ -216,6 +223,8 @@ app.on('before-quit', () => {
     return
   }
 
+  // 注销全局快捷键
+  unregisterShortcuts()
   // 中止所有活跃的 Agent 和 Chat 子进程
   stopAllAgents()
   stopAllGenerations()

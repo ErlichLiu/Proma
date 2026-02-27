@@ -9,7 +9,7 @@
 import * as React from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
-import { Settings, Radio, Palette, Info, Plug, Globe, BookOpen, Brain } from 'lucide-react'
+import { Settings, Radio, Palette, Info, Plug, Globe, BookOpen, Brain, Keyboard } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { settingsTabAtom } from '@/atoms/settings-tab'
 import type { SettingsTab } from '@/atoms/settings-tab'
@@ -23,6 +23,7 @@ import { AppearanceSettings } from './AppearanceSettings'
 import { AboutSettings } from './AboutSettings'
 import { AgentSettings } from './AgentSettings'
 import { PromptSettings } from './PromptSettings'
+import { ShortcutSettings } from './ShortcutSettings'
 import { MemorySettings } from './MemorySettings'
 
 /** 设置 Tab 定义 */
@@ -37,6 +38,7 @@ const BASE_TABS: TabItem[] = [
   { id: 'general', label: '通用', icon: <Settings size={16} /> },
   { id: 'channels', label: '渠道', icon: <Radio size={16} /> },
   { id: 'prompts', label: '提示词', icon: <BookOpen size={16} /> },
+  { id: 'shortcuts', label: '快捷键', icon: <Keyboard size={16} /> },
   { id: 'proxy', label: '代理', icon: <Globe size={16} /> },
 ]
 
@@ -59,6 +61,8 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <ChannelSettings />
     case 'prompts':
       return <PromptSettings />
+    case 'shortcuts':
+      return <ShortcutSettings />
     case 'proxy':
       return <ProxySettings />
     case 'agent':

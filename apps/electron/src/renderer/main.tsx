@@ -28,6 +28,17 @@ import {
   notificationsEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
+import { loadShortcutsAtom } from './atoms/shortcut-atoms'
+import { appModeAtom } from './atoms/app-mode'
+import { activeViewAtom } from './atoms/active-view'
+import {
+  conversationsAtom,
+  currentConversationIdAtom,
+} from './atoms/chat-atoms'
+import {
+  agentSessionsAtom,
+  currentAgentSessionIdAtom,
+} from './atoms/agent-atoms'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { Toaster } from './components/ui/sonner'
 import { UpdateDialog } from './components/settings/UpdateDialog'
@@ -159,6 +170,119 @@ function NotificationsInitializer(): null {
 }
 
 /**
+ * 快捷键初始化组件
+ *
+ * 负责加载快捷键配置并监听快捷键触发事件。
+ */
+function ShortcutInitializer(): null {
+  const setAppMode = useSetAtom(appModeAtom)
+  const setActiveView = useSetAtom(activeViewAtom)
+  const setCurrentConversationId = useSetAtom(currentConversationIdAtom)
+  const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
+  const setConversations = useSetAtom(conversationsAtom)
+  const setAgentSessions = useSetAtom(agentSessionsAtom)
+  const conversations = useAtomValue(conversationsAtom)
+  const agentSessions = useAtomValue(agentSessionsAtom)
+  const currentConversationId = useAtomValue(currentConversationIdAtom)
+  const currentAgentSessionId = useAtomValue(currentAgentSessionIdAtom)
+  const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
+  const loadShortcuts = useSetAtom(loadShortcutsAtom)
+
+  // Task 12: 加载快捷键配置
+  useEffect(() => {
+    loadShortcuts()
+  }, [loadShortcuts])
+
+  // Task 11: 监听快捷键触发事件
+  useEffect(() => {
+    const handleChatShortcut = async (behavior: 'new-conversation' | 'current-conversation'): Promise<void> => {
+      // 切换到 Chat 模式
+      setAppMode('chat')
+      setActiveView('conversations')
+
+      if (behavior === 'new-conversation') {
+        // 创建新对话
+        const newConv = await window.electronAPI.createConversation()
+        setCurrentConversationId(newConv.id)
+
+        // 刷新对话列表，确保新对话立即显示
+        const updatedList = await window.electronAPI.listConversations()
+        setConversations(updatedList)
+      } else {
+        // 打开当前对话
+        if (conversations.length === 0) {
+          // 没有任何对话，创建新的
+          const newConv = await window.electronAPI.createConversation()
+          setCurrentConversationId(newConv.id)
+
+          // 刷新对话列表
+          const updatedList = await window.electronAPI.listConversations()
+          setConversations(updatedList)
+        } else if (!currentConversationId) {
+          // 有对话但没有选中，打开第一个
+          setCurrentConversationId(conversations[0]!.id)
+        }
+        // 如果已经有选中的对话，保持不变
+      }
+    }
+
+    const handleAgentShortcut = async (behavior: 'new-conversation' | 'current-conversation'): Promise<void> => {
+      // 切换到 Agent 模式
+      setAppMode('agent')
+      setActiveView('conversations')
+
+      if (behavior === 'new-conversation') {
+        // 创建新会话，传递当前工作区 ID
+        const newSession = await window.electronAPI.createAgentSession(
+          undefined,
+          undefined,
+          currentWorkspaceId || undefined
+        )
+        setCurrentAgentSessionId(newSession.id)
+
+        // 刷新会话列表，确保新会话立即显示
+        const updatedList = await window.electronAPI.listAgentSessions()
+        setAgentSessions(updatedList)
+      } else {
+        // 打开当前会话
+        // 过滤出当前工作区的会话
+        const workspaceSessions = agentSessions.filter(
+          (s) => s.workspaceId === currentWorkspaceId
+        )
+
+        if (workspaceSessions.length === 0) {
+          // 当前工作区没有会话，创建新的
+          const newSession = await window.electronAPI.createAgentSession(
+            undefined,
+            undefined,
+            currentWorkspaceId || undefined
+          )
+          setCurrentAgentSessionId(newSession.id)
+
+          // 刷新会话列表
+          const updatedList = await window.electronAPI.listAgentSessions()
+          setAgentSessions(updatedList)
+        } else if (!currentAgentSessionId) {
+          // 当前工作区有会话但没有选中，打开第一个
+          setCurrentAgentSessionId(workspaceSessions[0]!.id)
+        }
+        // 如果已经有选中的会话，保持不变
+      }
+    }
+
+    const cleanupChat = window.electronAPI.onChatShortcut(handleChatShortcut)
+    const cleanupAgent = window.electronAPI.onAgentShortcut(handleAgentShortcut)
+
+    return () => {
+      cleanupChat()
+      cleanupAgent()
+    }
+  }, [setAppMode, setActiveView, setCurrentConversationId, setCurrentAgentSessionId, setConversations, setAgentSessions, conversations, agentSessions, currentConversationId, currentAgentSessionId, currentWorkspaceId])
+
+  return null
+}
+
+/**
  * Agent IPC 监听器初始化组件
  *
  * 全局挂载，永不销毁。确保 Agent 流式事件、权限请求
@@ -174,6 +298,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeInitializer />
     <AgentSettingsInitializer />
     <NotificationsInitializer />
+    <ShortcutInitializer />
     <AgentListenersInitializer />
     <UpdaterInitializer />
     <App />
