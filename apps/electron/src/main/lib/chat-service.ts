@@ -342,6 +342,8 @@ export async function sendMessage(
   // 在 try 外累积流式内容，abort 时 catch 块仍可访问
   let accumulatedContent = ''
   let accumulatedReasoning = ''
+  let accumulatedInputTokens = 0
+  let accumulatedOutputTokens = 0
 
   try {
     // 7. 获取适配器
@@ -383,7 +385,7 @@ export async function sendMessage(
         continuationMessages: continuationMessages.length > 0 ? continuationMessages : undefined,
       })
 
-      const { content, reasoning, toolCalls, stopReason } = await streamSSE({
+      const { content, reasoning, toolCalls, stopReason, usage } = await streamSSE({
         request,
         adapter,
         signal: controller.signal,
@@ -414,6 +416,12 @@ export async function sendMessage(
           }
         },
       })
+
+      // 累积 token 用量（跨 tool use 轮次）
+      if (usage) {
+        accumulatedInputTokens += usage.inputTokens
+        accumulatedOutputTokens += usage.outputTokens
+      }
 
       // 如果没有工具调用或不是 tool_use 停止，退出循环
       if (!toolCalls || toolCalls.length === 0 || stopReason !== 'tool_use') {
@@ -461,6 +469,9 @@ export async function sendMessage(
         createdAt: Date.now(),
         model: modelId,
         reasoning: accumulatedReasoning || undefined,
+        usage: accumulatedInputTokens > 0 || accumulatedOutputTokens > 0
+          ? { inputTokens: accumulatedInputTokens, outputTokens: accumulatedOutputTokens }
+          : undefined,
       }
       appendMessage(conversationId, assistantMsg)
 

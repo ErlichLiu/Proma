@@ -59,6 +59,12 @@ interface GoogleStreamData {
     }
     finishReason?: string
   }>
+  /** Token 用量元数据 */
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+    totalTokenCount?: number
+  }
 }
 
 /** Google 标题响应 */
@@ -238,10 +244,22 @@ export class GoogleAdapter implements ProviderAdapter {
   parseSSELine(jsonLine: string): StreamEvent[] {
     try {
       const parsed = JSON.parse(jsonLine) as GoogleStreamData
-      const parts = parsed.candidates?.[0]?.content?.parts
-      if (!parts) return []
-
       const events: StreamEvent[] = []
+
+      // 提取 token 用量（Google 每个 chunk 都可能携带）
+      if (parsed.usageMetadata) {
+        const { promptTokenCount, candidatesTokenCount } = parsed.usageMetadata
+        if (promptTokenCount || candidatesTokenCount) {
+          events.push({
+            type: 'usage',
+            inputTokens: promptTokenCount ?? 0,
+            outputTokens: candidatesTokenCount ?? 0,
+          })
+        }
+      }
+
+      const parts = parsed.candidates?.[0]?.content?.parts
+      if (!parts) return events
 
       // 遍历所有 parts，区分推理内容、正常文本和函数调用
       for (const part of parts) {

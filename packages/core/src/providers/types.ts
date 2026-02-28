@@ -123,6 +123,13 @@ export interface StreamToolCallDeltaEvent {
   argumentsDelta: string
 }
 
+/** Token 用量事件 */
+export interface StreamUsageEvent {
+  type: 'usage'
+  inputTokens: number
+  outputTokens: number
+}
+
 /** 所有流式事件的联合类型 */
 export type StreamEvent =
   | StreamChunkEvent
@@ -131,6 +138,7 @@ export type StreamEvent =
   | StreamDoneEvent
   | StreamToolCallStartEvent
   | StreamToolCallDeltaEvent
+  | StreamUsageEvent
 
 /** 流式事件回调函数 */
 export type StreamEventCallback = (event: StreamEvent) => void

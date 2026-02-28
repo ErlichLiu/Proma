@@ -28,6 +28,12 @@ export interface StreamSSEOptions {
   fetchFn?: typeof globalThis.fetch
 }
 
+/** Token 用量信息 */
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
 /** streamSSE 的返回结果 */
 export interface StreamSSEResult {
   /** 累积的完整文本内容 */
@@ -38,6 +44,8 @@ export interface StreamSSEResult {
   toolCalls: ToolCall[]
   /** 停止原因（'tool_use' 表示需要执行工具后继续） */
   stopReason?: string
+  /** Token 用量（如果 Provider 返回了用量数据） */
+  usage?: TokenUsage
 }
 
 /**
@@ -77,6 +85,9 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   let content = ''
   let reasoning = ''
   let stopReason: string | undefined
+  let usageInputTokens = 0
+  let usageOutputTokens = 0
+  let hasUsage = false
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -125,6 +136,11 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
                 pending.args += event.argumentsDelta
               }
             }
+          } else if (event.type === 'usage') {
+            // 累积 token 用量（Anthropic 分两次发送，其他 Provider 一次性发送）
+            usageInputTokens += event.inputTokens
+            usageOutputTokens += event.outputTokens
+            hasUsage = true
           } else if (event.type === 'done' && event.stopReason) {
             stopReason = event.stopReason
           }
@@ -163,7 +179,13 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   }
 
   onEvent({ type: 'done', stopReason })
-  return { content, reasoning, toolCalls, stopReason }
+  return {
+    content,
+    reasoning,
+    toolCalls,
+    stopReason,
+    usage: hasUsage ? { inputTokens: usageInputTokens, outputTokens: usageOutputTokens } : undefined,
+  }
 }
 
 // ===== 非流式标题请求 =====

@@ -60,6 +60,12 @@ interface OpenAIChunkData {
     }
     finish_reason?: string | null
   }>
+  /** 流式末尾的 usage 信息（需开启 stream_options） */
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
 }
 
 /** OpenAI 标题响应 */
@@ -192,6 +198,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       model: input.modelId,
       messages,
       stream: true,
+      stream_options: { include_usage: true },
     }
 
     // 工具定义
@@ -253,6 +260,15 @@ export class OpenAIAdapter implements ProviderAdapter {
       const finishReason = chunk.choices?.[0]?.finish_reason
       if (finishReason === 'tool_calls') {
         events.push({ type: 'done', stopReason: 'tool_use' })
+      }
+
+      // 流式末尾的 usage 信息（stream_options.include_usage 开启时）
+      if (chunk.usage) {
+        events.push({
+          type: 'usage',
+          inputTokens: chunk.usage.prompt_tokens ?? 0,
+          outputTokens: chunk.usage.completion_tokens ?? 0,
+        })
       }
 
       return events
