@@ -29,6 +29,7 @@ import { extractTextFromAttachment, isDocumentAttachment } from './document-pars
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { getMemoryConfig } from './memory-service'
+import { recordUsage } from './usage-stats-service'
 import { searchMemory, addMemory, formatSearchResult } from './memos-client'
 
 /** 活跃的 AbortController 映射（conversationId → controller） */
@@ -480,6 +481,22 @@ export async function sendMessage(
         updateConversationMeta(conversationId, {})
       } catch {
         // 索引更新失败不影响主流程
+      }
+
+      // 记录用量统计
+      if (accumulatedInputTokens > 0 || accumulatedOutputTokens > 0) {
+        try {
+          recordUsage({
+            channelId,
+            provider: channel.provider,
+            modelId,
+            inputTokens: accumulatedInputTokens,
+            outputTokens: accumulatedOutputTokens,
+            mode: 'chat',
+          })
+        } catch {
+          // 用量统计写入失败不影响主流程
+        }
       }
     } else {
       console.warn(`[聊天服务] 模型返回空内容，跳过保存 (对话 ${conversationId})`)
