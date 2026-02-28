@@ -9,7 +9,7 @@
 import * as React from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
-import { Settings, Radio, Palette, Info, Plug, Globe, BookOpen, Brain } from 'lucide-react'
+import { Settings, Radio, Palette, Info, Plug, Globe, BookOpen, Brain, BarChart3 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { settingsTabAtom } from '@/atoms/settings-tab'
 import type { SettingsTab } from '@/atoms/settings-tab'
@@ -24,6 +24,7 @@ import { AboutSettings } from './AboutSettings'
 import { AgentSettings } from './AgentSettings'
 import { PromptSettings } from './PromptSettings'
 import { MemorySettings } from './MemorySettings'
+import { UsageSettings } from './UsageSettings'
 
 /** 设置 Tab 定义 */
 interface TabItem {
@@ -43,6 +44,7 @@ const BASE_TABS: TabItem[] = [
 /** Agent 模式专属 Tab */
 const AGENT_TAB: TabItem = { id: 'agent', label: '配置', icon: <Plug size={16} /> }
 const MEMORY_TAB: TabItem = { id: 'memory', label: '记忆', icon: <Brain size={16} /> }
+const USAGE_TAB: TabItem = { id: 'usage', label: '用量', icon: <BarChart3 size={16} /> }
 
 /** 尾部 Tabs */
 const TAIL_TABS: TabItem[] = [
@@ -67,6 +69,8 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <MemorySettings />
     case 'appearance':
       return <AppearanceSettings />
+    case 'usage':
+      return <UsageSettings />
     case 'about':
       return <AboutSettings />
   }
@@ -81,9 +85,9 @@ export function SettingsPanel(): React.ReactElement {
   // Agent 模式时在渠道后插入 Agent Tab，记忆 tab 两种模式都显示
   const tabs = React.useMemo(() => {
     if (appMode === 'agent') {
-      return [...BASE_TABS, AGENT_TAB, MEMORY_TAB, ...TAIL_TABS]
+      return [...BASE_TABS, AGENT_TAB, MEMORY_TAB, USAGE_TAB, ...TAIL_TABS]
     }
-    return [...BASE_TABS, MEMORY_TAB, ...TAIL_TABS]
+    return [...BASE_TABS, MEMORY_TAB, USAGE_TAB, ...TAIL_TABS]
   }, [appMode])
 
   return (
