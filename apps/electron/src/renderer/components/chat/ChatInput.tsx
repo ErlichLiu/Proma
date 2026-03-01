@@ -14,7 +14,7 @@
 
 import * as React from 'react'
 import { useAtom, useAtomValue } from 'jotai'
-import { CornerDownLeft, Square, Lightbulb, Paperclip } from 'lucide-react'
+import { CornerDownLeft, Square, Lightbulb, Paperclip, Bot } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { ClearContextButton } from './ClearContextButton'
 import { ContextSettingsPopover } from './ContextSettingsPopover'
@@ -34,9 +34,11 @@ import {
   pendingAttachmentsAtom,
   currentConversationIdAtom,
   currentConversationDraftAtom,
+  currentConversationAtom,
 } from '@/atoms/chat-atoms'
 import type { PendingAttachment } from '@/atoms/chat-atoms'
 import { cn } from '@/lib/utils'
+import { useMigrateToAgent } from '@/hooks/useMigrateToAgent'
 
 interface ChatInputProps {
   /** 发送消息回调 */
@@ -71,6 +73,8 @@ export function ChatInput({ onSend, onStop, onClearContext }: ChatInputProps): R
   const [thinkingEnabled, setThinkingEnabled] = useAtom(thinkingEnabledAtom)
   const [pendingAttachments, setPendingAttachments] = useAtom(pendingAttachmentsAtom)
   const currentConversationId = useAtomValue(currentConversationIdAtom)
+  const currentConversation = useAtomValue(currentConversationAtom)
+  const { migrate, migrating } = useMigrateToAgent()
   const [isDragOver, setIsDragOver] = React.useState(false)
 
   const canSend = (content.trim().length > 0 || pendingAttachments.length > 0)
@@ -308,6 +312,25 @@ export function ChatInput({ onSend, onStop, onClearContext }: ChatInputProps): R
               <ContextSettingsPopover />
 
               <ClearContextButton onClick={onClearContext} />
+
+              {/* 迁移到 Agent 模式 */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-[30px] rounded-full text-foreground/60 hover:text-foreground"
+                    disabled={streaming || migrating || !currentConversation}
+                    onClick={() => currentConversation && migrate({ conversationId: currentConversation.id })}
+                  >
+                    <Bot className="size-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>迁移到 Agent 模式</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             {/* 右侧：发送 / 停止按钮 */}

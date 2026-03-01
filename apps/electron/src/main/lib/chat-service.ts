@@ -85,6 +85,47 @@ const MEMORY_SYSTEM_PROMPT = `
 /** 最大工具续接轮数（防止无限循环） */
 const MAX_TOOL_ROUNDS = 5
 
+// ===== Agent 模式建议工具定义 =====
+
+/** suggest_agent_mode 工具 — 模型判断任务适合 Agent 模式时调用 */
+const SUGGEST_AGENT_TOOL: ToolDefinition = {
+  name: 'suggest_agent_mode',
+  description: `当你判断用户的任务更适合 Agent 模式时调用此工具。
+适用场景：
+- 需要多步骤执行的任务（数据分析、调研、代码生成）
+- 需要读写文件、执行命令的任务
+- 需要搜索和探索的任务
+- 单次对话难以完成的复杂任务
+
+不要在以下情况调用：
+- 简单问答、概念解释、学习讨论
+- 用户明确表示只想聊天
+- 任务已经在当前对话中完成`,
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: {
+        type: 'string',
+        description: '向用户解释为什么 Agent 模式更适合这个任务（一句话）',
+      },
+      task_summary: {
+        type: 'string',
+        description: '提炼用户任务的核心需求，作为 Agent 会话的起始 prompt',
+      },
+    },
+    required: ['reason', 'task_summary'],
+  },
+}
+
+/** Agent 模式建议系统提示词追加 */
+const SUGGEST_AGENT_SYSTEM_PROMPT = `
+<agent_mode_hint>
+你可以使用 suggest_agent_mode 工具。当用户的任务涉及多步骤执行、文件操作、
+代码生成、数据分析等复杂场景时，建议用户切换到 Agent 模式以获得更好的体验。
+Agent 模式可以执行命令、读写文件、使用 MCP 工具，适合需要多轮探索的任务。
+每次对话中最多建议一次，避免反复打扰用户。
+</agent_mode_hint>`
+
 // ===== 平台相关：图片附件读取器 =====
 
 /**
@@ -347,17 +388,21 @@ export async function sendMessage(
     // 7. 获取适配器
     const adapter = getAdapter(channel.provider)
 
-    // 8. 检查记忆功能
+    // 8. 检查记忆功能 + Agent 建议工具
     const memoryConfig = getMemoryConfig()
     const memoryEnabled = memoryConfig.enabled && !!memoryConfig.apiKey
-    const tools = memoryEnabled ? MEMORY_TOOLS : undefined
 
-    // 注入记忆系统提示词
-    const effectiveSystemMessage = memoryEnabled && systemMessage
-      ? systemMessage + MEMORY_SYSTEM_PROMPT
-      : memoryEnabled
-        ? MEMORY_SYSTEM_PROMPT
-        : systemMessage
+    // 始终注入 suggest_agent_mode，记忆工具按配置注入
+    const tools: ToolDefinition[] = [SUGGEST_AGENT_TOOL]
+    if (memoryEnabled) {
+      tools.push(...MEMORY_TOOLS)
+    }
+
+    // 注入系统提示词（Agent 建议 + 记忆）
+    let effectiveSystemMessage = (systemMessage || '') + SUGGEST_AGENT_SYSTEM_PROMPT
+    if (memoryEnabled) {
+      effectiveSystemMessage += MEMORY_SYSTEM_PROMPT
+    }
 
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
@@ -423,7 +468,26 @@ export async function sendMessage(
       // 执行工具调用
       const toolResults: ToolResult[] = []
       for (const tc of toolCalls) {
-        if (tc.name === 'recall_memory' || tc.name === 'add_memory') {
+        if (tc.name === 'suggest_agent_mode') {
+          // Agent 模式建议：推送建议事件到渲染进程，返回确认结果
+          const reason = tc.arguments.reason as string
+          const taskSummary = tc.arguments.task_summary as string
+
+          webContents.send(CHAT_IPC_CHANNELS.STREAM_AGENT_SUGGESTION, {
+            conversationId,
+            suggestion: { conversationId, reason, taskSummary },
+          })
+
+          toolResults.push({
+            toolCallId: tc.id,
+            content: JSON.stringify({
+              type: 'agent_mode_suggestion',
+              reason,
+              task_summary: taskSummary,
+              status: 'pending_user_action',
+            }),
+          })
+        } else if (tc.name === 'recall_memory' || tc.name === 'add_memory') {
           const result = await executeMemoryToolCall(tc, memoryConfig)
           toolResults.push(result)
 

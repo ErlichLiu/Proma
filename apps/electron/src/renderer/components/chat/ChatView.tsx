@@ -36,6 +36,7 @@ import {
   INITIAL_MESSAGE_LIMIT,
   chatStreamErrorsAtom,
   currentChatErrorAtom,
+  agentModeSuggestionsAtom,
 } from '@/atoms/chat-atoms'
 import { resolvedSystemMessageAtom, promptSidebarOpenAtom } from '@/atoms/system-prompt-atoms'
 import { cn } from '@/lib/utils'
@@ -50,6 +51,7 @@ import type {
   StreamToolActivityEvent,
   FileAttachment,
   AttachmentSaveInput,
+  StreamAgentSuggestionEvent,
 } from '@proma/shared'
 
 export function ChatView(): React.ReactElement {
@@ -66,6 +68,7 @@ export function ChatView(): React.ReactElement {
   const setHasMoreMessages = useSetAtom(hasMoreMessagesAtom)
   const setChatStreamErrors = useSetAtom(chatStreamErrorsAtom)
   const chatError = useAtomValue(currentChatErrorAtom)
+  const setAgentModeSuggestions = useSetAtom(agentModeSuggestionsAtom)
   const isStreaming = useAtomValue(streamingAtom)
   const resolvedSystemMessage = useAtomValue(resolvedSystemMessageAtom)
   const promptSidebarOpen = useAtomValue(promptSidebarOpenAtom)
@@ -245,12 +248,23 @@ export function ChatView(): React.ReactElement {
       }
     )
 
+    const cleanupAgentSuggestion = window.electronAPI.onStreamAgentSuggestion(
+      (event: StreamAgentSuggestionEvent) => {
+        setAgentModeSuggestions((prev) => {
+          const map = new Map(prev)
+          map.set(event.conversationId, event.suggestion)
+          return map
+        })
+      }
+    )
+
     return () => {
       cleanupChunk()
       cleanupReasoning()
       cleanupComplete()
       cleanupError()
       cleanupToolActivity()
+      cleanupAgentSuggestion()
     }
   }, [
     setStreamingStates,
@@ -258,6 +272,7 @@ export function ChatView(): React.ReactElement {
     setConversations,
     setHasMoreMessages,
     setChatStreamErrors,
+    setAgentModeSuggestions,
   ])
 
   const syncContextDividers = React.useCallback(async (

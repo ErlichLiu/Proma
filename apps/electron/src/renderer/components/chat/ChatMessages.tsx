@@ -56,6 +56,7 @@ import {
 import { getModelLogo } from '@/lib/model-logo'
 import { userProfileAtom } from '@/atoms/user-profile'
 import type { ChatMessage, ChatToolActivity } from '@proma/shared'
+import { MigrationSuggestionCard } from './MigrationSuggestionCard'
 import { cn } from '@/lib/utils'
 
 // ===== 记忆工具活动指示器 =====
@@ -417,6 +418,9 @@ export function ChatMessages({
                 </MessageContent>
               </Message>
             )}
+
+            {/* Agent 模式迁移建议卡片（非流式时显示） */}
+            {!streaming && <MigrationSuggestionCard />}
           </>
         )}
       </ConversationContent>
