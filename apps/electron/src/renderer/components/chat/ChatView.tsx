@@ -38,6 +38,7 @@ import {
   currentChatErrorAtom,
 } from '@/atoms/chat-atoms'
 import { resolvedSystemMessageAtom, promptSidebarOpenAtom } from '@/atoms/system-prompt-atoms'
+import { activeToolIdsAtom } from '@/atoms/chat-tool-atoms'
 import { cn } from '@/lib/utils'
 import type { ConversationStreamState } from '@/atoms/chat-atoms'
 import type {
@@ -69,6 +70,7 @@ export function ChatView(): React.ReactElement {
   const isStreaming = useAtomValue(streamingAtom)
   const resolvedSystemMessage = useAtomValue(resolvedSystemMessageAtom)
   const promptSidebarOpen = useAtomValue(promptSidebarOpenAtom)
+  const activeToolIds = useAtomValue(activeToolIdsAtom)
   const [inlineEditingMessageId, setInlineEditingMessageId] = React.useState<string | null>(null)
 
   // 首条消息标题生成相关 ref（支持多对话并行）
@@ -369,6 +371,7 @@ export function ChatView(): React.ReactElement {
       attachments: savedAttachments.length > 0 ? savedAttachments : undefined,
       thinkingEnabled: thinkingEnabled || undefined,
       systemMessage: resolvedSystemMessage,
+      enabledToolIds: activeToolIds.length > 0 ? activeToolIds : undefined,
     }
 
     // 乐观更新：立即在 UI 中显示用户消息
@@ -401,6 +404,7 @@ export function ChatView(): React.ReactElement {
     contextDividers,
     thinkingEnabled,
     resolvedSystemMessage,
+    activeToolIds,
     setChatStreamErrors,
     setPendingAttachments,
     setStreamingStates,
