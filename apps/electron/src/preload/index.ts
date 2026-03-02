@@ -260,6 +260,9 @@ export interface ElectronAPI {
   /** 迁移 Chat 对话记录到 Agent 会话 */
   migrateChatToAgent: (conversationId: string, agentSessionId: string) => Promise<void>
 
+  /** 切换 Agent 会话置顶状态 */
+  togglePinAgentSession: (id: string) => Promise<AgentSessionMeta>
+
   /** 生成 Agent 会话标题 */
   generateAgentTitle: (input: AgentGenerateTitleInput) => Promise<string | null>
 
@@ -694,6 +697,10 @@ const electronAPI: ElectronAPI = {
 
   migrateChatToAgent: (conversationId: string, agentSessionId: string) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.MIGRATE_CHAT_TO_AGENT, conversationId, agentSessionId)
+  },
+
+  togglePinAgentSession: (id: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.TOGGLE_PIN, id)
   },
 
   generateAgentTitle: (input: AgentGenerateTitleInput) => {
