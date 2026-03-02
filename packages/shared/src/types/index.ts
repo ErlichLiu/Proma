@@ -35,3 +35,6 @@ export * from './github'
 
 // 系统提示词相关类型
 export * from './system-prompt'
+
+// 用量统计相关类型
+export * from './usage'

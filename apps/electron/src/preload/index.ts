@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, USAGE_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -62,6 +62,8 @@ import type {
   SystemPromptCreateInput,
   SystemPromptUpdateInput,
   MemoryConfig,
+  UsageQueryRange,
+  UsageSummary,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 
@@ -420,6 +422,14 @@ export interface ElectronAPI {
   getLatestRelease: () => Promise<GitHubRelease | null>
   listReleases: (options?: GitHubReleaseListOptions) => Promise<GitHubRelease[]>
   getReleaseByTag: (tag: string) => Promise<GitHubRelease | null>
+
+  // ===== 用量统计 =====
+
+  /** 查询用量汇总 */
+  getUsageSummary: (range?: UsageQueryRange) => Promise<UsageSummary>
+
+  /** 清除用量记录 */
+  clearUsageStats: () => Promise<void>
 
   // 工作区文件变化通知
   onCapabilitiesChanged: (callback: () => void) => () => void
@@ -881,6 +891,14 @@ const electronAPI: ElectronAPI = {
 
   getReleaseByTag: (tag) => {
     return ipcRenderer.invoke(GITHUB_RELEASE_IPC_CHANNELS.GET_RELEASE_BY_TAG, tag)
+  },
+
+  // 用量统计
+  getUsageSummary: (range?) => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.GET_SUMMARY, range)
+  },
+  clearUsageStats: () => {
+    return ipcRenderer.invoke(USAGE_IPC_CHANNELS.CLEAR)
   },
 }
 

@@ -59,6 +59,14 @@ export interface FileDialogResult {
  */
 export type MessageRole = 'user' | 'assistant' | 'system'
 
+/** Token 用量信息 */
+export interface MessageUsage {
+  /** 输入 token 数 */
+  inputTokens: number
+  /** 输出 token 数 */
+  outputTokens: number
+}
+
 /**
  * 聊天消息
  */
@@ -79,6 +87,8 @@ export interface ChatMessage {
   stopped?: boolean
   /** 文件附件列表 */
   attachments?: FileAttachment[]
+  /** Token 用量（assistant 消息，如果 Provider 返回了用量数据） */
+  usage?: MessageUsage
 }
 
 // ===== 对话相关 =====

@@ -166,6 +166,15 @@ export function getMemoryConfigPath(): string {
 }
 
 /**
+ * 获取用量统计文件路径
+ *
+ * @returns ~/.proma/usage-stats.json
+ */
+export function getUsageStatsPath(): string {
+  return join(getConfigDir(), 'usage-stats.json')
+}
+
+/**
  * 获取 Agent 会话索引文件路径
  *
  * @returns ~/.proma/agent-sessions.json

@@ -51,6 +51,13 @@ interface AnthropicMessage {
 /** Anthropic SSE 事件 */
 interface AnthropicSSEEvent {
   type: string
+  /** message_start 的 message 对象 */
+  message?: {
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+    }
+  }
   /** content_block_start 的 content_block */
   content_block?: {
     type: string
@@ -67,6 +74,10 @@ interface AnthropicSSEEvent {
     partial_json?: string
     /** message_delta 的 stop_reason */
     stop_reason?: string
+  }
+  /** message_delta 的 usage（包含最终 output_tokens） */
+  usage?: {
+    output_tokens?: number
   }
 }
 
@@ -254,6 +265,18 @@ export class AnthropicAdapter implements ProviderAdapter {
       const event = JSON.parse(jsonLine) as AnthropicSSEEvent
       const events: StreamEvent[] = []
 
+      // message_start 携带 input_tokens
+      if (event.type === 'message_start' && event.message?.usage) {
+        const { input_tokens, output_tokens } = event.message.usage
+        if (input_tokens || output_tokens) {
+          events.push({
+            type: 'usage',
+            inputTokens: input_tokens ?? 0,
+            outputTokens: output_tokens ?? 0,
+          })
+        }
+      }
+
       // 工具调用开始
       if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
         events.push({
@@ -280,9 +303,18 @@ export class AnthropicAdapter implements ProviderAdapter {
         }
       }
 
-      // message_delta 携带 stop_reason
-      if (event.type === 'message_delta' && event.delta?.stop_reason) {
-        events.push({ type: 'done', stopReason: event.delta.stop_reason })
+      // message_delta 携带 stop_reason 和最终 output_tokens
+      if (event.type === 'message_delta') {
+        if (event.usage?.output_tokens) {
+          events.push({
+            type: 'usage',
+            inputTokens: 0,
+            outputTokens: event.usage.output_tokens,
+          })
+        }
+        if (event.delta?.stop_reason) {
+          events.push({ type: 'done', stopReason: event.delta.stop_reason })
+        }
       }
 
       return events
