@@ -1,4 +1,5 @@
-import { Menu, shell } from 'electron'
+import { Menu, shell, BrowserWindow } from 'electron'
+import { getSettings } from './lib/settings-service'
 
 export function createApplicationMenu(): Menu {
   const isMac = process.platform === 'darwin'
@@ -58,9 +59,33 @@ export function createApplicationMenu(): Menu {
         { role: 'forceReload' as const, label: '强制重新加载' },
         { role: 'toggleDevTools' as const, label: '切换开发者工具' },
         { type: 'separator' as const },
-        { role: 'resetZoom' as const, label: '重置缩放' },
-        { role: 'zoomIn' as const, label: '放大' },
-        { role: 'zoomOut' as const, label: '缩小' },
+        {
+          label: '重置缩放',
+          accelerator: 'CommandOrControl+0',
+          click: (_menuItem, browserWindow) => {
+            if (!browserWindow || !(browserWindow instanceof BrowserWindow)) return
+            // 统一发送 IPC 事件，由渲染进程根据模式处理
+            browserWindow.webContents.send('zoom:reset')
+          },
+        },
+        {
+          label: '放大',
+          accelerator: 'CommandOrControl+Plus',
+          click: (_menuItem, browserWindow) => {
+            if (!browserWindow || !(browserWindow instanceof BrowserWindow)) return
+            // 统一发送 IPC 事件，由渲染进程根据模式处理
+            browserWindow.webContents.send('zoom:in')
+          },
+        },
+        {
+          label: '缩小',
+          accelerator: 'CommandOrControl+-',
+          click: (_menuItem, browserWindow) => {
+            if (!browserWindow || !(browserWindow instanceof BrowserWindow)) return
+            // 统一发送 IPC 事件，由渲染进程根据模式处理
+            browserWindow.webContents.send('zoom:out')
+          },
+        },
         { type: 'separator' as const },
         { role: 'togglefullscreen' as const, label: '切换全屏' },
       ],

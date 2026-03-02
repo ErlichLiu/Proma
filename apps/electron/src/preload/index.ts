@@ -204,6 +204,12 @@ export interface ElectronAPI {
   /** 订阅系统主题变化事件（返回清理函数） */
   onSystemThemeChanged: (callback: (isDark: boolean) => void) => () => void
 
+  /** 设置 Electron 原生缩放因子（全局模式） */
+  setZoomFactor: (zoomFactor: number) => Promise<void>
+
+  /** 获取当前 Electron 原生缩放因子 */
+  getZoomFactor: () => Promise<number>
+
   // ===== 环境检测相关 =====
 
   /** 执行环境检测 */
@@ -424,6 +430,17 @@ export interface ElectronAPI {
   // 工作区文件变化通知
   onCapabilitiesChanged: (callback: () => void) => () => void
   onWorkspaceFilesChanged: (callback: () => void) => () => void
+
+  // ===== 缩放事件订阅（返回清理函数） =====
+
+  /** 订阅放大事件 */
+  onZoomIn: (callback: () => void) => () => void
+
+  /** 订阅缩小事件 */
+  onZoomOut: (callback: () => void) => () => void
+
+  /** 订阅重置缩放事件 */
+  onZoomReset: (callback: () => void) => () => void
 }
 
 /**
@@ -591,6 +608,14 @@ const electronAPI: ElectronAPI = {
     const listener = (_: unknown, isDark: boolean): void => callback(isDark)
     ipcRenderer.on(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener)
     return () => { ipcRenderer.removeListener(SETTINGS_IPC_CHANNELS.ON_SYSTEM_THEME_CHANGED, listener) }
+  },
+
+  setZoomFactor: (zoomFactor: number) => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.SET_ZOOM_FACTOR, zoomFactor)
+  },
+
+  getZoomFactor: () => {
+    return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.GET_ZOOM_FACTOR)
   },
 
   // 环境检测
@@ -881,6 +906,26 @@ const electronAPI: ElectronAPI = {
 
   getReleaseByTag: (tag) => {
     return ipcRenderer.invoke(GITHUB_RELEASE_IPC_CHANNELS.GET_RELEASE_BY_TAG, tag)
+  },
+
+  // ===== 缩放事件订阅 =====
+
+  onZoomIn: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:in', listener)
+    return () => { ipcRenderer.removeListener('zoom:in', listener) }
+  },
+
+  onZoomOut: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:out', listener)
+    return () => { ipcRenderer.removeListener('zoom:out', listener) }
+  },
+
+  onZoomReset: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('zoom:reset', listener)
+    return () => { ipcRenderer.removeListener('zoom:reset', listener) }
   },
 }
 

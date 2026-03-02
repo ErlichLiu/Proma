@@ -53,6 +53,7 @@ import {
   hasMoreMessagesAtom,
   currentConversationIdAtom,
 } from '@/atoms/chat-atoms'
+import { messageAreaZoomLevelAtom, zoomModeAtom } from '@/atoms/zoom-atoms'
 import { getModelLogo } from '@/lib/model-logo'
 import { userProfileAtom } from '@/atoms/user-profile'
 import type { ChatMessage, ChatToolActivity } from '@proma/shared'
@@ -229,6 +230,8 @@ export function ChatMessages({
   const streamingContent = useAtomValue(streamingContentAtom)
   const streamingReasoning = useAtomValue(streamingReasoningAtom)
   const toolActivities = useAtomValue(streamingToolActivitiesAtom)
+  const zoomMode = useAtomValue(zoomModeAtom)
+  const zoomLevel = useAtomValue(messageAreaZoomLevelAtom)
 
   // 平滑流式输出：将高频 atom 更新转为逐字渲染
   const { displayedContent: smoothContent } = useSmoothStream({
@@ -335,8 +338,14 @@ export function ChatMessages({
   // 标准消息列表模式
   const dividerSet = new Set(contextDividers)
 
+  // 计算 zoom 样式（仅在消息区域缩放模式下应用）
+  const zoomStyle = zoomMode === 'message-area' ? { zoom: zoomLevel, transition: 'zoom 0.2s ease-out' } : {}
+
   return (
-    <Conversation className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}>
+    <Conversation
+      className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}
+      style={zoomStyle}
+    >
       {/* 滚动到顶部时自动加载更多历史 */}
       <ScrollTopLoader
         hasMore={hasMore}
