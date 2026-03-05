@@ -243,9 +243,10 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
             <TabsContent value="files" className="flex-1 overflow-hidden m-0 data-[state=active]:flex data-[state=active]:flex-col">
               {sessionPath && workspaceSlug ? (
                 <>
-                  {/* 工具栏：路径面包屑 + 打开文件夹 + 刷新 */}
+                  {/* 工具栏：工作区目录标签 + 路径 + 按钮 */}
                   <div className="flex items-center gap-1 px-3 h-[36px] border-b flex-shrink-0">
-                    <span className="text-xs text-muted-foreground truncate flex-1" title={sessionPath}>
+                    <span className="text-[11px] font-medium text-muted-foreground shrink-0">工作区目录</span>
+                    <span className="text-[11px] text-muted-foreground/60 truncate flex-1" title={sessionPath}>
                       {breadcrumb}
                     </span>
                     <Button
