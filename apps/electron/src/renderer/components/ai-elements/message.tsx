@@ -278,8 +278,8 @@ export const MessageResponse = React.memo(
 /** 折叠行数阈值 */
 const COLLAPSE_LINE_THRESHOLD = 4
 
-/** 将文本中的 @file:路径 替换为样式化 chip */
-const FILE_MENTION_RE = /@file:(\S+)/g
+/** 将文本中的 @file:路径 替换为样式化 chip（兼容带引号与旧格式） */
+const FILE_MENTION_RE = /@file:(?:"((?:\\.|[^"\\])*)"|(\S+))/g
 
 function renderTextWithMentions(text: string): React.ReactNode {
   const parts: React.ReactNode[] = []
@@ -295,7 +295,7 @@ function renderTextWithMentions(text: string): React.ReactNode {
       parts.push(text.slice(lastIndex, match.index))
     }
     // 渲染 mention chip
-    const filePath = match[1] ?? ''
+    const filePath = (match[1] ?? match[2] ?? '').replace(/\\"/g, '"')
     const fileName = filePath.split('/').pop() || filePath
     parts.push(
       <span

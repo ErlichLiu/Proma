@@ -330,6 +330,8 @@ export interface AgentSessionMeta {
   pinned?: boolean
   /** 附加的外部目录路径列表（绝对路径，作为 SDK additionalDirectories 传递） */
   attachedDirectories?: string[]
+  /** 附加的外部文件路径列表（绝对路径，通过引用方式附加，不复制） */
+  attachedFiles?: string[]
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -452,6 +454,8 @@ export interface AgentSendInput {
   workspaceId?: string
   /** 附加的外部目录（绝对路径，传递给 SDK additionalDirectories） */
   additionalDirectories?: string[]
+  /** 附加的外部文件（绝对路径，传递给 SDK additionalDirectories） */
+  attachedFiles?: string[]
 }
 
 // ===== 会话迁移输入 =====
@@ -540,7 +544,7 @@ export interface FileEntry {
 export interface FileIndexEntry {
   /** 文件/目录名称 */
   name: string
-  /** 相对于工作区的路径 */
+  /** 路径（工作区内为相对路径；附加单文件可能为绝对路径） */
   path: string
   /** 条目类型 */
   type: 'file' | 'dir'
@@ -583,6 +587,14 @@ export interface AgentAttachDirectoryInput {
   sessionId: string
   /** 目录的绝对路径 */
   directoryPath: string
+}
+
+/** 附加/分离文件的输入参数 */
+export interface AgentAttachFileInput {
+  /** 会话 ID */
+  sessionId: string
+  /** 文件的绝对路径 */
+  filePath: string
 }
 
 // ===== AskUserQuestion 交互式问答类型 =====
@@ -825,12 +837,18 @@ export const AGENT_IPC_CHANNELS = {
   // 附件
   /** 保存文件到 Agent session 工作目录 */
   SAVE_FILES_TO_SESSION: 'agent:save-files-to-session',
+  /** 打开文件选择对话框（返回 base64 内容，用于复制） */
+  OPEN_FILE_DIALOG: 'agent:open-file-dialog',
   /** 打开文件夹选择对话框 */
   OPEN_FOLDER_DIALOG: 'agent:open-folder-dialog',
   /** 附加外部目录到 Agent 会话 */
   ATTACH_DIRECTORY: 'agent:attach-directory',
   /** 移除会话的附加目录 */
   DETACH_DIRECTORY: 'agent:detach-directory',
+  /** 附加外部文件到 Agent 会话 */
+  ATTACH_FILE: 'agent:attach-file',
+  /** 移除会话的附加文件 */
+  DETACH_FILE: 'agent:detach-file',
 
   // 文件系统操作
   /** 获取 session 工作路径 */

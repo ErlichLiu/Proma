@@ -32,6 +32,7 @@ import type {
   AgentSaveFilesInput,
   AgentSavedFile,
   AgentAttachDirectoryInput,
+  AgentAttachFileInput,
   GetTaskOutputInput,
   GetTaskOutputResult,
   StopTaskInput,
@@ -1018,6 +1019,24 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 打开文件选择对话框（返回文件路径，用于附加）
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.OPEN_FILE_DIALOG,
+    async (): Promise<string[] | null> => {
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      if (!win) return null
+
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openFile', 'multiSelections'],
+        title: '选择文件',
+      })
+
+      if (result.canceled || result.filePaths.length === 0) return null
+
+      return result.filePaths
+    }
+  )
+
   // 打开文件夹选择对话框
   ipcMain.handle(
     AGENT_IPC_CHANNELS.OPEN_FOLDER_DIALOG,
@@ -1068,6 +1087,36 @@ export function registerIpcHandlers(): void {
       updateAgentSessionMeta(input.sessionId, { attachedDirectories: updated })
       // 停止附加目录文件监听
       unwatchAttachedDirectory(input.directoryPath)
+      return updated
+    }
+  )
+
+  // 附加外部文件到 Agent 会话
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.ATTACH_FILE,
+    async (_, input: AgentAttachFileInput): Promise<string[]> => {
+      const meta = getAgentSessionMeta(input.sessionId)
+      if (!meta) throw new Error(`会话不存在: ${input.sessionId}`)
+
+      const existing = meta.attachedFiles ?? []
+      if (existing.includes(input.filePath)) return existing
+
+      const updated = [...existing, input.filePath]
+      updateAgentSessionMeta(input.sessionId, { attachedFiles: updated })
+      return updated
+    }
+  )
+
+  // 移除会话的附加文件
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.DETACH_FILE,
+    async (_, input: AgentAttachFileInput): Promise<string[]> => {
+      const meta = getAgentSessionMeta(input.sessionId)
+      if (!meta) throw new Error(`会话不存在: ${input.sessionId}`)
+
+      const existing = meta.attachedFiles ?? []
+      const updated = existing.filter((f) => f !== input.filePath)
+      updateAgentSessionMeta(input.sessionId, { attachedFiles: updated })
       return updated
     }
   )
@@ -1289,12 +1338,12 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  // 搜索工作区文件（用于 @ 引用，递归扫描，支持附加目录）
+  // 搜索工作区文件（用于 @ 引用，递归扫描，支持附加目录/文件）
   ipcMain.handle(
     AGENT_IPC_CHANNELS.SEARCH_WORKSPACE_FILES,
     async (_, rootPath: string, query: string, limit = 20, additionalPaths?: string[]): Promise<FileSearchResult> => {
-      const { readdirSync } = await import('node:fs')
-      const { resolve, relative } = await import('node:path')
+      const { readdirSync, statSync } = await import('node:fs')
+      const { resolve, relative, basename } = await import('node:path')
 
       const safeRoot = resolve(rootPath)
       const ignoreDirs = new Set(['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv', 'build', '.cache'])
@@ -1329,11 +1378,28 @@ export function registerIpcHandlers(): void {
 
       scan(safeRoot, 0, safeRoot)
 
-      // 扫描附加目录（外部路径）
+      // 扫描附加目录/文件（外部路径）
       if (additionalPaths && additionalPaths.length > 0) {
         for (const addPath of additionalPaths) {
-          const addRoot = resolve(addPath)
-          scan(addRoot, 0, addRoot)
+          const resolvedPath = resolve(addPath)
+          try {
+            const stat = statSync(resolvedPath)
+            if (stat.isDirectory()) {
+              scan(resolvedPath, 0, resolvedPath)
+              continue
+            }
+
+            if (stat.isFile()) {
+              allEntries.push({
+                name: basename(resolvedPath),
+                // 单文件引用需传绝对路径，确保 SDK 可直接定位
+                path: resolvedPath,
+                type: 'file',
+              })
+            }
+          } catch {
+            // 忽略不存在或无权限的附加路径
+          }
         }
       }
 

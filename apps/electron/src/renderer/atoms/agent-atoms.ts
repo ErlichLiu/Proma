@@ -1166,6 +1166,13 @@ export const agentSessionDraftsAtom = atom<Map<string, string>>(new Map())
  */
 export const agentAttachedDirectoriesMapAtom = atom<Map<string, string[]>>(new Map())
 
+/**
+ * 会话附加文件 Map — 以 sessionId 为 key
+ * 存储每个会话通过"选择文件"功能关联的外部文件路径列表。
+ * 这些文件通过引用方式附加，不复制到工作区。
+ */
+export const agentAttachedFilesMapAtom = atom<Map<string, string[]>>(new Map())
+
 /** 当前 Agent 会话的草稿内容（派生读写原子） */
 export const currentAgentSessionDraftAtom = atom(
   (get) => {

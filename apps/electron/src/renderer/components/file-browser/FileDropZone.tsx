@@ -103,30 +103,35 @@ export function FileDropZone({ workspaceSlug, sessionId, onFilesUploaded, onAtta
 
   const handleSelectFiles = React.useCallback(async (): Promise<void> => {
     try {
-      const result = await window.electronAPI.openFileDialog()
-      if (result.files.length === 0) return
+      const filePaths = await window.electronAPI.openAgentFileDialog()
+      if (!filePaths || filePaths.length === 0) return
 
       setIsUploading(true)
-      const fileEntries = result.files.map((f) => ({
-        filename: f.filename,
-        data: f.data,
-      }))
 
-      await window.electronAPI.saveFilesToAgentSession({
-        workspaceSlug,
+      // 附加文件路径到会话（不复制文件内容）
+      const updatedFiles = await window.electronAPI.attachFile({
         sessionId,
-        files: fileEntries,
+        filePath: filePaths[0]!,
       })
 
+      // 如果有多个文件，依次附加
+      for (let i = 1; i < filePaths.length; i++) {
+        await window.electronAPI.attachFile({
+          sessionId,
+          filePath: filePaths[i]!,
+        })
+      }
+
+      // 触发刷新，让 SidePanel 重新加载附加文件列表
       onFilesUploaded()
-      toast.success(`已添加 ${result.files.length} 个文件`)
+      toast.success(`已附加 ${filePaths.length} 个文件`)
     } catch (error) {
-      console.error('[FileDropZone] 选择文件失败:', error)
-      toast.error('文件上传失败')
+      console.error('[FileDropZone] 附加文件失败:', error)
+      toast.error('文件附加失败')
     } finally {
       setIsUploading(false)
     }
-  }, [workspaceSlug, sessionId, onFilesUploaded])
+  }, [sessionId, onFilesUploaded])
 
   return (
     <div className="flex-shrink-0 px-3 pt-3 pb-1">
@@ -170,11 +175,11 @@ export function FileDropZone({ workspaceSlug, sessionId, onFilesUploaded, onAtta
                     onClick={handleSelectFiles}
                   >
                     <File className="size-3" />
-                    选择文件
+                    附加文件
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>将文件放入 Agent 工作文件夹</p>
+                  <p>附加文件到 Agent 工作区（引用原文件）</p>
                 </TooltipContent>
               </Tooltip>
               {onAttachFolder && (

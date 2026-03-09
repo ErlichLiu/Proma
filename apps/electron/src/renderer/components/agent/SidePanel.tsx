@@ -33,6 +33,7 @@ import {
   currentAgentWorkspaceIdAtom,
   agentWorkspacesAtom,
   agentAttachedDirectoriesMapAtom,
+  agentAttachedFilesMapAtom,
 } from '@/atoms/agent-atoms'
 import type { SidePanelTab } from '@/atoms/agent-atoms'
 import type { FileEntry } from '@proma/shared'
@@ -111,6 +112,11 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
   const setAttachedDirsMap = useSetAtom(agentAttachedDirectoriesMapAtom)
   const attachedDirs = attachedDirsMap.get(sessionId) ?? []
 
+  // 附加文件列表
+  const attachedFilesMap = useAtomValue(agentAttachedFilesMapAtom)
+  const setAttachedFilesMap = useSetAtom(agentAttachedFilesMapAtom)
+  const attachedFiles = attachedFilesMap.get(sessionId) ?? []
+
   const handleAttachFolder = React.useCallback(async () => {
     try {
       const result = await window.electronAPI.openFolderDialog()
@@ -150,10 +156,50 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
     }
   }, [sessionId, setAttachedDirsMap])
 
-  // 文件上传完成后递增版本号，触发 FileBrowser 刷新
-  const handleFilesUploaded = React.useCallback(() => {
+  const handleDetachFile = React.useCallback(async (filePath: string) => {
+    try {
+      const updated = await window.electronAPI.detachFile({
+        sessionId,
+        filePath,
+      })
+      setAttachedFilesMap((prev) => {
+        const map = new Map(prev)
+        if (updated.length > 0) {
+          map.set(sessionId, updated)
+        } else {
+          map.delete(sessionId)
+        }
+        return map
+      })
+    } catch (error) {
+      console.error('[SidePanel] 移除附加文件失败:', error)
+    }
+  }, [sessionId, setAttachedFilesMap])
+
+  // 文件上传完成后递增版本号，触发 FileBrowser 刷新，并重新加载附加文件列表
+  const handleFilesUploaded = React.useCallback(async () => {
     setFilesVersion((prev) => prev + 1)
-  }, [setFilesVersion])
+
+    // 重新加载会话元数据以获取最新的附加文件列表
+    try {
+      const sessions = await window.electronAPI.listAgentSessions()
+      const currentSession = sessions.find((s) => s.id === sessionId)
+      if (currentSession) {
+        const files = currentSession.attachedFiles ?? []
+        setAttachedFilesMap((prev) => {
+          const map = new Map(prev)
+          if (files.length > 0) {
+            map.set(sessionId, files)
+          } else {
+            map.delete(sessionId)
+          }
+          return map
+        })
+      }
+    } catch (error) {
+      console.error('[SidePanel] 重新加载附加文件失败:', error)
+    }
+  }, [sessionId, setFilesVersion, setAttachedFilesMap])
 
   // 手动刷新文件列表
   const handleRefresh = React.useCallback(() => {
@@ -181,7 +227,7 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
   }, [filesVersion, sessionPath, hasTeamActivity, setIsOpen, setActiveTab])
 
   // 面板是否可显示内容（需要有 sessionPath 或 team 活动）
-  const hasContent = sessionPath || hasTeamActivity || attachedDirs.length > 0
+  const hasContent = sessionPath || hasTeamActivity || attachedDirs.length > 0 || attachedFiles.length > 0
 
   return (
     <div
@@ -308,13 +354,15 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  {/* 可滚动内容区：附加目录 + 文件浏览器 + 拖拽上传 */}
+                  {/* 可滚动内容区：附加目录 + 附加文件 + 文件浏览器 + 拖拽上传 */}
                   <div className="flex-1 min-h-0 overflow-y-auto">
-                    {/* 附加目录列表（可展开目录树） */}
-                    {attachedDirs.length > 0 && (
-                      <AttachedDirsSection
+                    {/* 附加目录和文件列表（可展开目录树） */}
+                    {(attachedDirs.length > 0 || attachedFiles.length > 0) && (
+                      <AttachedItemsSection
                         attachedDirs={attachedDirs}
-                        onDetach={handleDetachDirectory}
+                        attachedFiles={attachedFiles}
+                        onDetachDir={handleDetachDirectory}
+                        onDetachFile={handleDetachFile}
                         refreshVersion={filesVersion}
                       />
                     )}
@@ -342,7 +390,147 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
   )
 }
 
-// ===== 附加目录容器（管理选中状态） =====
+// ===== 附加目录和文件容器（管理选中状态） =====
+
+interface AttachedItemsSectionProps {
+  attachedDirs: string[]
+  attachedFiles: string[]
+  onDetachDir: (dirPath: string) => void
+  onDetachFile: (filePath: string) => void
+  /** 文件版本号，用于自动刷新已展开的目录 */
+  refreshVersion: number
+}
+
+/** 附加目录和文件区域：统一管理所有子项的选中状态 */
+function AttachedItemsSection({ attachedDirs, attachedFiles, onDetachDir, onDetachFile, refreshVersion }: AttachedItemsSectionProps): React.ReactElement {
+  const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(new Set())
+
+  const handleSelect = React.useCallback((path: string, ctrlKey: boolean) => {
+    setSelectedPaths((prev) => {
+      if (ctrlKey) {
+        // Ctrl+点击：切换选中
+        const next = new Set(prev)
+        if (next.has(path)) {
+          next.delete(path)
+        } else {
+          next.add(path)
+        }
+        return next
+      }
+      // 普通点击：单选
+      return new Set([path])
+    })
+  }, [])
+
+  return (
+    <div className="pt-2.5 pb-1 flex-shrink-0">
+      <div className="text-[11px] font-medium text-muted-foreground mb-1 px-3">附加文件（Agent 可以读取并操作）</div>
+      {/* 附加文件夹 */}
+      {attachedDirs.map((dir) => (
+        <AttachedDirTree
+          key={dir}
+          dirPath={dir}
+          onDetach={() => onDetachDir(dir)}
+          selectedPaths={selectedPaths}
+          onSelect={handleSelect}
+          refreshVersion={refreshVersion}
+        />
+      ))}
+      {/* 附加文件 */}
+      {attachedFiles.map((file) => (
+        <AttachedFileItem
+          key={file}
+          filePath={file}
+          onDetach={() => onDetachFile(file)}
+          selectedPaths={selectedPaths}
+          onSelect={handleSelect}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ===== 附加文件项组件 =====
+
+interface AttachedFileItemProps {
+  filePath: string
+  onDetach: () => void
+  selectedPaths: Set<string>
+  onSelect: (path: string, ctrlKey: boolean) => void
+}
+
+/** 附加文件项：显示文件名，支持选中 + 三点菜单 */
+function AttachedFileItem({ filePath, onDetach, selectedPaths, onSelect }: AttachedFileItemProps): React.ReactElement {
+  const fileName = filePath.split('/').filter(Boolean).pop() || filePath
+  const isSelected = selectedPaths.has(filePath)
+
+  const handleClick = (e: React.MouseEvent): void => {
+    onSelect(filePath, e.ctrlKey || e.metaKey)
+  }
+
+  const handleDoubleClick = (): void => {
+    window.electronAPI.openAttachedFile(filePath).catch(console.error)
+  }
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1 py-1 px-2 cursor-pointer group',
+        isSelected ? 'bg-accent' : 'hover:bg-accent/50',
+      )}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+    >
+      <span className="w-3.5 flex-shrink-0" />
+      <FileText className="size-4 text-muted-foreground flex-shrink-0" />
+      <span className="text-xs truncate flex-1" title={filePath}>
+        {fileName}
+      </span>
+      {isSelected && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="h-6 w-6 rounded flex items-center justify-center hover:bg-accent/70"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40 z-[9999] min-w-0 p-0.5">
+              <DropdownMenuItem
+                className="text-xs py-1 [&>svg]:size-3.5"
+                onSelect={() => window.electronAPI.showAttachedInFolder(filePath).catch(console.error)}
+              >
+                <FolderSearch />
+                在文件夹中显示
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-xs py-1 [&>svg]:size-3.5"
+                onSelect={() => window.electronAPI.openAttachedFile(filePath).catch(console.error)}
+              >
+                <ExternalLink />
+                打开文件
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-xs py-1 [&>svg]:size-3.5 text-destructive"
+                onSelect={onDetach}
+              >
+                <X />
+                移除附加
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ===== 附加目录容器（旧版，保留兼容） =====
 
 interface AttachedDirsSectionProps {
   attachedDirs: string[]

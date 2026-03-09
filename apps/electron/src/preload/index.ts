@@ -40,6 +40,7 @@ import type {
   AgentSaveFilesInput,
   AgentSavedFile,
   AgentAttachDirectoryInput,
+  AgentAttachFileInput,
   GetTaskOutputInput,
   GetTaskOutputResult,
   StopTaskInput,
@@ -410,6 +411,9 @@ export interface ElectronAPI {
   /** 保存文件到 Agent session 工作目录 */
   saveFilesToAgentSession: (input: AgentSaveFilesInput) => Promise<AgentSavedFile[]>
 
+  /** 打开文件选择对话框（返回文件路径，用于附加） */
+  openAgentFileDialog: () => Promise<string[] | null>
+
   /** 打开文件夹选择对话框 */
   openFolderDialog: () => Promise<{ path: string; name: string } | null>
 
@@ -418,6 +422,12 @@ export interface ElectronAPI {
 
   /** 移除会话的附加目录 */
   detachDirectory: (input: AgentAttachDirectoryInput) => Promise<string[]>
+
+  /** 附加外部文件到 Agent 会话 */
+  attachFile: (input: AgentAttachFileInput) => Promise<string[]>
+
+  /** 移除会话的附加文件 */
+  detachFile: (input: AgentAttachFileInput) => Promise<string[]>
 
   // ===== Agent 文件系统操作 =====
 
@@ -971,6 +981,10 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SAVE_FILES_TO_SESSION, input)
   },
 
+  openAgentFileDialog: () => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.OPEN_FILE_DIALOG)
+  },
+
   openFolderDialog: () => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.OPEN_FOLDER_DIALOG)
   },
@@ -981,6 +995,14 @@ const electronAPI: ElectronAPI = {
 
   detachDirectory: (input: AgentAttachDirectoryInput) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.DETACH_DIRECTORY, input)
+  },
+
+  attachFile: (input: AgentAttachFileInput) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.ATTACH_FILE, input)
+  },
+
+  detachFile: (input: AgentAttachFileInput) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.DETACH_FILE, input)
   },
 
   // Agent 文件系统操作

@@ -114,7 +114,9 @@ function htmlToMarkdown(html: string): string {
         // Mention 节点：转换为 @file:路径 格式
         if (el.getAttribute('data-type') === 'mention') {
           const filePath = el.getAttribute('data-id') || ''
-          return `@file:${filePath}`
+          // 使用引号包裹路径，避免路径中空格导致发送后渲染截断
+          const escapedPath = filePath.replace(/"/g, '\\"')
+          return `@file:"${escapedPath}"`
         }
         return children
       }
@@ -183,6 +185,8 @@ interface RichTextInputProps {
   workspacePath?: string | null
   /** 附加目录路径列表（@ 引用时一并搜索） */
   attachedDirs?: string[]
+  /** 附加文件路径列表（@ 引用时一并搜索） */
+  attachedFiles?: string[]
   className?: string
 }
 
@@ -205,6 +209,7 @@ export function RichTextInput({
   collapsible = false,
   workspacePath,
   attachedDirs = [],
+  attachedFiles = [],
 }: RichTextInputProps): React.ReactElement {
   const [isExpanded, setIsExpanded] = useState(false)
   // 手动折叠状态：用户主动折叠输入框
@@ -227,10 +232,13 @@ export function RichTextInput({
   // 附加目录路径引用（给 Suggestion 使用）
   const attachedDirsRef = useRef<string[]>(attachedDirs)
   attachedDirsRef.current = attachedDirs
+  // 附加文件路径引用（给 Suggestion 使用）
+  const attachedFilesRef = useRef<string[]>(attachedFiles)
+  attachedFilesRef.current = attachedFiles
 
   // Mention Suggestion 配置（稳定引用，不随 workspacePath 变化重建）
   const mentionSuggestion = useMemo(
-    () => createFileMentionSuggestion(workspacePathRef, mentionActiveRef, attachedDirsRef),
+    () => createFileMentionSuggestion(workspacePathRef, mentionActiveRef, attachedDirsRef, attachedFilesRef),
     [],
   )
 

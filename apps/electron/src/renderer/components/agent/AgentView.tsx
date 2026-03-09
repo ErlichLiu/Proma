@@ -52,6 +52,7 @@ import {
   buildTeamActivityEntries,
   rebuildTeamDataFromMessages,
   agentAttachedDirectoriesMapAtom,
+  agentAttachedFilesMapAtom,
 } from '@/atoms/agent-atoms'
 import type { AgentContextStatus } from '@/atoms/agent-atoms'
 import { activeViewAtom } from '@/atoms/active-view'
@@ -92,6 +93,9 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const setAttachedDirsMap = useSetAtom(agentAttachedDirectoriesMapAtom)
   const attachedDirsMap = useAtomValue(agentAttachedDirectoriesMapAtom)
   const attachedDirs = attachedDirsMap.get(sessionId) ?? []
+  const setAttachedFilesMap = useSetAtom(agentAttachedFilesMapAtom)
+  const attachedFilesMap = useAtomValue(agentAttachedFilesMapAtom)
+  const attachedFiles = attachedFilesMap.get(sessionId) ?? []
 
   const draftsMap = useAtomValue(agentSessionDraftsAtom)
   const setDraftsMap = useSetAtom(agentSessionDraftsAtom)
@@ -201,11 +205,13 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       .catch(console.error)
   }, [sessionId, refreshVersion, setStreamingStates, store])
 
-  // 从会话元数据初始化附加目录
+  // 从会话元数据初始化附加目录和文件
   const sessions = useAtomValue(agentSessionsAtom)
   React.useEffect(() => {
     const meta = sessions.find((s) => s.id === sessionId)
     const dirs = meta?.attachedDirectories ?? []
+    const files = meta?.attachedFiles ?? []
+
     setAttachedDirsMap((prev) => {
       const existing = prev.get(sessionId)
       // 避免不必要的更新
@@ -218,7 +224,20 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       }
       return map
     })
-  }, [sessionId, sessions, setAttachedDirsMap])
+
+    setAttachedFilesMap((prev) => {
+      const existing = prev.get(sessionId)
+      // 避免不必要的更新
+      if (JSON.stringify(existing) === JSON.stringify(files)) return prev
+      const map = new Map(prev)
+      if (files.length > 0) {
+        map.set(sessionId, files)
+      } else {
+        map.delete(sessionId)
+      }
+      return map
+    })
+  }, [sessionId, sessions, setAttachedDirsMap, setAttachedFilesMap])
 
   // 自动发送 pending prompt（从设置页"对话完成配置"触发）
   React.useEffect(() => {
@@ -581,6 +600,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       modelId: agentModelId || undefined,
       workspaceId: currentWorkspaceId || undefined,
       ...(attachedDirs.length > 0 && { additionalDirectories: attachedDirs }),
+      ...(attachedFiles.length > 0 && { attachedFiles }),
     }
 
     setInputContent('')
@@ -855,6 +875,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
               collapsible
               workspacePath={sessionPath}
               attachedDirs={attachedDirs}
+              attachedFiles={attachedFiles}
             />
 
             {/* Footer 工具栏 */}
