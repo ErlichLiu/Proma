@@ -11,6 +11,7 @@
 export type ProviderType =
   | 'anthropic'
   | 'openai'
+  | 'openai-responses'
   | 'deepseek'
   | 'google'
   | 'moonshot'
@@ -26,6 +27,7 @@ export type ProviderType =
 export const PROVIDER_DEFAULT_URLS: Record<ProviderType, string> = {
   anthropic: 'https://api.anthropic.com',
   openai: 'https://api.openai.com/v1',
+  'openai-responses': 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com',
   google: 'https://generativelanguage.googleapis.com',
   moonshot: 'https://api.moonshot.cn/v1',
@@ -42,6 +44,7 @@ export const PROVIDER_DEFAULT_URLS: Record<ProviderType, string> = {
 export const PROVIDER_LABELS: Record<ProviderType, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  'openai-responses': 'OpenAI Responses API',
   deepseek: 'DeepSeek',
   google: 'Google',
   moonshot: 'Moonshot / Kimi',
