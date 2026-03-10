@@ -10,7 +10,7 @@
 
 import * as React from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { PanelRight, X, Users, FolderOpen, ExternalLink, RefreshCw, ChevronRight, Folder, FileText, MoreHorizontal, FolderSearch, Pencil, FolderInput, CheckSquare } from 'lucide-react'
+import { PanelRight, X, Users, FolderOpen, ExternalLink, RefreshCw, ChevronRight, Folder, FileText, MoreHorizontal, FolderSearch, Pencil, FolderInput, CheckSquare, Terminal } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { FileBrowser, FileDropZone } from '@/components/file-browser'
 import { TeamActivityPanel } from './TeamActivityPanel'
 import { TodoListPanel } from './TodoListPanel'
+import { CodeTrackerPanel } from './CodeTrackerPanel'
 import {
   agentSidePanelOpenMapAtom,
   agentSidePanelTabMapAtom,
@@ -262,6 +263,10 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
                   <CheckSquare className="size-3" />
                   任务
                 </TabsTrigger>
+                <TabsTrigger value="tracker" className="text-xs h-7 px-3 gap-1.5">
+                  <Terminal className="size-3" />
+                  追踪
+                </TabsTrigger>
               </TabsList>
             </div>
 
@@ -273,6 +278,11 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
             {/* TodoList Tab */}
             <TabsContent value="todo" className="flex-1 overflow-hidden m-0 data-[state=active]:flex data-[state=active]:flex-col">
               <TodoListPanel />
+            </TabsContent>
+
+            {/* Code Tracker Tab */}
+            <TabsContent value="tracker" className="flex-1 overflow-hidden m-0 data-[state=active]:flex data-[state=active]:flex-col">
+              <CodeTrackerPanel sessionId={sessionId} />
             </TabsContent>
 
             {/* File Browser Tab */}

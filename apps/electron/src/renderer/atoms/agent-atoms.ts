@@ -92,7 +92,7 @@ export interface TeammateState {
 const MAX_TOOL_HISTORY = 20
 
 /** 侧面板活跃 Tab */
-export type SidePanelTab = 'team' | 'files' | 'todo'
+export type SidePanelTab = 'team' | 'files' | 'todo' | 'tracker'
 
 /** Agent 会话的流式状态 */
 export interface AgentStreamState {
