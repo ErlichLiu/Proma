@@ -10,7 +10,7 @@
 
 import * as React from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { PanelRight, X, Users, FolderOpen, ExternalLink, RefreshCw, ChevronRight, Folder, FileText, MoreHorizontal, FolderSearch, Pencil, FolderInput } from 'lucide-react'
+import { PanelRight, X, Users, FolderOpen, ExternalLink, RefreshCw, ChevronRight, Folder, FileText, MoreHorizontal, FolderSearch, Pencil, FolderInput, CheckSquare } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/utils'
 import { FileBrowser, FileDropZone } from '@/components/file-browser'
 import { TeamActivityPanel } from './TeamActivityPanel'
+import { TodoListPanel } from './TodoListPanel'
 import {
   agentSidePanelOpenMapAtom,
   agentSidePanelTabMapAtom,
@@ -257,12 +258,21 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
                     <span className="ml-0.5 size-1.5 rounded-full bg-primary" />
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="todo" className="text-xs h-7 px-3 gap-1.5">
+                  <CheckSquare className="size-3" />
+                  任务
+                </TabsTrigger>
               </TabsList>
             </div>
 
             {/* Team Activity Tab */}
             <TabsContent value="team" className="flex-1 overflow-hidden m-0 data-[state=active]:flex data-[state=active]:flex-col">
               <TeamActivityPanel sessionId={sessionId} />
+            </TabsContent>
+
+            {/* TodoList Tab */}
+            <TabsContent value="todo" className="flex-1 overflow-hidden m-0 data-[state=active]:flex data-[state=active]:flex-col">
+              <TodoListPanel />
             </TabsContent>
 
             {/* File Browser Tab */}
