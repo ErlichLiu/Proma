@@ -1574,6 +1574,44 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // ===== 标签页拆分功能 =====
+
+  // 在新窗口打开标签页
+  ipcMain.on('open-tab-in-new-window', (event, data: {
+    tabId: string
+    type: 'chat' | 'agent'
+    sessionId: string
+    title: string
+    workspaceId?: string
+  }) => {
+    console.log('[IPC] 收到在新窗口打开标签页请求:', data)
+
+    // 创建新窗口
+    const newWindow = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      title: data.title,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: require('path').join(__dirname, 'preload.cjs'),
+      },
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 12, y: 10 },
+    })
+
+    // 加载相同的页面，但带上参数
+    const url = new URL(event.sender.getURL())
+    url.searchParams.set('tabId', data.tabId)
+    url.searchParams.set('sessionId', data.sessionId)
+    url.searchParams.set('type', data.type)
+    if (data.workspaceId) {
+      url.searchParams.set('workspaceId', data.workspaceId)
+    }
+
+    newWindow.loadURL(url.toString())
+  })
+
   console.log('[IPC] IPC 处理器注册完成')
 
   // 注册更新 IPC 处理器
