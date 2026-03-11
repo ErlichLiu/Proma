@@ -7,6 +7,8 @@
  * - 拖拽重排序
  * - 溢出时水平滚动
  * - 分屏模式切换按钮
+ * - 右键菜单（在新窗口打开、移动到分屏面板）
+ * - 显示工作区名称
  */
 
 import * as React from 'react'
@@ -20,6 +22,7 @@ import {
   closeTab,
   focusTab,
   reorderTabs,
+  setSplitMode,
 } from '@/atoms/tab-atoms'
 import {
   conversationModelsAtom,
@@ -30,6 +33,8 @@ import {
 import {
   agentSidePanelOpenMapAtom,
   agentSidePanelTabMapAtom,
+  agentWorkspacesAtom,
+  currentAgentWorkspaceIdAtom,
 } from '@/atoms/agent-atoms'
 import { conversationPromptIdAtom } from '@/atoms/system-prompt-atoms'
 import { TabBarItem } from './TabBarItem'
@@ -41,6 +46,11 @@ export function TabBar(): React.ReactElement {
   const activeTabId = useAtomValue(activeTabIdAtom)
   const streamingMap = useAtomValue(tabStreamingMapAtom)
   const scrollRef = React.useRef<HTMLDivElement>(null)
+
+  // 工作区信息
+  const workspaces = useAtomValue(agentWorkspacesAtom)
+  const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
+  const currentWorkspace = workspaces.find((w) => w.id === currentWorkspaceId)
 
   // per-conversation/session Map atoms（用于关闭标签时清理）
   const setConvModels = useSetAtom(conversationModelsAtom)
@@ -128,6 +138,43 @@ export function TabBar(): React.ReactElement {
     }
   }, [])
 
+  // 在新窗口打开标签页
+  const handleOpenInNewWindow = React.useCallback((tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab) return
+    // 通过 IPC 通知主进程打开新窗口
+    window.electron?.ipcRenderer.send('open-tab-in-new-window', {
+      tabId: tab.id,
+      type: tab.type,
+      sessionId: tab.sessionId,
+      title: tab.title,
+      workspaceId: currentWorkspaceId,
+    })
+  }, [tabs, currentWorkspaceId])
+
+  // 移动标签到指定分屏面板
+  const handleMoveToPanel = React.useCallback((tabId: string, panelIndex: number) => {
+    // 如果当前是单面板模式，先切换到左右分屏
+    if (layout.mode === 'single') {
+      setLayout((prev) => {
+        const newLayout = setSplitMode(prev, 'horizontal-2')
+        // 在新面板中激活该标签
+        const newPanels = newLayout.panels.map((panel, idx) =>
+          idx === panelIndex ? { ...panel, activeTabId: tabId } : panel
+        )
+        return { ...newLayout, panels: newPanels }
+      })
+    } else {
+      // 已经是分屏模式，直接移动
+      setLayout((prev) => {
+        const newPanels = prev.panels.map((panel, idx) =>
+          idx === panelIndex ? { ...panel, activeTabId: tabId } : panel
+        )
+        return { ...prev, panels: newPanels }
+      })
+    }
+  }, [layout.mode, setLayout])
+
   if (tabs.length === 0) return <div className="h-[34px] titlebar-drag-region" />
 
   return (
@@ -144,12 +191,15 @@ export function TabBar(): React.ReactElement {
             id={tab.id}
             type={tab.type}
             title={tab.title}
+            workspaceName={tab.type === 'agent' ? currentWorkspace?.name : undefined}
             isActive={tab.id === activeTabId}
             isStreaming={streamingMap.get(tab.id) ?? false}
             onActivate={() => handleActivate(tab.id)}
             onClose={() => handleClose(tab.id)}
             onMiddleClick={() => handleClose(tab.id)}
             onDragStart={(e) => handleDragStart(tab.id, e)}
+            onOpenInNewWindow={() => handleOpenInNewWindow(tab.id)}
+            onMoveToPanel={(panelIndex) => handleMoveToPanel(tab.id, panelIndex)}
           />
         ))}
       </div>
