@@ -31,6 +31,10 @@ import {
 import {
   conversationDraftsAtom,
 } from '@/atoms/chat-atoms'
+import {
+  agentWorkspacesAtom,
+  currentAgentWorkspaceIdAtom,
+} from '@/atoms/agent-atoms'
 import type { PendingAttachment } from '@/atoms/chat-atoms'
 import {
   useConversationModel,
@@ -76,6 +80,9 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
 
   const [selectedModel] = useConversationModel()
   const [thinkingEnabled, setThinkingEnabled] = useConversationThinkingEnabled()
+  const workspaces = useAtomValue(agentWorkspacesAtom)
+  const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
+  const currentWorkspaceSlug = workspaces.find((w) => w.id === currentWorkspaceId)?.slug ?? null
   const setPendingAttachments = onSetPendingAttachments
   const [isDragOver, setIsDragOver] = React.useState(false)
 
@@ -257,11 +264,12 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
             onPasteFiles={handlePasteFiles}
             placeholder={
               selectedModel
-                ? '输入消息... (Enter 发送，Shift+Enter 换行。支持拖放文件和直接粘贴图片)'
+                ? '输入消息... (Enter 发送，Shift+Enter 换行，@ 引用文件，/ 调用 Skill，$ 调用 MCP)'
                 : '请先选择模型'
             }
             disabled={!selectedModel}
             autoFocusTrigger={conversationId}
+            workspaceSlug={currentWorkspaceSlug}
           />
 
           {/* Footer 工具栏 — Cherry Studio: padding 5px 8px, height 40px, gap 16px */}

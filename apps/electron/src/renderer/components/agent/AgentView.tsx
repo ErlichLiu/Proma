@@ -847,13 +847,14 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
               onPasteFiles={handlePasteFiles}
               placeholder={
                 agentChannelId
-                  ? '输入消息... (Enter 发送，Shift+Enter 换行，@ 引用文件)'
+                  ? '输入消息... (Enter 发送，Shift+Enter 换行，@ 引用文件，/ Skill，$ MCP)'
                   : '请先在设置中选择 Agent 供应商'
               }
               disabled={!agentChannelId}
               autoFocusTrigger={sessionId}
               collapsible
               workspacePath={sessionPath}
+              workspaceSlug={workspaces.find((w) => w.id === currentWorkspaceId)?.slug ?? null}
               attachedDirs={attachedDirs}
             />
 
