@@ -66,6 +66,7 @@ import type {
   FeishuPresenceReport,
   FeishuNotifyMode,
   FeishuUpdateBindingInput,
+  DetachTabInput,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus } from './lib/runtime-init'
@@ -156,6 +157,7 @@ import { watchAttachedDirectory, unwatchAttachedDirectory } from './lib/workspac
 import { getFeishuConfig, saveFeishuConfig, getDecryptedAppSecret } from './lib/feishu-config'
 import { feishuBridge } from './lib/feishu-bridge'
 import { presenceService } from './lib/feishu-presence'
+import { createDetachedWindow } from './lib/window-manager'
 
 /**
  * 注册 IPC 处理器
@@ -1571,6 +1573,16 @@ export function registerIpcHandlers(): void {
     FEISHU_IPC_CHANNELS.SET_SESSION_NOTIFY,
     async (_, sessionId: string, mode: FeishuNotifyMode): Promise<void> => {
       feishuBridge.setSessionNotifyMode(sessionId, mode)
+    }
+  )
+
+  // ===== 窗口管理 =====
+
+  // 将标签页分离到新窗口
+  ipcMain.handle(
+    IPC_CHANNELS.DETACH_TAB,
+    async (_, input: DetachTabInput): Promise<void> => {
+      createDetachedWindow(input.type, input.sessionId, input.title, input.screenX, input.screenY)
     }
   )
 
