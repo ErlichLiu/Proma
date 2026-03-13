@@ -148,6 +148,13 @@ export interface ChannelTestResult {
   success: boolean
   /** 结果消息 */
   message: string
+  /**
+   * 探测/规范化后的 Base URL（可选）
+   *
+   * 主要用于 OpenAI 兼容服务的路径探测（例如自动判断是否需要 /v1）。
+   * 调用方可据此自动回填表单 Base URL，避免用户手动修正。
+   */
+  resolvedBaseUrl?: string
 }
 
 /**

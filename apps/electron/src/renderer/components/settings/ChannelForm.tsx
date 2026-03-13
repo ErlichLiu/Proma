@@ -30,6 +30,7 @@ import {
   PROVIDER_DEFAULT_URLS,
   PROVIDER_LABELS,
 } from '@proma/shared'
+import { normalizeOpenAIBaseUrl } from '@proma/core/providers'
 import type {
   Channel,
   ChannelCreateInput,
@@ -101,6 +102,11 @@ function buildPreviewUrl(baseUrl: string, provider: ProviderType, apiFormat: Cha
     return `${trimmed}/v1/messages`
   }
 
+  // OpenAI 官方：Base URL 约定包含 /v1
+  if (provider === 'openai') {
+    trimmed = normalizeOpenAIBaseUrl(trimmed)
+  }
+
   // OpenAI / Custom：允许切换为 /responses
   if ((provider === 'openai' || provider === 'custom') && apiFormat === 'responses') {
     return `${trimmed}/responses`
@@ -156,7 +162,12 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
     setProvider(p)
     setBaseUrl(PROVIDER_DEFAULT_URLS[p])
     setTestResult(null)
-    if (p !== 'openai' && p !== 'custom') {
+    // 默认行为：
+    // - OpenAI：优先使用 Responses API
+    // - OpenAI 兼容格式 / 其他：默认使用 Chat Completions
+    if (p === 'openai') {
+      setApiFormat('responses')
+    } else {
       setApiFormat('chat_completions')
     }
   }
@@ -235,6 +246,10 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
         apiKey,
       })
       setTestResult(result)
+      // OpenAI 兼容格式：连接测试时可能会探测并返回更合适的 Base URL（例如自动补全 /v1）
+      if (provider === 'custom' && result.resolvedBaseUrl && result.resolvedBaseUrl !== baseUrl.trim()) {
+        setBaseUrl(result.resolvedBaseUrl)
+      }
     } catch (error) {
       setTestResult({ success: false, message: '测试请求失败' })
     } finally {

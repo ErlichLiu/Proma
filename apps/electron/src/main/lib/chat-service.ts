@@ -20,6 +20,7 @@ import {
   getAdapter,
   streamSSE,
   fetchTitle,
+  normalizeOpenAIBaseUrl,
 } from '@proma/core'
 import type { ImageAttachmentData, ContinuationMessage } from '@proma/core'
 import { listChannels, decryptApiKey } from './channel-manager'
@@ -276,6 +277,10 @@ export async function sendMessage(
       channel.provider === 'openai' || channel.provider === 'custom'
         ? channel.apiFormat
         : 'chat_completions'
+    const effectiveBaseUrl =
+      channel.provider === 'openai'
+        ? normalizeOpenAIBaseUrl(channel.baseUrl)
+        : channel.baseUrl
 
     /** 流式事件处理器（工具轮和最终响应轮复用） */
     const handleStreamEvent = (event: { type: string; delta?: string; toolCallId?: string; toolName?: string }): void => {
@@ -314,7 +319,7 @@ export async function sendMessage(
       pendingToolResults = false
 
       const request = adapter.buildStreamRequest({
-        baseUrl: channel.baseUrl,
+        baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
         apiFormat: effectiveApiFormat,
@@ -383,7 +388,7 @@ export async function sendMessage(
       console.log(`[聊天服务] 工具轮次已达上限 (${MAX_TOOL_ROUNDS})，发起最终响应轮`)
 
       const finalRequest = adapter.buildStreamRequest({
-        baseUrl: channel.baseUrl,
+        baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
         apiFormat: effectiveApiFormat,
@@ -562,7 +567,10 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
   try {
     const adapter = getAdapter(channel.provider)
     const request = adapter.buildTitleRequest({
-      baseUrl: channel.baseUrl,
+      baseUrl:
+        channel.provider === 'openai'
+          ? normalizeOpenAIBaseUrl(channel.baseUrl)
+          : channel.baseUrl,
       apiKey,
       modelId,
       apiFormat:

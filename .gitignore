@@ -24,6 +24,12 @@ test-results/
 playwright-report/
 reports/
 
+# test sources (kept local; do not commit)
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
 # logs
 logs/
 *.log
@@ -48,6 +54,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 Thumbs.db
+
+# Codex local workspace state
+.codex/
 
 # --- AI/Agent local instructions (do not commit) ---
 AGENTS.md

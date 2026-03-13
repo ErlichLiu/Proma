@@ -23,7 +23,7 @@ import type {
 } from '@proma/shared'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
-import { normalizeAnthropicBaseUrl, normalizeBaseUrl } from '@proma/core'
+import { normalizeAnthropicBaseUrl, normalizeBaseUrl, normalizeOpenAIBaseUrl, probeOpenAICompatibleModelsBaseUrl } from '@proma/core'
 
 /** 当前配置版本 */
 const CONFIG_VERSION = 1
@@ -253,14 +253,16 @@ export async function testChannel(channelId: string): Promise<ChannelTestResult>
       case 'anthropic':
         return await testAnthropic(channel.baseUrl, apiKey, proxyUrl)
       case 'openai':
+        return await testOpenAICompatible(channel.baseUrl, apiKey, proxyUrl, true)
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
       case 'minimax':
       case 'doubao':
       case 'qwen':
-      case 'custom':
         return await testOpenAICompatible(channel.baseUrl, apiKey, proxyUrl)
+      case 'custom':
+        return await testCustomOpenAICompatible(channel.baseUrl, apiKey, proxyUrl)
       case 'google':
         return await testGoogle(channel.baseUrl, apiKey, proxyUrl)
       default:
@@ -310,8 +312,13 @@ async function testAnthropic(baseUrl: string, apiKey: string, proxyUrl?: string)
 /**
  * 测试 OpenAI 兼容 API 连接（OpenAI / DeepSeek / Custom）
  */
-async function testOpenAICompatible(baseUrl: string, apiKey: string, proxyUrl?: string): Promise<ChannelTestResult> {
-  const url = normalizeBaseUrl(baseUrl)
+async function testOpenAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  proxyUrl?: string,
+  ensureV1: boolean = false,
+): Promise<ChannelTestResult> {
+  const url = ensureV1 ? normalizeOpenAIBaseUrl(baseUrl) : normalizeBaseUrl(baseUrl)
   const fetchFn = getFetchFn(proxyUrl)
 
   const response = await fetchFn(`${url}/models`, {
@@ -331,6 +338,60 @@ async function testOpenAICompatible(baseUrl: string, apiKey: string, proxyUrl?: 
 
   const text = await response.text().catch(() => '')
   return { success: false, message: `请求失败 (${response.status}): ${text.slice(0, 200)}` }
+}
+
+/**
+ * 测试 OpenAI 兼容 API 连接（Custom 专用：自动探测是否需要 /v1）
+ *
+ * 同时探测：
+ * - {baseUrl}/models
+ * - {baseUrl}/v1/models
+ *
+ * 以探测结果决定推荐的 Base URL（优先选择 /v1）。
+ */
+async function testCustomOpenAICompatible(baseUrl: string, apiKey: string, proxyUrl?: string): Promise<ChannelTestResult> {
+  const fetchFn = getFetchFn(proxyUrl)
+  const baseNoV1 = normalizeBaseUrl(baseUrl)
+  const baseV1 = normalizeOpenAIBaseUrl(baseUrl)
+
+  const { best, probes, resolvedBaseUrl } = await probeOpenAICompatibleModelsBaseUrl({
+    baseUrl,
+    apiKey,
+    fetchFn,
+  })
+  const suffixHint = resolvedBaseUrl && resolvedBaseUrl === baseV1 && baseV1 !== baseNoV1
+    ? '（已自动补全 /v1）'
+    : ''
+
+  if (best.ok) {
+    return { success: true, message: `连接成功${suffixHint}`, resolvedBaseUrl }
+  }
+
+  if (best.status === 401) {
+    return { success: false, message: `API Key 无效${suffixHint}`, resolvedBaseUrl }
+  }
+
+  if (best.status === 404 && probes.every((p) => p.status === 404)) {
+    return {
+      success: false,
+      message: '请求失败 (404): 未找到 /models 或 /v1/models，请检查 Base URL 是否正确',
+      resolvedBaseUrl,
+    }
+  }
+
+  if (best.status > 0) {
+    return {
+      success: false,
+      message: `请求失败 (${best.status})${best.bodyPreview ? `: ${best.bodyPreview}` : ''}${suffixHint}`,
+      resolvedBaseUrl,
+    }
+  }
+
+  return {
+    success: false,
+    message: `连接测试失败: ${best.error ?? '未知错误'}${suffixHint}`,
+    resolvedBaseUrl,
+  }
 }
 
 /**
@@ -372,14 +433,16 @@ export async function testChannelDirect(input: FetchModelsInput): Promise<Channe
       case 'anthropic':
         return await testAnthropic(input.baseUrl, input.apiKey, proxyUrl)
       case 'openai':
+        return await testOpenAICompatible(input.baseUrl, input.apiKey, proxyUrl, true)
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
       case 'minimax':
       case 'doubao':
       case 'qwen':
-      case 'custom':
         return await testOpenAICompatible(input.baseUrl, input.apiKey, proxyUrl)
+      case 'custom':
+        return await testCustomOpenAICompatible(input.baseUrl, input.apiKey, proxyUrl)
       case 'google':
         return await testGoogle(input.baseUrl, input.apiKey, proxyUrl)
       default:
@@ -407,6 +470,7 @@ export async function fetchModels(input: FetchModelsInput): Promise<FetchModelsR
       case 'anthropic':
         return await fetchAnthropicModels(input.baseUrl, input.apiKey, proxyUrl)
       case 'openai':
+        return await fetchOpenAICompatibleModels(input.baseUrl, input.apiKey, proxyUrl, true)
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
@@ -495,8 +559,13 @@ interface OpenAIModelItem {
  * API: GET {baseUrl}/models
  * 通用 OpenAI 兼容格式，适用于大部分第三方供应商。
  */
-async function fetchOpenAICompatibleModels(baseUrl: string, apiKey: string, proxyUrl?: string): Promise<FetchModelsResult> {
-  const url = normalizeBaseUrl(baseUrl)
+async function fetchOpenAICompatibleModels(
+  baseUrl: string,
+  apiKey: string,
+  proxyUrl?: string,
+  ensureV1: boolean = false,
+): Promise<FetchModelsResult> {
+  const url = ensureV1 ? normalizeOpenAIBaseUrl(baseUrl) : normalizeBaseUrl(baseUrl)
   const fetchFn = getFetchFn(proxyUrl)
 
   const response = await fetchFn(`${url}/models`, {
