@@ -38,6 +38,8 @@ export interface StreamSSEResult {
   toolCalls: ToolCall[]
   /** 停止原因（'tool_use' 表示需要执行工具后继续） */
   stopReason?: string
+  /** Responses API 的 response.id（如有） */
+  responseId?: string
 }
 
 /**
@@ -77,6 +79,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   let content = ''
   let reasoning = ''
   let stopReason: string | undefined
+  let responseId: string | undefined
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -117,6 +120,8 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
               args: '',
               metadata: event.metadata,
             })
+          } else if (event.type === 'meta' && event.responseId) {
+            responseId = event.responseId
           } else if (event.type === 'tool_call_delta') {
             const tcId = event.toolCallId || currentToolCallId
             if (tcId) {
@@ -163,7 +168,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   }
 
   onEvent({ type: 'done', stopReason })
-  return { content, reasoning, toolCalls, stopReason }
+  return { content, reasoning, toolCalls, stopReason, responseId }
 }
 
 // ===== 非流式标题请求 =====

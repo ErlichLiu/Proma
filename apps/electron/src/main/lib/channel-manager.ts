@@ -132,11 +132,17 @@ export function createChannel(input: ChannelCreateInput): Channel {
   const config = readConfig()
   const now = Date.now()
 
+  const effectiveApiFormat =
+    input.provider === 'openai' || input.provider === 'custom'
+      ? input.apiFormat
+      : undefined
+
   const channel: Channel = {
     id: randomUUID(),
     name: input.name,
     provider: input.provider,
     baseUrl: input.baseUrl,
+    apiFormat: effectiveApiFormat,
     apiKey: encryptApiKey(input.apiKey),
     models: input.models,
     enabled: input.enabled,
@@ -168,11 +174,18 @@ export function updateChannel(id: string, input: ChannelUpdateInput): Channel {
 
   const existing = config.channels[index]!
 
+  const nextProvider = input.provider ?? existing.provider
+  const effectiveApiFormat =
+    nextProvider === 'openai' || nextProvider === 'custom'
+      ? (input.apiFormat ?? existing.apiFormat)
+      : undefined
+
   const updated: Channel = {
     ...existing,
     name: input.name ?? existing.name,
-    provider: input.provider ?? existing.provider,
+    provider: nextProvider,
     baseUrl: input.baseUrl ?? existing.baseUrl,
+    apiFormat: effectiveApiFormat,
     apiKey: input.apiKey ? encryptApiKey(input.apiKey) : existing.apiKey,
     models: input.models ?? existing.models,
     enabled: input.enabled ?? existing.enabled,

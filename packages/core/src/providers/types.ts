@@ -6,7 +6,7 @@
  * core 层不依赖 Electron / Node fs，通过注入函数访问平台能力。
  */
 
-import type { ChatMessage, FileAttachment, ProviderType } from '@proma/shared'
+import type { ChatMessage, ChannelApiFormat, FileAttachment, ProviderType } from '@proma/shared'
 
 // ===== 图片附件数据 =====
 
@@ -107,6 +107,12 @@ export interface StreamDoneEvent {
   stopReason?: 'end_turn' | 'tool_use' | string
 }
 
+/** 元信息事件（如 Responses API 的 response.id） */
+export interface StreamMetaEvent {
+  type: 'meta'
+  responseId?: string
+}
+
 /** 工具调用开始事件 */
 export interface StreamToolCallStartEvent {
   type: 'tool_call_start'
@@ -129,6 +135,7 @@ export type StreamEvent =
   | StreamReasoningEvent
   | StreamErrorEvent
   | StreamDoneEvent
+  | StreamMetaEvent
   | StreamToolCallStartEvent
   | StreamToolCallDeltaEvent
 
@@ -157,6 +164,14 @@ export interface StreamRequestInput {
   apiKey: string
   /** 模型 ID */
   modelId: string
+  /** API 格式（OpenAI 兼容供应商可选，缺省为 chat_completions） */
+  apiFormat?: ChannelApiFormat
+  /**
+   * 上一轮 Responses 的 response.id（仅用于 tool loop 续接）
+   *
+   * 对于 Chat Completions 会被忽略。
+   */
+  previousResponseId?: string
   /** 经过裁剪的历史消息（不含当前用户消息） */
   history: ChatMessage[]
   /** 当前用户消息文本 */
@@ -183,6 +198,8 @@ export interface TitleRequestInput {
   apiKey: string
   /** 模型 ID */
   modelId: string
+  /** API 格式（OpenAI 兼容供应商可选，缺省为 chat_completions） */
+  apiFormat?: ChannelApiFormat
   /** 标题生成 prompt（已包含用户消息） */
   prompt: string
 }

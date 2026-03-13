@@ -1,7 +1,7 @@
 /**
  * OpenAI 兼容供应商适配器
  *
- * 实现 OpenAI Chat Completions API 的消息转换、请求构建和 SSE 解析。
+ * 实现 OpenAI Chat Completions 与 Responses API 的消息转换、请求构建和 SSE 解析。
  * 同时适用于 OpenAI、DeepSeek 和自定义 OpenAI 兼容 API。
  * 特点：
  * - 角色：system / user / assistant / tool
@@ -10,6 +10,7 @@
  * - 认证：Authorization: Bearer
  */
 
+import type { ChatMessage } from '@proma/shared'
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -65,6 +66,35 @@ interface OpenAIChunkData {
 /** OpenAI 标题响应 */
 interface OpenAITitleResponse {
   choices?: Array<{ message?: { content?: string } }>
+}
+
+// ===== Responses API 相关类型（最小子集） =====
+
+/** Responses SSE 数据块（最小字段集，按需扩展） */
+interface OpenAIResponsesChunkData {
+  type?: string
+  delta?: string
+  id?: string
+  response_id?: string
+  response?: { id?: string }
+  output_index?: number
+  call_id?: string
+  item?: {
+    type?: string
+    id?: string
+    call_id?: string
+    name?: string
+    arguments?: string
+  }
+}
+
+/** Responses 标题响应（最小字段集） */
+interface OpenAIResponsesTitleResponse {
+  output_text?: string
+  output?: Array<{
+    type?: string
+    content?: Array<{ type?: string; text?: string }>
+  }>
 }
 
 // ===== 消息转换 =====
@@ -136,6 +166,26 @@ function toOpenAIMessages(input: StreamRequestInput): OpenAIMessage[] {
 }
 
 /**
+ * 将历史消息 + 当前用户消息拼接为转录文本（用于 Responses API）
+ *
+ * 注意：Responses 的 message input item role 不包含 assistant，
+ * 这里通过单条 user message 的 input_text 承载历史上下文。
+ */
+function toTranscriptText(history: ChatMessage[], userMessage: string): string {
+  const lines: string[] = []
+  for (const msg of history) {
+    if (msg.role === 'system') continue
+    if (msg.role === 'user') {
+      lines.push(`User: ${msg.content}`)
+    } else if (msg.role === 'assistant') {
+      lines.push(`Assistant: ${msg.content}`)
+    }
+  }
+  lines.push(`User: ${userMessage}`)
+  return lines.join('\n\n')
+}
+
+/**
  * 将工具定义转换为 OpenAI 格式
  */
 function toOpenAITools(tools: ToolDefinition[]): Array<Record<string, unknown>> {
@@ -147,6 +197,53 @@ function toOpenAITools(tools: ToolDefinition[]): Array<Record<string, unknown>> 
       parameters: tool.parameters,
     },
   }))
+}
+
+/**
+ * 将工具定义转换为 OpenAI Responses API 格式（扁平 function tool）
+ *
+ * 参考：/responses/create 中 tools 示例为 { type:'function', name, description, parameters, strict }。
+ */
+function toOpenAIResponsesTools(tools: ToolDefinition[]): Array<Record<string, unknown>> {
+  return tools.map((tool) => ({
+    type: 'function',
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  }))
+}
+
+/**
+ * 从 continuationMessages 中提取最近一次的工具结果（避免重复发送历史 tool outputs）
+ */
+function getLatestToolResults(
+  continuationMessages: ContinuationMessage[] | undefined,
+): Array<{ toolCallId: string; content: string; isError?: boolean }> | null {
+  if (!continuationMessages || continuationMessages.length === 0) return null
+  for (let i = continuationMessages.length - 1; i >= 0; i--) {
+    const msg = continuationMessages[i]!
+    if (msg.role === 'tool') {
+      return msg.results
+    }
+  }
+  return null
+}
+
+/**
+ * 构建 Responses API 的 input message content 列表（input_text + input_image）
+ */
+function buildResponsesMessageContent(
+  text: string,
+  imageData: ImageAttachmentData[],
+): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [{ type: 'input_text', text }]
+  for (const img of imageData) {
+    content.push({
+      type: 'input_image',
+      image_url: `data:${img.mediaType};base64,${img.data}`,
+    })
+  }
+  return content
 }
 
 /**
@@ -186,6 +283,60 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   buildStreamRequest(input: StreamRequestInput): ProviderRequest {
     const url = normalizeBaseUrl(input.baseUrl)
+
+    // ===== Responses API =====
+    if (input.apiFormat === 'responses') {
+      const latestToolResults = getLatestToolResults(input.continuationMessages)
+
+      const bodyObj: Record<string, unknown> = {
+        model: input.modelId,
+        stream: true,
+      }
+
+      // systemMessage 映射到 instructions（保持每轮一致，避免依赖服务端链式继承）
+      if (input.systemMessage) {
+        bodyObj.instructions = input.systemMessage
+      }
+
+      // 工具定义（Responses: 扁平 function tool）
+      if (input.tools && input.tools.length > 0) {
+        bodyObj.tools = toOpenAIResponsesTools(input.tools)
+      }
+
+      // tool loop：仅发送最近一次 tool outputs，并通过 previous_response_id 续接
+      if (latestToolResults && latestToolResults.length > 0) {
+        if (input.previousResponseId) {
+          bodyObj.previous_response_id = input.previousResponseId
+        }
+        bodyObj.input = latestToolResults.map((tr) => ({
+          type: 'function_call_output',
+          call_id: tr.toolCallId,
+          output: tr.content,
+        }))
+      } else {
+        // 首轮：发送转录文本 + 当前消息图片（仅当前轮图片附件）
+        const transcript = toTranscriptText(input.history, input.userMessage)
+        const currentImages = input.readImageAttachments(input.attachments)
+        bodyObj.input = [
+          {
+            type: 'message',
+            role: 'user',
+            content: buildResponsesMessageContent(transcript, currentImages),
+          },
+        ]
+      }
+
+      return {
+        url: `${url}/responses`,
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(bodyObj),
+      }
+    }
+
+    // ===== Chat Completions（兼容） =====
     const messages = toOpenAIMessages(input)
 
     const bodyObj: Record<string, unknown> = {
@@ -216,7 +367,65 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   parseSSELine(jsonLine: string): StreamEvent[] {
     try {
-      const chunk = JSON.parse(jsonLine) as OpenAIChunkData
+      const parsed = JSON.parse(jsonLine) as OpenAIChunkData & OpenAIResponsesChunkData
+      const eventType = typeof parsed.type === 'string' ? parsed.type : null
+
+      // ===== Responses SSE 事件 =====
+      if (eventType && eventType.startsWith('response.')) {
+        const events: StreamEvent[] = []
+
+        if (eventType === 'response.created') {
+          const responseId =
+            parsed.response?.id
+            || parsed.response_id
+            || parsed.id
+          if (responseId) {
+            events.push({ type: 'meta', responseId })
+          }
+          return events
+        }
+
+        if (eventType === 'response.output_text.delta' && parsed.delta) {
+          events.push({ type: 'chunk', delta: parsed.delta })
+          return events
+        }
+
+        if (eventType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+          const toolCallId = parsed.item.call_id || parsed.item.id || `tc_${String(parsed.output_index ?? 0)}`
+          const toolName = parsed.item.name || 'unknown_tool'
+
+          events.push({
+            type: 'tool_call_start',
+            toolCallId,
+            toolName,
+          })
+
+          // 某些实现可能在 added 事件中直接携带完整 arguments
+          if (parsed.item.arguments) {
+            events.push({
+              type: 'tool_call_delta',
+              toolCallId,
+              argumentsDelta: parsed.item.arguments,
+            })
+          }
+
+          return events
+        }
+
+        if (eventType === 'response.function_call_arguments.delta' && parsed.delta) {
+          events.push({
+            type: 'tool_call_delta',
+            toolCallId: parsed.call_id || parsed.item?.call_id || '',
+            argumentsDelta: parsed.delta,
+          })
+          return events
+        }
+
+        return []
+      }
+
+      // ===== Chat Completions SSE 数据 =====
+      const chunk = parsed as OpenAIChunkData
       const delta = chunk.choices?.[0]?.delta
       const events: StreamEvent[] = []
 
@@ -266,6 +475,22 @@ export class OpenAIAdapter implements ProviderAdapter {
   buildTitleRequest(input: TitleRequestInput): ProviderRequest {
     const url = normalizeBaseUrl(input.baseUrl)
 
+    // Responses API：非流式生成标题
+    if (input.apiFormat === 'responses') {
+      return {
+        url: `${url}/responses`,
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: input.modelId,
+          input: input.prompt,
+          max_output_tokens: 60,
+        }),
+      }
+    }
+
     return {
       url: `${url}/chat/completions`,
       headers: {
@@ -281,6 +506,20 @@ export class OpenAIAdapter implements ProviderAdapter {
   }
 
   parseTitleResponse(responseBody: unknown): string | null {
+    const maybeResponses = responseBody as OpenAIResponsesTitleResponse
+    if (typeof maybeResponses.output_text === 'string') {
+      return maybeResponses.output_text
+    }
+
+    // fallback：从 output message 中提取第一段 output_text
+    const firstText = maybeResponses.output
+      ?.find((it) => it.type === 'message')
+      ?.content?.find((c) => c.type === 'output_text')
+      ?.text
+    if (typeof firstText === 'string') {
+      return firstText
+    }
+
     const data = responseBody as OpenAITitleResponse
     return data.choices?.[0]?.message?.content ?? null
   }

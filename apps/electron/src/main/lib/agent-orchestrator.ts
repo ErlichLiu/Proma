@@ -567,6 +567,10 @@ export class AgentOrchestrator {
         baseUrl: channel.baseUrl,
         apiKey,
         modelId,
+        apiFormat:
+          channel.provider === 'openai' || channel.provider === 'custom'
+            ? channel.apiFormat
+            : 'chat_completions',
         prompt: TITLE_PROMPT + userMessage,
       })
 

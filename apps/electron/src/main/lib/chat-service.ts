@@ -268,9 +268,14 @@ export async function sendMessage(
 
     // 9. 工具续接循环
     let continuationMessages: ContinuationMessage[] = []
+    let previousResponseId: string | undefined
     let round = 0
     /** 标记最近一轮是否执行了工具（用于判断是否需要最终响应轮） */
     let pendingToolResults = false
+    const effectiveApiFormat =
+      channel.provider === 'openai' || channel.provider === 'custom'
+        ? channel.apiFormat
+        : 'chat_completions'
 
     /** 流式事件处理器（工具轮和最终响应轮复用） */
     const handleStreamEvent = (event: { type: string; delta?: string; toolCallId?: string; toolName?: string }): void => {
@@ -312,6 +317,8 @@ export async function sendMessage(
         baseUrl: channel.baseUrl,
         apiKey,
         modelId,
+        apiFormat: effectiveApiFormat,
+        previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,
         systemMessage: effectiveSystemMessage,
@@ -322,13 +329,17 @@ export async function sendMessage(
         continuationMessages: continuationMessages.length > 0 ? continuationMessages : undefined,
       })
 
-      const { content, toolCalls, stopReason } = await streamSSE({
+      const { content, toolCalls, stopReason, responseId } = await streamSSE({
         request,
         adapter,
         signal: controller.signal,
         fetchFn,
         onEvent: handleStreamEvent,
       })
+
+      if (responseId) {
+        previousResponseId = responseId
+      }
 
       // 如果没有工具调用或不是 tool_use 停止，退出循环
       if (!toolCalls || toolCalls.length === 0 || stopReason !== 'tool_use') {
@@ -375,6 +386,8 @@ export async function sendMessage(
         baseUrl: channel.baseUrl,
         apiKey,
         modelId,
+        apiFormat: effectiveApiFormat,
+        previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,
         systemMessage: effectiveSystemMessage,
@@ -552,6 +565,10 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
       baseUrl: channel.baseUrl,
       apiKey,
       modelId,
+      apiFormat:
+        channel.provider === 'openai' || channel.provider === 'custom'
+          ? channel.apiFormat
+          : 'chat_completions',
       prompt: TITLE_PROMPT + userMessage,
     })
 

@@ -21,6 +21,14 @@ export type ProviderType =
   | 'custom'
 
 /**
+ * OpenAI 兼容供应商的 API 格式
+ *
+ * - chat_completions: 兼容 /chat/completions（默认）
+ * - responses: OpenAI /responses 格式（仅对 OpenAI / 自定义渠道开放）
+ */
+export type ChannelApiFormat = 'chat_completions' | 'responses'
+
+/**
  * 各供应商的默认 Base URL
  */
 export const PROVIDER_DEFAULT_URLS: Record<ProviderType, string> = {
@@ -78,6 +86,8 @@ export interface Channel {
   provider: ProviderType
   /** API Base URL */
   baseUrl: string
+  /** OpenAI 兼容供应商的 API 格式（缺省为 chat_completions） */
+  apiFormat?: ChannelApiFormat
   /** 加密后的 API Key（base64 编码） */
   apiKey: string
   /** 可用模型列表 */
@@ -97,6 +107,8 @@ export interface ChannelCreateInput {
   name: string
   provider: ProviderType
   baseUrl: string
+  /** OpenAI 兼容供应商的 API 格式（可选，缺省为 chat_completions） */
+  apiFormat?: ChannelApiFormat
   /** 明文 API Key，主进程会加密后存储 */
   apiKey: string
   models: ChannelModel[]
@@ -110,6 +122,8 @@ export interface ChannelUpdateInput {
   name?: string
   provider?: ProviderType
   baseUrl?: string
+  /** OpenAI 兼容供应商的 API 格式（可选） */
+  apiFormat?: ChannelApiFormat
   /** 明文 API Key，为空字符串表示不更新 */
   apiKey?: string
   models?: ChannelModel[]
