@@ -24,12 +24,6 @@ test-results/
 playwright-report/
 reports/
 
-# test sources (kept local; do not commit)
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-
 # logs
 logs/
 *.log

@@ -32,7 +32,8 @@ export interface OpenAIModelsProbeResult {
 
 export function scoreOpenAIModelsProbe(probe: OpenAIModelsProbe): number {
   if (probe.ok) return 3
-  if (probe.status === 401) return 2
+  // 401/403：鉴权失败但 endpoint 存在，可用于判断 baseUrl 是否正确
+  if (probe.status === 401 || probe.status === 403) return 2
   if (probe.status === 404) return 0
   if (probe.status > 0) return 1
   return -1
@@ -107,4 +108,3 @@ export async function probeOpenAICompatibleModelsBaseUrl(options: {
     resolvedBaseUrl: best.baseUrl,
   }
 }
-

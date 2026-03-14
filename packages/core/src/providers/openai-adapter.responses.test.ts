@@ -142,6 +142,19 @@ describe('OpenAIAdapter (Responses API)', () => {
     expect(events).toEqual([{ type: 'tool_call_start', toolCallId: 'call_1', toolName: 'my_tool' }])
   })
 
+  test('Given response.output_item.added with response_id When parseSSELine Then returns meta + tool_call_start', () => {
+    const adapter = new OpenAIAdapter()
+    const events = adapter.parseSSELine(JSON.stringify({
+      type: 'response.output_item.added',
+      response_id: 'resp_1',
+      item: { type: 'function_call', call_id: 'call_1', name: 'my_tool' },
+    }))
+    expect(events).toEqual([
+      { type: 'meta', responseId: 'resp_1' },
+      { type: 'tool_call_start', toolCallId: 'call_1', toolName: 'my_tool' },
+    ])
+  })
+
   test('Given response.function_call_arguments.delta When parseSSELine Then returns tool_call_delta', () => {
     const adapter = new OpenAIAdapter()
     const events = adapter.parseSSELine(JSON.stringify({
@@ -150,6 +163,20 @@ describe('OpenAIAdapter (Responses API)', () => {
       delta: '{"q":"x"}',
     }))
     expect(events).toEqual([{ type: 'tool_call_delta', toolCallId: 'call_1', argumentsDelta: '{"q":"x"}' }])
+  })
+
+  test('Given response.function_call_arguments.delta with response_id When parseSSELine Then returns meta + tool_call_delta', () => {
+    const adapter = new OpenAIAdapter()
+    const events = adapter.parseSSELine(JSON.stringify({
+      type: 'response.function_call_arguments.delta',
+      response_id: 'resp_1',
+      call_id: 'call_1',
+      delta: '{"q":"x"}',
+    }))
+    expect(events).toEqual([
+      { type: 'meta', responseId: 'resp_1' },
+      { type: 'tool_call_delta', toolCallId: 'call_1', argumentsDelta: '{"q":"x"}' },
+    ])
   })
 
   test('Given response.created When parseSSELine Then returns meta(responseId)', () => {
@@ -161,4 +188,3 @@ describe('OpenAIAdapter (Responses API)', () => {
     expect(events).toEqual([{ type: 'meta', responseId: 'resp_1' }])
   })
 })
-

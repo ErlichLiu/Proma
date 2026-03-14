@@ -477,8 +477,9 @@ export async function fetchModels(input: FetchModelsInput): Promise<FetchModelsR
       case 'minimax':
       case 'doubao':
       case 'qwen':
-      case 'custom':
         return await fetchOpenAICompatibleModels(input.baseUrl, input.apiKey, proxyUrl)
+      case 'custom':
+        return await fetchCustomOpenAICompatibleModels(input.baseUrl, input.apiKey, proxyUrl)
       case 'google':
         return await fetchGoogleModels(input.baseUrl, input.apiKey, proxyUrl)
       default:
@@ -600,6 +601,50 @@ async function fetchOpenAICompatibleModels(
     success: true,
     message: `成功获取 ${models.length} 个模型`,
     models,
+  }
+}
+
+/**
+ * 从 OpenAI 兼容服务拉取模型列表（Custom：自动探测是否需要 /v1）
+ *
+ * 对于第三方 OpenAI 兼容服务，用户可能输入：
+ * - https://host
+ * - https://host/v1
+ *
+ * 这里复用探测逻辑，优先选择更合适的 Base URL，再发起 /models 请求，
+ * 以提升“未先点测试连接就直接拉取模型”的成功率。
+ */
+async function fetchCustomOpenAICompatibleModels(
+  baseUrl: string,
+  apiKey: string,
+  proxyUrl?: string,
+): Promise<FetchModelsResult> {
+  const fetchFn = getFetchFn(proxyUrl)
+  const baseNoV1 = normalizeBaseUrl(baseUrl)
+  const baseV1 = normalizeOpenAIBaseUrl(baseUrl)
+
+  const { best, probes, resolvedBaseUrl } = await probeOpenAICompatibleModelsBaseUrl({
+    baseUrl,
+    apiKey,
+    fetchFn,
+  })
+
+  const suffixHint = resolvedBaseUrl === baseV1 && baseV1 !== baseNoV1
+    ? '（已自动补全 /v1）'
+    : ''
+
+  if (best.status === 404 && probes.every((p) => p.status === 404)) {
+    return {
+      success: false,
+      message: `请求失败 (404): 未找到 /models 或 /v1/models，请检查 Base URL 是否正确${suffixHint}`,
+      models: [],
+    }
+  }
+
+  const result = await fetchOpenAICompatibleModels(resolvedBaseUrl, apiKey, proxyUrl, false)
+  return {
+    ...result,
+    message: `${result.message}${suffixHint}`,
   }
 }
 

@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { CHAT_IPC_CHANNELS } from '@proma/shared'
-import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment, ChatToolActivity } from '@proma/shared'
+import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment, ChatToolActivity, ChannelApiFormat } from '@proma/shared'
 import {
   getAdapter,
   streamSSE,
@@ -273,9 +273,9 @@ export async function sendMessage(
     let round = 0
     /** 标记最近一轮是否执行了工具（用于判断是否需要最终响应轮） */
     let pendingToolResults = false
-    const effectiveApiFormat =
+    let apiFormatForLoop: ChannelApiFormat =
       channel.provider === 'openai' || channel.provider === 'custom'
-        ? channel.apiFormat
+        ? (channel.apiFormat ?? 'chat_completions')
         : 'chat_completions'
     const effectiveBaseUrl =
       channel.provider === 'openai'
@@ -322,7 +322,7 @@ export async function sendMessage(
         baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
-        apiFormat: effectiveApiFormat,
+        apiFormat: apiFormatForLoop,
         previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,
@@ -344,6 +344,20 @@ export async function sendMessage(
 
       if (responseId) {
         previousResponseId = responseId
+      }
+
+      // Responses 模式下，如果需要继续 tool loop 但没拿到本轮 responseId，
+      // 下一轮无法可靠地通过 previous_response_id 续接。
+      // 为保证可用性，这里自动降级到 Chat Completions 继续循环。
+      if (
+        apiFormatForLoop === 'responses'
+        && stopReason === 'tool_use'
+        && toolCalls.length > 0
+        && !responseId
+      ) {
+        console.warn('[聊天服务] Responses 模式未收到 responseId，自动降级为 Chat Completions 继续 tool loop')
+        apiFormatForLoop = 'chat_completions'
+        previousResponseId = undefined
       }
 
       // 如果没有工具调用或不是 tool_use 停止，退出循环
@@ -391,7 +405,7 @@ export async function sendMessage(
         baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
-        apiFormat: effectiveApiFormat,
+        apiFormat: apiFormatForLoop,
         previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,

@@ -372,6 +372,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 
       // ===== Responses SSE 事件 =====
       if (eventType && eventType.startsWith('response.')) {
+        const maybeResponseId =
+          parsed.response?.id
+          || parsed.response_id
+          || parsed.id
         const events: StreamEvent[] = []
 
         if (eventType === 'response.created') {
@@ -394,6 +398,11 @@ export class OpenAIAdapter implements ProviderAdapter {
           const toolCallId = parsed.item.call_id || parsed.item.id || `tc_${String(parsed.output_index ?? 0)}`
           const toolName = parsed.item.name || 'unknown_tool'
 
+          // 兼容实现：有些服务可能不发 response.created，而是在其它事件里携带 response_id
+          if (maybeResponseId) {
+            events.push({ type: 'meta', responseId: maybeResponseId })
+          }
+
           events.push({
             type: 'tool_call_start',
             toolCallId,
@@ -413,6 +422,10 @@ export class OpenAIAdapter implements ProviderAdapter {
         }
 
         if (eventType === 'response.function_call_arguments.delta' && parsed.delta) {
+          // 兼容实现：有些服务可能不发 response.created，而是在其它事件里携带 response_id
+          if (maybeResponseId) {
+            events.push({ type: 'meta', responseId: maybeResponseId })
+          }
           events.push({
             type: 'tool_call_delta',
             toolCallId: parsed.call_id || parsed.item?.call_id || '',

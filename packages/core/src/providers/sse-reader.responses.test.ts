@@ -56,4 +56,41 @@ describe('streamSSE (Responses API aggregation)', () => {
     // 保底：done 事件必然触发（无论服务端是否显式给出 stopReason）
     expect(events.some((e) => e.type === 'done')).toBe(true)
   })
+
+  test('Given adapter emits done When streamSSE Then forwards done only once', async () => {
+    const adapter = new OpenAIAdapter()
+
+    // Chat Completions：finish_reason=tool_calls 会被 adapter 解析为 done(tool_use)
+    const sseLines = [
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_1', function: { name: 'my_tool', arguments: '{"q":"x"}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      })}\n\n`,
+      `data: [DONE]\n\n`,
+    ]
+
+    const response = new Response(makeSSEStream([sseLines.join('')]), { status: 200 })
+    const fetchFn: typeof fetch = async (_input, _init) => response
+
+    const events: Array<{ type: string }> = []
+    const result = await streamSSE({
+      request: { url: 'https://example.com/chat/completions', headers: {}, body: '{}' },
+      adapter,
+      fetchFn,
+      onEvent: (e) => events.push({ type: e.type }),
+    })
+
+    const doneCount = events.filter((e) => e.type === 'done').length
+    expect(doneCount).toBe(1)
+    expect(result.stopReason).toBe('tool_use')
+    expect(result.toolCalls[0]?.id).toBe('call_1')
+  })
 })

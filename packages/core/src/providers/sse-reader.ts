@@ -108,6 +108,16 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
         const events = adapter.parseSSELine(data)
 
         for (const event of events) {
+          // 适配器可能会发出 done（例如 Chat Completions 的 tool_calls finish_reason）。
+          // 为避免上层收到重复 done，这里只记录 stopReason，不直接转发 done，
+          // 最终由 streamSSE 在函数末尾统一发出一次 done。
+          if (event.type === 'done') {
+            if (event.stopReason) {
+              stopReason = event.stopReason
+            }
+            continue
+          }
+
           if (event.type === 'chunk') {
             content += event.delta
           } else if (event.type === 'reasoning') {
@@ -130,8 +140,6 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
                 pending.args += event.argumentsDelta
               }
             }
-          } else if (event.type === 'done' && event.stopReason) {
-            stopReason = event.stopReason
           }
           onEvent(event)
         }
