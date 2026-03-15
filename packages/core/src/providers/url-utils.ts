@@ -56,3 +56,25 @@ export function normalizeAnthropicBaseUrlForSdk(baseUrl: string): string {
 export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '')
 }
+
+/**
+ * 规范化 OpenAI Base URL
+ *
+ * OpenAI 官方 API 约定 Base URL 末尾包含版本号（通常为 /v1）。
+ * 这里在不改变用户输入语义的前提下做容错：
+ * - 去除尾部斜杠
+ * - 去除误填的终端路径（/chat/completions、/responses、/models）
+ * - 若末尾不含 /v{n}，则自动追加 /v1
+ */
+export function normalizeOpenAIBaseUrl(baseUrl: string): string {
+  let url = normalizeBaseUrl(baseUrl)
+  url = url
+    .replace(/\/chat\/completions$/, '')
+    .replace(/\/responses$/, '')
+    .replace(/\/models$/, '')
+
+  if (!url.match(/\/v\d+$/)) {
+    url = `${url}/v1`
+  }
+  return url
+}

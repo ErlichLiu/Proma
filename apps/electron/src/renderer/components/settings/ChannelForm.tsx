@@ -30,9 +30,11 @@ import {
   PROVIDER_DEFAULT_URLS,
   PROVIDER_LABELS,
 } from '@proma/shared'
+import { normalizeOpenAIBaseUrl } from '@proma/core/providers'
 import type {
   Channel,
   ChannelCreateInput,
+  ChannelApiFormat,
   ChannelModel,
   ChannelTestResult,
   FetchModelsResult,
@@ -77,12 +79,18 @@ const PROVIDER_CHAT_PATHS: Record<ProviderType, string> = {
   custom: '/chat/completions',
 }
 
+/** OpenAI 兼容供应商的 API 格式选项 */
+const OPENAI_API_FORMAT_OPTIONS: Array<{ value: ChannelApiFormat; label: string }> = [
+  { value: 'chat_completions', label: 'Chat Completions（默认）' },
+  { value: 'responses', label: 'Responses（OpenAI）' },
+]
+
 /**
  * 生成 API 端点预览 URL
  *
  * Anthropic 特殊处理：如果 baseUrl 已包含 /v1，则不重复添加。
  */
-function buildPreviewUrl(baseUrl: string, provider: ProviderType): string {
+function buildPreviewUrl(baseUrl: string, provider: ProviderType, apiFormat: ChannelApiFormat): string {
   let trimmed = baseUrl.trim().replace(/\/+$/, '')
 
   if (provider === 'anthropic') {
@@ -92,6 +100,16 @@ function buildPreviewUrl(baseUrl: string, provider: ProviderType): string {
       return `${trimmed}/messages`
     }
     return `${trimmed}/v1/messages`
+  }
+
+  // OpenAI 官方：Base URL 约定包含 /v1
+  if (provider === 'openai') {
+    trimmed = normalizeOpenAIBaseUrl(trimmed)
+  }
+
+  // OpenAI / Custom：允许切换为 /responses
+  if ((provider === 'openai' || provider === 'custom') && apiFormat === 'responses') {
+    return `${trimmed}/responses`
   }
 
   return `${trimmed}${PROVIDER_CHAT_PATHS[provider]}`
@@ -104,6 +122,7 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
   const [name, setName] = React.useState(channel?.name ?? '')
   const [provider, setProvider] = React.useState<ProviderType>(channel?.provider ?? 'anthropic')
   const [baseUrl, setBaseUrl] = React.useState(channel?.baseUrl ?? PROVIDER_DEFAULT_URLS.anthropic)
+  const [apiFormat, setApiFormat] = React.useState<ChannelApiFormat>(channel?.apiFormat ?? 'chat_completions')
   const [apiKey, setApiKey] = React.useState('')
   const [showApiKey, setShowApiKey] = React.useState(false)
   const [models, setModels] = React.useState<ChannelModel[]>(channel?.models ?? [])
@@ -143,6 +162,14 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
     setProvider(p)
     setBaseUrl(PROVIDER_DEFAULT_URLS[p])
     setTestResult(null)
+    // 默认行为：
+    // - OpenAI：优先使用 Responses API
+    // - OpenAI 兼容格式 / 其他：默认使用 Chat Completions
+    if (p === 'openai') {
+      setApiFormat('responses')
+    } else {
+      setApiFormat('chat_completions')
+    }
   }
 
   /** 添加模型 */
@@ -219,6 +246,10 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
         apiKey,
       })
       setTestResult(result)
+      // OpenAI 兼容格式：连接测试时可能会探测并返回更合适的 Base URL（例如自动补全 /v1）
+      if (provider === 'custom' && result.resolvedBaseUrl && result.resolvedBaseUrl !== baseUrl.trim()) {
+        setBaseUrl(result.resolvedBaseUrl)
+      }
     } catch (error) {
       setTestResult({ success: false, message: '测试请求失败' })
     } finally {
@@ -228,11 +259,17 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
 
   /** 保存渠道 */
   const saveChannel = async (): Promise<void> => {
+    const effectiveApiFormat: ChannelApiFormat =
+      provider === 'openai' || provider === 'custom'
+        ? apiFormat
+        : 'chat_completions'
+
     if (isEdit && channel) {
       await window.electronAPI.updateChannel(channel.id, {
         name,
         provider,
         baseUrl,
+        apiFormat: effectiveApiFormat,
         apiKey: apiKey || undefined,
         models,
         enabled,
@@ -242,6 +279,7 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
         name,
         provider,
         baseUrl,
+        apiFormat: effectiveApiFormat,
         apiKey,
         models,
         enabled,
@@ -254,7 +292,7 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
 
-    if (!name.trim() || !apiKey.trim()) return
+    if (!name.trim() || (!isEdit && !apiKey.trim())) return
 
     setSaving(true)
     try {
@@ -332,8 +370,17 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
             value={baseUrl}
             onChange={setBaseUrl}
             placeholder="https://api.example.com"
-            description={baseUrl.trim() ? `预览：${buildPreviewUrl(baseUrl, provider)}` : undefined}
+            description={baseUrl.trim() ? `预览：${buildPreviewUrl(baseUrl, provider, apiFormat)}` : undefined}
           />
+          {(provider === 'openai' || provider === 'custom') && (
+            <SettingsSelect
+              label="API 格式"
+              description="仅对 OpenAI / 自定义渠道开放，第三方兼容服务可能不支持"
+              value={apiFormat}
+              onValueChange={(v) => setApiFormat(v as ChannelApiFormat)}
+              options={OPENAI_API_FORMAT_OPTIONS}
+            />
+          )}
           {/* API Key + 测试连接同行 */}
           <div className="px-4 py-3 space-y-2">
             <div className="flex items-center justify-between">

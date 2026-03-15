@@ -28,7 +28,7 @@ import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
-import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@proma/core'
+import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk, normalizeOpenAIBaseUrl } from '@proma/core'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendAgentMessage, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages } from './agent-session-manager'
@@ -581,9 +581,16 @@ export class AgentOrchestrator {
       const apiKey = decryptApiKey(channelId)
       const providerAdapter = getAdapter(channel.provider)
       const request = providerAdapter.buildTitleRequest({
-        baseUrl: channel.baseUrl,
+        baseUrl:
+          channel.provider === 'openai'
+            ? normalizeOpenAIBaseUrl(channel.baseUrl)
+            : channel.baseUrl,
         apiKey,
         modelId,
+        apiFormat:
+          channel.provider === 'openai' || channel.provider === 'custom'
+            ? channel.apiFormat
+            : 'chat_completions',
         prompt: TITLE_PROMPT + userMessage,
       })
 
