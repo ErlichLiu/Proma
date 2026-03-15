@@ -79,6 +79,7 @@ import type {
   FeishuNotifyMode,
   FeishuNotificationSentPayload,
   FeishuUpdateBindingInput,
+  DetachTabInput,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 
@@ -570,6 +571,10 @@ export interface ElectronAPI {
   onFeishuStatusChanged: (callback: (state: FeishuBridgeState) => void) => () => void
   /** 订阅飞书通知已发送事件 */
   onFeishuNotificationSent: (callback: (payload: FeishuNotificationSentPayload) => void) => () => void
+
+  // ===== 窗口管理 =====
+  /** 将标签页分离到新窗口 */
+  detachTab: (input: DetachTabInput) => Promise<void>
 }
 
 /**
@@ -1221,6 +1226,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on(FEISHU_IPC_CHANNELS.NOTIFICATION_SENT, listener)
     return () => { ipcRenderer.removeListener(FEISHU_IPC_CHANNELS.NOTIFICATION_SENT, listener) }
   },
+
+  // ===== 窗口管理 =====
+
+  detachTab: (input: DetachTabInput) => ipcRenderer.invoke(IPC_CHANNELS.DETACH_TAB, input),
 }
 
 // 将 API 暴露到渲染进程的 window 对象上
