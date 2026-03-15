@@ -25,6 +25,12 @@ interface ScrollMinimapProps {
   items: MinimapItem[]
 }
 
+interface ScrollMetrics {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+}
+
 /** 最少消息数才显示迷你地图 */
 const MIN_ITEMS = 4
 /** 迷你地图最多渲染的横杠数 */
@@ -35,7 +41,12 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
   const [hovered, setHovered] = React.useState(false)
   const [visibleIds, setVisibleIds] = React.useState<Set<string>>(new Set())
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout>>()
-  const [canScroll, setCanScroll] = React.useState(false)
+  const updateFrameRef = React.useRef<number | null>(null)
+  const [scrollMetrics, setScrollMetrics] = React.useState<ScrollMetrics>({
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  })
 
   React.useEffect(() => {
     const el = scrollRef.current
@@ -43,7 +54,14 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
 
     const update = (): void => {
       const { scrollTop, scrollHeight, clientHeight } = el
-      setCanScroll(scrollHeight > clientHeight + 10)
+      setScrollMetrics((prev) => (
+        prev.scrollTop === scrollTop
+        && prev.scrollHeight === scrollHeight
+        && prev.clientHeight === clientHeight
+          ? prev
+          : { scrollTop, scrollHeight, clientHeight }
+      ))
+
       if (scrollHeight <= 0) return
 
       const nodes = el.querySelectorAll<HTMLElement>('[data-message-id]')
@@ -59,16 +77,36 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
       setVisibleIds(ids)
     }
 
+    const scheduleUpdate = (): void => {
+      if (updateFrameRef.current !== null) return
+
+      updateFrameRef.current = requestAnimationFrame(() => {
+        updateFrameRef.current = null
+        update()
+      })
+    }
+
     update()
-    el.addEventListener('scroll', update, { passive: true })
-    const observer = new ResizeObserver(update)
+    el.addEventListener('scroll', scheduleUpdate, { passive: true })
+    const observer = new ResizeObserver(scheduleUpdate)
     observer.observe(el)
 
     return () => {
-      el.removeEventListener('scroll', update)
+      el.removeEventListener('scroll', scheduleUpdate)
       observer.disconnect()
+      if (updateFrameRef.current !== null) {
+        cancelAnimationFrame(updateFrameRef.current)
+        updateFrameRef.current = null
+      }
     }
   }, [scrollRef, items])
+
+  React.useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+      if (updateFrameRef.current !== null) cancelAnimationFrame(updateFrameRef.current)
+    }
+  }, [])
 
   const handleMouseEnter = (): void => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -86,7 +124,10 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [scrollRef])
 
-  if (items.length < MIN_ITEMS || !canScroll) return null
+  if (items.length < MIN_ITEMS) return null
+
+  const canScroll = scrollMetrics.scrollHeight > scrollMetrics.clientHeight + 10
+  if (!canScroll) return null
 
   // 迷你地图：超过 MAX_BARS 条时按比例采样，避免拥挤
   const barCount = Math.min(items.length, MAX_BARS)
@@ -100,8 +141,8 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
     >
       {/* 悬浮弹出面板 */}
       {hovered && (
-        <div className="mt-3 mr-1 w-[260px] rounded-lg border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
-          <div className="max-h-[30vh] overflow-y-auto scrollbar-none p-2 space-y-0.5">
+        <div className="mt-3 mr-1 max-h-[30vh] w-[260px] overflow-y-auto rounded-lg border bg-popover p-2 pr-3 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
+          <div className="space-y-0.5">
             {items.map((item) => (
               <button
                 key={item.id}
@@ -123,7 +164,7 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
       )}
 
       {/* 迷你地图条 — 集中在右上角 */}
-      <div className="relative mt-3 flex-shrink-0" style={{ width: 24, height: stripHeight }}>
+      <div className="relative mt-3 flex-shrink-0" style={{ width: 18, height: stripHeight }}>
         {Array.from({ length: barCount }, (_, i) => {
           const start = Math.floor((i * items.length) / barCount)
           const end = Math.floor(((i + 1) * items.length) / barCount)
@@ -135,7 +176,7 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
             <div
               key={i}
               className={cn(
-                'absolute left-1 h-[2px] w-[20px] rounded-full transition-colors',
+                'absolute left-0 h-[2px] w-[16px] rounded-full transition-colors',
                 isVisible
                   ? 'bg-primary/60'
                   : hasUser
@@ -155,7 +196,7 @@ function ItemIcon({ item }: { item: MinimapItem }): React.ReactElement {
   if (item.role === 'user' && item.avatar) {
     return <UserAvatar avatar={item.avatar} size={16} className="mt-0.5" />
   }
-  if ((item.role === 'assistant') && item.model) {
+  if (item.role === 'assistant' && item.model) {
     return (
       <img
         src={getModelLogo(item.model)}

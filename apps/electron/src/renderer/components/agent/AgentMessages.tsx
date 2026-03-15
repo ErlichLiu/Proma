@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import { useAtomValue } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { Bot, FileText, FileImage, RotateCw, AlertTriangle, ChevronDown, ChevronRight, Plus, Minimize2 } from 'lucide-react'
 import {
   Message,
@@ -35,7 +35,10 @@ import { ToolActivityList } from './ToolActivityItem'
 import { BackgroundTasksPanel } from './BackgroundTasksPanel'
 import { useBackgroundTasks } from '@/hooks/useBackgroundTasks'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { agentScrollMemoryAtom } from '@/atoms/agent-atoms'
 import { cn } from '@/lib/utils'
+import { isScrollMemoryStateEqual } from '@/lib/scroll-memory'
+import type { ScrollMemoryState } from '@/lib/scroll-memory'
 import type { AgentMessage, RetryAttempt } from '@proma/shared'
 import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
 
@@ -502,6 +505,11 @@ function AgentMessageItem({ message, onRetry, onRetryInNewSession, onCompact }: 
 
 export function AgentMessages({ sessionId, messages, streaming, streamState, onRetry, onRetryInNewSession, onCompact }: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
+  const scrollMemoryMap = useAtomValue(agentScrollMemoryAtom)
+  const setAgentScrollMemory = useSetAtom(agentScrollMemoryAtom)
+  const scrollMemory = scrollMemoryMap.get(sessionId) ?? null
+  const [ready, setReady] = React.useState(false)
+  const prevSessionIdRef = React.useRef<string | null>(null)
 
   // 从 streamState 属性中计算派生值
   const streamingContent = streamState?.content ?? ''
@@ -518,6 +526,50 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
     isStreaming: streaming,
   })
 
+  React.useEffect(() => {
+    if (sessionId !== prevSessionIdRef.current) {
+      prevSessionIdRef.current = sessionId
+      setReady(false)
+    }
+  }, [sessionId])
+
+  const handleScrollMemoryChange = React.useCallback((state: ScrollMemoryState): void => {
+    setAgentScrollMemory((prev) => {
+      const current = prev.get(sessionId)
+      if (current && isScrollMemoryStateEqual(current, state)) return prev
+
+      const map = new Map(prev)
+      map.set(sessionId, state)
+      return map
+    })
+  }, [sessionId, setAgentScrollMemory])
+
+  const handleRestoreComplete = React.useCallback((): void => {
+    setReady(true)
+  }, [])
+
+  React.useEffect(() => {
+    if (ready) return
+
+    if (messages.length === 0 && !streaming) {
+      setReady(true)
+      return
+    }
+
+    if (scrollMemory?.atBottom === false) return
+
+    let cancelled = false
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) setReady(true)
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [messages.length, streaming, ready, scrollMemory?.atBottom])
+
   // 迷你地图数据
   const minimapItems: MinimapItem[] = React.useMemo(
     () => messages.map((m) => ({
@@ -531,7 +583,14 @@ export function AgentMessages({ sessionId, messages, streaming, streamState, onR
   )
 
   return (
-    <Conversation>
+    <Conversation
+      className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}
+      scrollMemory={scrollMemory}
+      onScrollMemoryChange={handleScrollMemoryChange}
+      restoreKey={sessionId}
+      restoreVersion={messages.length}
+      onRestoreComplete={handleRestoreComplete}
+    >
       <ConversationContent>
         {messages.length === 0 && !streaming ? (
           <EmptyState />

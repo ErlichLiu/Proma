@@ -8,6 +8,7 @@
 import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
 import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentWorkspace, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ThinkingConfig, AgentEffort, TaskUsage, AgentTeamData } from '@proma/shared'
+import type { ScrollMemoryState } from '@/lib/scroll-memory'
 
 /** 活动状态 */
 export type ActivityStatus = 'pending' | 'running' | 'completed' | 'error' | 'backgrounded'
@@ -560,6 +561,9 @@ export const agentSidePanelOpenMapAtom = atom<Map<string, boolean>>(new Map())
 
 /** 侧面板当前活跃 Tab（per-session Map） */
 export const agentSidePanelTabMapAtom = atom<Map<string, SidePanelTab>>(new Map())
+
+/** Agent 消息滚动位置（per-session） */
+export const agentScrollMemoryAtom = atom<Map<string, ScrollMemoryState>>(new Map())
 
 /**
  * Team 活动缓存 — 以 sessionId 为 key

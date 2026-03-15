@@ -13,7 +13,7 @@
  */
 
 import * as React from 'react'
-import { useAtomValue } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { MessageSquare, Loader2 } from 'lucide-react'
 import { ChatMessageItem, formatMessageTime } from './ChatMessageItem'
 import type { InlineEditSubmitPayload } from './ChatMessageItem'
@@ -44,7 +44,14 @@ import {
 import { useSmoothStream } from '@proma/ui'
 import { useConversationParallelMode } from '@/hooks/useConversationSettings'
 import { getModelLogo } from '@/lib/model-logo'
+import {
+  conversationScrollMemoryAtom,
+  conversationLoadedAllHistorySelectorAtom,
+  updateConversationHistoryRequirementAtom,
+} from '@/atoms/chat-atoms'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { isScrollMemoryStateEqual } from '@/lib/scroll-memory'
+import type { ScrollMemoryState } from '@/lib/scroll-memory'
 import type { ChatMessage, ChatToolActivity } from '@proma/shared'
 
 // ===== 滚动到顶部加载更多 =====
@@ -187,7 +194,6 @@ export function ChatMessages({
 }: ChatMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
 
-  // 平滑流式输出：将高频更新转为逐字渲染
   const { displayedContent: smoothContent } = useSmoothStream({
     content: streamingContent,
     isStreaming: streaming,
@@ -197,46 +203,8 @@ export function ChatMessages({
     isStreaming: streaming,
   })
   const [parallelMode] = useConversationParallelMode()
-
-  /** 是否正在加载更多历史 */
   const [loadingMore, setLoadingMore] = React.useState(false)
 
-  /**
-   * 淡入控制：切换对话时先隐藏，等 StickToBottom 定位完成后再显示。
-   * 避免 "先看到顶部消息再跳到底部" 的闪烁。
-   */
-  const [ready, setReady] = React.useState(false)
-  const prevConversationIdRef = React.useRef<string | null>(null)
-
-  // 对话切换时立即隐藏
-  React.useEffect(() => {
-    if (conversationId !== prevConversationIdRef.current) {
-      prevConversationIdRef.current = conversationId
-      setReady(false)
-    }
-  }, [conversationId])
-
-  // 消息渲染 + StickToBottom 定位完成后淡入
-  React.useEffect(() => {
-    if (ready) return
-
-    // 空对话直接显示
-    if (messages.length === 0 && !streaming) {
-      setReady(true)
-      return
-    }
-
-    // 双 rAF：确保 DOM 渲染和 StickToBottom 滚动都完成
-    let cancelled = false
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!cancelled) setReady(true)
-      })
-    })
-    return () => { cancelled = true }
-  }, [messages, streaming, ready])
-
-  /** 加载更多历史消息 */
   const handleLoadMore = React.useCallback(async () => {
     if (!onLoadMore || loadingMore || !hasMore) return
 
@@ -245,14 +213,12 @@ export function ChatMessages({
     setLoadingMore(false)
   }, [onLoadMore, loadingMore, hasMore])
 
-  // 并排模式：自动加载全部历史消息（并排视图需要完整上下文）
   React.useEffect(() => {
     if (parallelMode && hasMore) {
       handleLoadMore()
     }
   }, [parallelMode, hasMore, handleLoadMore])
 
-  // 迷你地图数据（必须在所有条件分支之前调用，遵守 hooks 规则）
   const minimapItems: MinimapItem[] = React.useMemo(
     () => messages.map((m) => ({
       id: m.id,
@@ -264,7 +230,6 @@ export function ChatMessages({
     [messages, userProfile.avatar]
   )
 
-  // 并排模式
   if (parallelMode) {
     return (
       <ParallelChatMessages
@@ -287,23 +252,170 @@ export function ChatMessages({
     )
   }
 
-  // 标准消息列表模式
+  return (
+    <StandardChatMessages
+      conversationId={conversationId}
+      messages={messages}
+      streaming={streaming}
+      smoothContent={smoothContent}
+      smoothReasoning={smoothReasoning}
+      streamingModel={streamingModel}
+      startedAt={startedAt}
+      toolActivities={toolActivities}
+      contextDividers={contextDividers}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      minimapItems={minimapItems}
+      onDeleteMessage={onDeleteMessage}
+      onResendMessage={onResendMessage}
+      onStartInlineEdit={onStartInlineEdit}
+      onSubmitInlineEdit={onSubmitInlineEdit}
+      onCancelInlineEdit={onCancelInlineEdit}
+      inlineEditingMessageId={inlineEditingMessageId}
+      onDeleteDivider={onDeleteDivider}
+      onLoadMore={handleLoadMore}
+    />
+  )
+}
+
+interface StandardChatMessagesProps {
+  conversationId: string
+  messages: ChatMessage[]
+  streaming: boolean
+  smoothContent: string
+  smoothReasoning: string
+  streamingModel: string | null
+  startedAt?: number
+  toolActivities: ChatToolActivity[]
+  contextDividers: string[]
+  hasMore: boolean
+  loadingMore: boolean
+  minimapItems: MinimapItem[]
+  onDeleteMessage?: (messageId: string) => Promise<void>
+  onResendMessage?: (message: ChatMessage) => Promise<void>
+  onStartInlineEdit?: (message: ChatMessage) => void
+  onSubmitInlineEdit?: (message: ChatMessage, payload: InlineEditSubmitPayload) => Promise<void>
+  onCancelInlineEdit?: () => void
+  inlineEditingMessageId?: string | null
+  onDeleteDivider?: (messageId: string) => void
+  onLoadMore: () => Promise<void>
+}
+
+function StandardChatMessages({
+  conversationId,
+  messages,
+  streaming,
+  smoothContent,
+  smoothReasoning,
+  streamingModel,
+  startedAt,
+  toolActivities,
+  contextDividers,
+  hasMore,
+  loadingMore,
+  minimapItems,
+  onDeleteMessage,
+  onResendMessage,
+  onStartInlineEdit,
+  onSubmitInlineEdit,
+  onCancelInlineEdit,
+  inlineEditingMessageId,
+  onDeleteDivider,
+  onLoadMore,
+}: StandardChatMessagesProps): React.ReactElement {
+  const scrollMemoryMap = useAtomValue(conversationScrollMemoryAtom)
+  const loadedAllHistorySelector = useAtomValue(conversationLoadedAllHistorySelectorAtom)
+  const setConversationScrollMemory = useSetAtom(conversationScrollMemoryAtom)
+  const setHistoryRequirement = useSetAtom(updateConversationHistoryRequirementAtom)
+  const scrollMemory = scrollMemoryMap.get(conversationId) ?? null
+  const loadedAllHistory = loadedAllHistorySelector(conversationId)
+  const [ready, setReady] = React.useState(false)
+  const prevConversationIdRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    if (conversationId !== prevConversationIdRef.current) {
+      prevConversationIdRef.current = conversationId
+      setReady(false)
+    }
+  }, [conversationId])
+
+  const handleScrollMemoryChange = React.useCallback((state: ScrollMemoryState): void => {
+    setConversationScrollMemory((prev) => {
+      const current = prev.get(conversationId)
+      if (current && isScrollMemoryStateEqual(current, state)) return prev
+
+      const map = new Map(prev)
+      map.set(conversationId, state)
+      return map
+    })
+
+    setHistoryRequirement({ conversationId, scrollState: state })
+  }, [conversationId, setConversationScrollMemory, setHistoryRequirement])
+
+  const handleRestoreComplete = React.useCallback((): void => {
+    setReady(true)
+  }, [])
+
+  React.useEffect(() => {
+    if (ready) return
+
+    const waitingFullHistory = scrollMemory?.atBottom === false && !loadedAllHistory
+    if (waitingFullHistory) return
+
+    if (messages.length === 0 && !streaming) {
+      setReady(true)
+      return
+    }
+
+    if (scrollMemory?.atBottom === false) return
+
+    let cancelled = false
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) setReady(true)
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [messages.length, streaming, ready, scrollMemory?.atBottom, loadedAllHistory])
+
+  const waitingFullHistory = scrollMemory?.atBottom === false && !loadedAllHistory
+  if (waitingFullHistory) {
+    return <div className="flex-1 min-h-0" />
+  }
+
   const dividerSet = new Set(contextDividers)
+  const standardMinimapItems = [...minimapItems]
+  if (streaming || smoothContent || smoothReasoning) {
+    standardMinimapItems.push({
+      id: `streaming-${conversationId}`,
+      role: 'assistant',
+      preview: smoothContent || smoothReasoning || '(生成中)',
+      model: streamingModel ?? undefined,
+    })
+  }
 
   return (
-    <Conversation className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}>
-      {/* 滚动到顶部时自动加载更多历史 */}
+    <Conversation
+      className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}
+      scrollMemory={scrollMemory}
+      onScrollMemoryChange={handleScrollMemoryChange}
+      restoreKey={conversationId}
+      restoreVersion={messages.length}
+      onRestoreComplete={handleRestoreComplete}
+    >
       <ScrollTopLoader
-        hasMore={hasMore}
+        hasMore={loadedAllHistory ? false : hasMore}
         loading={loadingMore}
-        onLoadMore={handleLoadMore}
+        onLoadMore={onLoadMore}
       />
       <ConversationContent>
         {messages.length === 0 && !streaming ? (
           <EmptyState />
         ) : (
           <>
-            {/* 已有消息 + 分隔线 */}
             {messages.map((msg: ChatMessage) => (
               <React.Fragment key={msg.id}>
                 <div data-message-id={msg.id}>
@@ -321,7 +433,6 @@ export function ChatMessages({
                     isInlineEditing={msg.id === inlineEditingMessageId}
                   />
                 </div>
-                {/* 分隔线 */}
                 {dividerSet.has(msg.id) && (
                   <ContextDivider
                     messageId={msg.id}
@@ -331,7 +442,6 @@ export function ChatMessages({
               </React.Fragment>
             ))}
 
-            {/* 正在生成 / 停止后等待磁盘消息加载的临时 assistant 消息 */}
             {(streaming || smoothContent || smoothReasoning) && (
               <Message from="assistant">
                 <MessageHeader
@@ -346,10 +456,8 @@ export function ChatMessages({
                   }
                 />
                 <MessageContent>
-                  {/* 工具活动指示器 */}
                   <ChatToolActivityIndicator activities={toolActivities} />
 
-                  {/* 推理内容（如果有） */}
                   {smoothReasoning && (
                     <Reasoning
                       isStreaming={streaming && !smoothContent}
@@ -360,14 +468,12 @@ export function ChatMessages({
                     </Reasoning>
                   )}
 
-                  {/* 流式内容（经过平滑处理） */}
                   {smoothContent ? (
                     <>
                       <MessageResponse>{smoothContent}</MessageResponse>
                       {streaming && <StreamingIndicator />}
                     </>
                   ) : (
-                    /* 等待首个 chunk 时的加载动画（仅流式中且无推理时显示） */
                     streaming && !smoothReasoning && <MessageLoading startedAt={startedAt} />
                   )}
                 </MessageContent>
@@ -376,7 +482,7 @@ export function ChatMessages({
           </>
         )}
       </ConversationContent>
-      <ScrollMinimap items={minimapItems} />
+      <ScrollMinimap items={standardMinimapItems} />
       <ConversationScrollButton />
     </Conversation>
   )

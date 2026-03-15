@@ -391,9 +391,12 @@ export class AgentOrchestrator {
     // ANTHROPIC_BASE_URL 等）干扰 SDK 的认证和请求目标。
     // 即使 index.ts 启动时已清理过一次，initializeRuntime() 中的
     // loadShellEnv() 可能从 shell 配置文件（~/.zshrc 等）重新注入这些变量。
+    // 另外，开发模式下如果 Proma 是从 Claude Code 会话里启动的，父进程会带上
+    // CLAUDECODE=1；若原样透传给 SDK 子进程，Claude Code CLI 会把它判定为嵌套会话，
+    // 直接退出并报 "Claude Code process exited with code 1"。
     const cleanEnv: Record<string, string | undefined> = {}
     for (const [key, value] of Object.entries(process.env)) {
-      if (!key.startsWith('ANTHROPIC_')) {
+      if (!key.startsWith('ANTHROPIC_') && key !== 'CLAUDECODE') {
         cleanEnv[key] = value
       }
     }

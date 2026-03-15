@@ -29,6 +29,9 @@ import {
   chatMessageRefreshAtom,
   pendingAgentRecommendationAtom,
   conversationModelsAtom,
+  conversationShouldLoadFullHistoryAtom,
+  conversationLoadedAllHistorySelectorAtom,
+  markConversationHistoryLoadedAtom,
   INITIAL_MESSAGE_LIMIT,
 } from '@/atoms/chat-atoms'
 import type { PendingAttachment } from '@/atoms/chat-atoms'
@@ -89,12 +92,18 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const promptSidebarOpen = useAtomValue(promptSidebarOpenAtom)
   const activeToolIds = useAtomValue(activeToolIdsAtom)
+  const shouldLoadFullHistoryForConversation = useAtomValue(conversationShouldLoadFullHistoryAtom)
+  const loadedAllHistoryForConversation = useAtomValue(conversationLoadedAllHistorySelectorAtom)
+  const setMarkConversationHistoryLoaded = useSetAtom(markConversationHistoryLoadedAtom)
   const setPendingRecommendation = useSetAtom(pendingAgentRecommendationAtom)
 
   // ===== 从 Map 派生当前对话状态 =====
   const conversation = conversations.find((c) => c.id === conversationId) ?? null
   const streamState = streamingStates.get(conversationId)
   const isStreaming = streamState?.streaming ?? false
+  const shouldLoadFullHistory = shouldLoadFullHistoryForConversation(conversationId)
+  const loadedAllHistory = loadedAllHistoryForConversation(conversationId)
+  const shouldLoadAllMessages = shouldLoadFullHistory || loadedAllHistory
   const streamingContent = streamState?.content ?? ''
   const streamingReasoning = streamState?.reasoning ?? ''
   const streamingModel = streamState?.model ?? null
@@ -110,24 +119,41 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
 
   // ===== 加载消息 + 上下文分隔线 =====
   React.useEffect(() => {
-    window.electronAPI
-      .getRecentMessages(conversationId, INITIAL_MESSAGE_LIMIT)
-      .then((result) => {
-        setMessages(result.messages)
-        setHasMoreMessages(result.hasMore)
+    const loadMessages = async (): Promise<void> => {
+      const result = shouldLoadAllMessages
+        ? {
+            messages: await window.electronAPI.getConversationMessages(conversationId),
+            hasMore: false,
+          }
+        : await window.electronAPI.getRecentMessages(conversationId, INITIAL_MESSAGE_LIMIT)
 
-        // 消息加载完成后，清除已完成的流式状态（streaming=false 的过渡气泡）
-        // 在同一个微任务中执行，确保 React 在一次渲染中同时显示持久化消息并移除流式气泡
-        setStreamingStates((prev) => {
-          const state = prev.get(conversationId)
-          if (!state || state.streaming) return prev  // 仍在流式中，不清除
-          const map = new Map(prev)
-          map.delete(conversationId)
-          return map
-        })
+      setMessages(result.messages)
+      setHasMoreMessages(result.hasMore)
+
+      if (shouldLoadAllMessages && !loadedAllHistory) {
+        setMarkConversationHistoryLoaded(conversationId)
+      }
+
+      // 消息加载完成后，清除已完成的流式状态（streaming=false 的过渡气泡）
+      // 在同一个微任务中执行，确保 React 在一次渲染中同时显示持久化消息并移除流式气泡
+      setStreamingStates((prev) => {
+        const state = prev.get(conversationId)
+        if (!state || state.streaming) return prev  // 仍在流式中，不清除
+        const map = new Map(prev)
+        map.delete(conversationId)
+        return map
       })
-      .catch(console.error)
-  }, [conversationId, refreshVersion, setStreamingStates])
+    }
+
+    loadMessages().catch(console.error)
+  }, [
+    conversationId,
+    refreshVersion,
+    shouldLoadAllMessages,
+    loadedAllHistory,
+    setMarkConversationHistoryLoaded,
+    setStreamingStates,
+  ])
 
   // 从对话元数据加载分隔线
   React.useEffect(() => {
@@ -481,7 +507,8 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
     const allMessages = await window.electronAPI.getConversationMessages(conversationId)
     setMessages(allMessages)
     setHasMoreMessages(false)
-  }, [conversationId])
+    setMarkConversationHistoryLoaded(conversationId)
+  }, [conversationId, setMarkConversationHistoryLoaded])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -501,7 +528,7 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
             startedAt={streamState?.startedAt}
             toolActivities={toolActivities}
             contextDividers={contextDividers}
-            hasMore={hasMoreMessages}
+            hasMore={loadedAllHistory ? false : hasMoreMessages}
             onDeleteMessage={handleDeleteMessage}
             onResendMessage={handleResendMessage}
             onStartInlineEdit={handleStartInlineEdit}

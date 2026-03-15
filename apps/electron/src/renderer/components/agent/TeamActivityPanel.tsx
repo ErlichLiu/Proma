@@ -177,6 +177,38 @@ export function TeamActivityPanel({ sessionId }: TeamActivityPanelProps): React.
     : teammates.filter((t) => t.status !== 'running').length
   const totalCount = hasAgents ? agentEntries.length : teammates.length
 
+  const content = (
+    <div className="flex flex-col gap-2 p-2">
+      {/* Task Board */}
+      {mergedTasks.length > 0 && (
+        <TaskBoard tasks={mergedTasks} />
+      )}
+
+      {/* Agent 卡片（有 overview 时） */}
+      {hasAgents && agentEntries.map((agent) => (
+        <AgentCard
+          key={agent.toolUseId}
+          agent={agent}
+          expanded={expandedId === agent.toolUseId}
+          onToggle={() => setExpandedId(expandedId === agent.toolUseId ? null : agent.toolUseId)}
+        />
+      ))}
+
+      {/* 回退：TeammateState 卡片（无 overview 时） */}
+      {!hasAgents && displayTeammates.map((tm) => (
+        <TeammateCard
+          key={tm.taskId}
+          teammate={tm}
+          expanded={expandedId === tm.taskId}
+          onToggle={() => setExpandedId(expandedId === tm.taskId ? null : tm.taskId)}
+        />
+      ))}
+
+      {/* Agent 通信时间线 */}
+      <MailboxTimeline inboxes={polledData?.inboxes ?? {}} />
+    </div>
+  )
+
   return (
     <div className="flex h-full flex-col">
       {/* Team 头部 */}
@@ -241,35 +273,7 @@ export function TeamActivityPanel({ sessionId }: TeamActivityPanelProps): React.
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-2 p-2">
-          {/* Task Board */}
-          {mergedTasks.length > 0 && (
-            <TaskBoard tasks={mergedTasks} />
-          )}
-
-          {/* Agent 卡片（有 overview 时） */}
-          {hasAgents && agentEntries.map((agent) => (
-            <AgentCard
-              key={agent.toolUseId}
-              agent={agent}
-              expanded={expandedId === agent.toolUseId}
-              onToggle={() => setExpandedId(expandedId === agent.toolUseId ? null : agent.toolUseId)}
-            />
-          ))}
-
-          {/* 回退：TeammateState 卡片（无 overview 时） */}
-          {!hasAgents && displayTeammates.map((tm) => (
-            <TeammateCard
-              key={tm.taskId}
-              teammate={tm}
-              expanded={expandedId === tm.taskId}
-              onToggle={() => setExpandedId(expandedId === tm.taskId ? null : tm.taskId)}
-            />
-          ))}
-
-          {/* Agent 通信时间线 */}
-          <MailboxTimeline inboxes={polledData?.inboxes ?? {}} />
-        </div>
+        {content}
       </ScrollArea>
     </div>
   )
@@ -493,7 +497,7 @@ function AgentCard({ agent, expanded, onToggle }: AgentCardProps): React.ReactEl
 
   return (
     <div className={cn(
-      'rounded-lg transition-colors',
+      'overflow-hidden rounded-lg transition-colors',
       'bg-foreground/[0.03] dark:bg-foreground/[0.05]',
       expanded && 'bg-foreground/[0.05] dark:bg-foreground/[0.07]',
     )}>
@@ -620,10 +624,8 @@ function AgentDetail({ agent }: { agent: TeamAgentInfo }): React.ReactElement {
   const hasUsage = !!tm?.usage
   const hasAnyContent = hasSummary || hasProgress || hasToolHistory || hasOutput || hasUsage
 
-  return (
+  const detailContent = (
     <div className="flex flex-col gap-2.5 px-3 pb-3">
-      <Separator />
-
       {/* 工作摘要 */}
       {hasSummary && (
         <DetailSection title="工作摘要" borderColor="border-l-green-500">
@@ -674,7 +676,7 @@ function AgentDetail({ agent }: { agent: TeamAgentInfo }): React.ReactElement {
 
       {/* 无详细数据时的提示 */}
       {!hasAnyContent && (
-        <p className="text-[11px] text-muted-foreground/40 text-center py-2">
+        <p className="py-2 text-center text-[11px] text-muted-foreground/40">
           {tm?.status === 'running'
             ? '等待 Agent 返回进度数据...'
             : agent.status === 'running'
@@ -682,6 +684,15 @@ function AgentDetail({ agent }: { agent: TeamAgentInfo }): React.ReactElement {
               : '暂无详细数据'}
         </p>
       )}
+    </div>
+  )
+
+  return (
+    <div className="px-3 pb-3">
+      <Separator />
+      <ScrollArea className="mt-2 max-h-[min(24rem,50vh)] rounded-md bg-background/80 pr-2">
+        {detailContent}
+      </ScrollArea>
     </div>
   )
 }
@@ -702,7 +713,7 @@ function TeammateCard({ teammate, expanded, onToggle }: TeammateCardProps): Reac
 
   return (
     <div className={cn(
-      'rounded-lg transition-colors',
+      'overflow-hidden rounded-lg transition-colors',
       'bg-foreground/[0.03] dark:bg-foreground/[0.05]',
       expanded && 'bg-foreground/[0.05] dark:bg-foreground/[0.07]',
     )}>
@@ -788,51 +799,55 @@ function TeammateCard({ teammate, expanded, onToggle }: TeammateCardProps): Reac
       </button>
 
       {expanded && (
-        <div className="flex flex-col gap-2.5 px-3 pb-3">
+        <div className="px-3 pb-3">
           <Separator />
-          {teammate.summary && (
-            <DetailSection title="工作摘要" borderColor="border-l-green-500">
-              <MarkdownContent content={teammate.summary} />
-            </DetailSection>
-          )}
-          {teammate.status === 'running' && teammate.progressDescription && (
-            <DetailSection title="当前进度" borderColor="border-l-blue-500">
-              <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-                {teammate.progressDescription}
-              </p>
-            </DetailSection>
-          )}
-          {teammate.usage && (
-            <DetailSection title="使用量" borderColor="border-l-violet-500">
-              <div className="flex items-center gap-4 text-[11px] text-muted-foreground/70">
-                <span className="flex items-center gap-1">
-                  <Wrench className="size-2.5" />
-                  {teammate.usage.toolUses} 次工具调用
-                </span>
-                <span className="flex items-center gap-1">
-                  <Zap className="size-2.5" />
-                  {formatTokens(teammate.usage.totalTokens)} tokens
-                </span>
-                {teammate.usage.durationMs > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="size-2.5" />
-                    {formatElapsed(teammate.usage.durationMs / 1000)}
-                  </span>
-                )}
-              </div>
-            </DetailSection>
-          )}
-          {teammate.toolHistory.length > 0 && (
-            <ToolHistorySection toolHistory={teammate.toolHistory} />
-          )}
-          {teammate.outputFile && (
-            <OutputFileSection filePath={teammate.outputFile} />
-          )}
-          {!teammate.summary && !teammate.usage && teammate.toolHistory.length === 0 && !teammate.outputFile && (
-            <p className="text-[11px] text-muted-foreground/40 text-center py-2">
-              {teammate.status === 'running' ? '等待 Agent 返回进度数据...' : '暂无详细数据'}
-            </p>
-          )}
+          <ScrollArea className="mt-2 max-h-[min(24rem,50vh)] rounded-md bg-background/80 pr-2">
+            <div className="flex flex-col gap-2.5 px-3 pb-3">
+              {teammate.summary && (
+                <DetailSection title="工作摘要" borderColor="border-l-green-500">
+                  <MarkdownContent content={teammate.summary} />
+                </DetailSection>
+              )}
+              {teammate.status === 'running' && teammate.progressDescription && (
+                <DetailSection title="当前进度" borderColor="border-l-blue-500">
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    {teammate.progressDescription}
+                  </p>
+                </DetailSection>
+              )}
+              {teammate.usage && (
+                <DetailSection title="使用量" borderColor="border-l-violet-500">
+                  <div className="flex items-center gap-4 text-[11px] text-muted-foreground/70">
+                    <span className="flex items-center gap-1">
+                      <Wrench className="size-2.5" />
+                      {teammate.usage.toolUses} 次工具调用
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Zap className="size-2.5" />
+                      {formatTokens(teammate.usage.totalTokens)} tokens
+                    </span>
+                    {teammate.usage.durationMs > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="size-2.5" />
+                        {formatElapsed(teammate.usage.durationMs / 1000)}
+                      </span>
+                    )}
+                  </div>
+                </DetailSection>
+              )}
+              {teammate.toolHistory.length > 0 && (
+                <ToolHistorySection toolHistory={teammate.toolHistory} />
+              )}
+              {teammate.outputFile && (
+                <OutputFileSection filePath={teammate.outputFile} />
+              )}
+              {!teammate.summary && !teammate.usage && teammate.toolHistory.length === 0 && !teammate.outputFile && (
+                <p className="py-2 text-center text-[11px] text-muted-foreground/40">
+                  {teammate.status === 'running' ? '等待 Agent 返回进度数据...' : '暂无详细数据'}
+                </p>
+              )}
+            </div>
+          </ScrollArea>
         </div>
       )}
     </div>

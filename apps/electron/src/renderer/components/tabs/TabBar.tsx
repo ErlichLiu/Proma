@@ -32,6 +32,7 @@ import {
   agentSidePanelTabMapAtom,
 } from '@/atoms/agent-atoms'
 import { conversationPromptIdAtom } from '@/atoms/system-prompt-atoms'
+import { deleteMapEntry } from '@/lib/utils'
 import { TabBarItem } from './TabBarItem'
 import { SplitModeToggle } from './SplitModeToggle'
 
@@ -41,6 +42,74 @@ export function TabBar(): React.ReactElement {
   const activeTabId = useAtomValue(activeTabIdAtom)
   const streamingMap = useAtomValue(tabStreamingMapAtom)
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const suppressClickRef = React.useRef<string | null>(null)
+  const suppressClickTimerRef = React.useRef<number | null>(null)
+
+  const suppressNextClick = React.useCallback((tabId: string): void => {
+    suppressClickRef.current = tabId
+    if (suppressClickTimerRef.current !== null) {
+      window.clearTimeout(suppressClickTimerRef.current)
+    }
+    suppressClickTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = null
+      suppressClickTimerRef.current = null
+    }, 0)
+  }, [])
+
+  const shouldSuppressClick = React.useCallback((tabId: string): boolean => {
+    if (suppressClickRef.current !== tabId) return false
+    suppressClickRef.current = null
+    if (suppressClickTimerRef.current !== null) {
+      window.clearTimeout(suppressClickTimerRef.current)
+      suppressClickTimerRef.current = null
+    }
+    return true
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      if (suppressClickTimerRef.current !== null) {
+        window.clearTimeout(suppressClickTimerRef.current)
+      }
+    }
+  }, [])
+
+  const getTabIndexFromPointer = React.useCallback((clientX: number, fallbackIndex: number): number => {
+    const elements = Array.from(scrollRef.current?.querySelectorAll<HTMLElement>('[data-tab-id]') ?? [])
+    for (let index = 0; index < elements.length; index += 1) {
+      const element = elements[index]!
+      const rect = element.getBoundingClientRect()
+      if (clientX < rect.left + rect.width / 2) {
+        return index
+      }
+    }
+    return elements.length > 0 ? elements.length - 1 : fallbackIndex
+  }, [])
+
+  const handleTabDragMove = React.useCallback((clientX: number): void => {
+    const current = dragState.current
+    if (!current) return
+
+    const dx = Math.abs(clientX - current.startX)
+    if (!current.dragging && dx > 5) {
+      current.dragging = true
+    }
+    if (!current.dragging) return
+
+    const fromIndex = tabs.findIndex((t) => t.id === current.tabId)
+    if (fromIndex === -1) return
+
+    const toIndex = getTabIndexFromPointer(clientX, fromIndex)
+    if (fromIndex === toIndex) return
+
+    setTabs((prev) => {
+      const latestFromIndex = prev.findIndex((t) => t.id === current.tabId)
+      if (latestFromIndex === -1) return prev
+      const latestToIndex = Math.max(0, Math.min(toIndex, prev.length - 1))
+      if (latestFromIndex === latestToIndex) return prev
+      return reorderTabs(prev, latestFromIndex, latestToIndex)
+    })
+  }, [getTabIndexFromPointer, setTabs, tabs])
 
   // per-conversation/session Map atoms（用于关闭标签时清理）
   const setConvModels = useSetAtom(conversationModelsAtom)
@@ -53,12 +122,8 @@ export function TabBar(): React.ReactElement {
 
   /** 清理关闭标签对应的 per-conversation/session Map atoms 条目 */
   const cleanupMapAtoms = React.useCallback((tabId: string) => {
-    const deleteKey = <T,>(prev: Map<string, T>): Map<string, T> => {
-      if (!prev.has(tabId)) return prev
-      const map = new Map(prev)
-      map.delete(tabId)
-      return map
-    }
+    const deleteKey = <T,>(prev: Map<string, T>): Map<string, T> => deleteMapEntry(prev, tabId)
+
     // Chat per-conversation atoms
     setConvModels(deleteKey)
     setConvContextLength(deleteKey)
@@ -75,7 +140,6 @@ export function TabBar(): React.ReactElement {
     dragging: boolean
     tabId: string
     startX: number
-    startIndex: number
   } | null>(null)
 
   const handleActivate = React.useCallback((tabId: string) => {
@@ -94,7 +158,7 @@ export function TabBar(): React.ReactElement {
   }, [layout, setTabs, setLayout, cleanupMapAtoms])
 
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
-    if (e.button !== 0) return // 只处理左键
+    if (e.button !== 0) return
     const idx = tabs.findIndex((t) => t.id === tabId)
     if (idx === -1) return
 
@@ -102,24 +166,39 @@ export function TabBar(): React.ReactElement {
       dragging: false,
       tabId,
       startX: e.clientX,
-      startIndex: idx,
     }
 
     const handleMove = (me: PointerEvent): void => {
-      if (!dragState.current) return
-      const dx = Math.abs(me.clientX - dragState.current.startX)
-      if (dx > 5) dragState.current.dragging = true
+      handleTabDragMove(me.clientX)
     }
 
     const handleUp = (): void => {
+      const didDrag = dragState.current?.dragging ?? false
       document.removeEventListener('pointermove', handleMove)
       document.removeEventListener('pointerup', handleUp)
+      document.removeEventListener('pointercancel', handleUp)
       dragState.current = null
+      if (didDrag) suppressNextClick(tabId)
     }
 
     document.addEventListener('pointermove', handleMove)
     document.addEventListener('pointerup', handleUp)
-  }, [tabs])
+    document.addEventListener('pointercancel', handleUp)
+  }, [handleTabDragMove, suppressNextClick, tabs])
+
+  const handleTabClick = React.useCallback((tabId: string) => {
+    if (shouldSuppressClick(tabId)) return
+    handleActivate(tabId)
+  }, [handleActivate, shouldSuppressClick])
+
+  const handleCloseClick = React.useCallback((tabId: string, e: React.MouseEvent): void => {
+    e.stopPropagation()
+    handleClose(tabId)
+  }, [handleClose])
+
+  const handleMiddleClick = React.useCallback((tabId: string) => {
+    handleClose(tabId)
+  }, [handleClose])
 
   // 水平滚动支持
   const handleWheel = React.useCallback((e: React.WheelEvent) => {
@@ -138,7 +217,7 @@ export function TabBar(): React.ReactElement {
         className="flex items-end shrink min-w-0 max-w-full overflow-x-auto scrollbar-none titlebar-no-drag"
         onWheel={handleWheel}
       >
-        {tabs.map((tab, _index) => (
+        {tabs.map((tab) => (
           <TabBarItem
             key={tab.id}
             id={tab.id}
@@ -146,9 +225,9 @@ export function TabBar(): React.ReactElement {
             title={tab.title}
             isActive={tab.id === activeTabId}
             isStreaming={streamingMap.get(tab.id) ?? false}
-            onActivate={() => handleActivate(tab.id)}
-            onClose={() => handleClose(tab.id)}
-            onMiddleClick={() => handleClose(tab.id)}
+            onActivate={() => handleTabClick(tab.id)}
+            onClose={(e) => handleCloseClick(tab.id, e)}
+            onMiddleClick={() => handleMiddleClick(tab.id)}
             onDragStart={(e) => handleDragStart(tab.id, e)}
           />
         ))}

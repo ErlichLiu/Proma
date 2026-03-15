@@ -8,6 +8,8 @@
 import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
 import type { ConversationMeta, ChatMessage, FileAttachment, ChatToolActivity } from '@proma/shared'
+import type { ScrollMemoryState } from '@/lib/scroll-memory'
+import { deleteMapEntry } from '@/lib/utils'
 
 /** 选中的模型信息 */
 export interface SelectedModel {
@@ -242,3 +244,96 @@ export const conversationThinkingEnabledAtom = atom<Map<string, boolean>>(new Ma
 
 /** 每个对话的并排模式 */
 export const conversationParallelModeAtom = atom<Map<string, boolean>>(new Map())
+
+/** 标准消息列表滚动位置（per-conversation） */
+export const conversationScrollMemoryAtom = atom<Map<string, ScrollMemoryState>>(new Map())
+
+/** 非底部阅读位置下，是否已加载完整历史（per-conversation） */
+export const conversationLoadedAllHistoryAtom = atom<Map<string, boolean>>(new Map())
+
+/** 非底部阅读位置下，是否需要首次直接加载完整历史（per-conversation） */
+export const conversationNeedsFullHistoryAtom = atom<Map<string, boolean>>(new Map())
+
+/** 标记某个对话已加载完整历史 */
+export const markConversationHistoryLoadedAtom = atom(
+  null,
+  (_get, set, conversationId: string) => {
+    set(conversationLoadedAllHistoryAtom, (prev) => {
+      const map = new Map(prev)
+      map.set(conversationId, true)
+      return map
+    })
+    set(conversationNeedsFullHistoryAtom, (prev) => deleteMapEntry(prev, conversationId))
+  }
+)
+
+/** 根据当前滚动状态同步历史加载需求 */
+export const updateConversationHistoryRequirementAtom = atom(
+  null,
+  (get, set, payload: { conversationId: string; scrollState: ScrollMemoryState }) => {
+    const { conversationId, scrollState } = payload
+
+    if (scrollState.atBottom) {
+      set(conversationNeedsFullHistoryAtom, (prev) => {
+        if (!prev.has(conversationId)) return prev
+        const map = new Map(prev)
+        map.delete(conversationId)
+        return map
+      })
+      return
+    }
+
+    const loadedAll = get(conversationLoadedAllHistoryAtom).get(conversationId) ?? false
+    if (loadedAll) return
+
+    set(conversationNeedsFullHistoryAtom, (prev) => {
+      if (prev.get(conversationId) === true) return prev
+      const map = new Map(prev)
+      map.set(conversationId, true)
+      return map
+    })
+  }
+)
+
+/** 指定对话是否应直接加载完整历史 */
+export const conversationShouldLoadFullHistoryAtom = atom((get) => (conversationId: string): boolean => {
+  return get(conversationNeedsFullHistoryAtom).get(conversationId) ?? false
+})
+
+/** 指定对话是否已加载完整历史 */
+export const conversationLoadedAllHistorySelectorAtom = atom((get) => (conversationId: string): boolean => {
+  return get(conversationLoadedAllHistoryAtom).get(conversationId) ?? false
+})
+
+/** 当前对话的标准滚动状态 */
+export const currentConversationScrollMemoryAtom = atom<ScrollMemoryState | null>((get) => {
+  const currentId = get(currentConversationIdAtom)
+  if (!currentId) return null
+  return get(conversationScrollMemoryAtom).get(currentId) ?? null
+})
+
+/** 当前对话是否记住了非底部阅读位置 */
+export const currentConversationHasHistoricScrollAtom = atom<boolean>((get) => {
+  const scrollState = get(currentConversationScrollMemoryAtom)
+  return scrollState !== null && !scrollState.atBottom
+})
+
+/** 指定对话是否记住了非底部阅读位置 */
+export const conversationHasHistoricScrollAtom = atom((get) => (conversationId: string): boolean => {
+  const scrollState = get(conversationScrollMemoryAtom).get(conversationId)
+  return scrollState !== undefined && !scrollState.atBottom
+})
+
+/** 当前对话是否应直接加载完整历史 */
+export const shouldLoadFullHistoryAtom = atom<boolean>((get) => {
+  const currentId = get(currentConversationIdAtom)
+  if (!currentId) return false
+  return get(conversationNeedsFullHistoryAtom).get(currentId) ?? false
+})
+
+/** 当前对话是否已加载完整历史 */
+export const currentConversationLoadedAllHistoryAtom = atom<boolean>((get) => {
+  const currentId = get(currentConversationIdAtom)
+  if (!currentId) return false
+  return get(conversationLoadedAllHistoryAtom).get(currentId) ?? false
+})
