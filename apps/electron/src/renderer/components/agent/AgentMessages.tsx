@@ -35,6 +35,7 @@ import { ToolActivityList } from './ToolActivityItem'
 import { BackgroundTasksPanel } from './BackgroundTasksPanel'
 import { useBackgroundTasks } from '@/hooks/useBackgroundTasks'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { useAgentLayout } from '@/hooks/useChatLayout'
 import { cn } from '@/lib/utils'
 import type { AgentMessage, RetryAttempt } from '@proma/shared'
 import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
@@ -448,31 +449,32 @@ function AgentMessageItem({ message, sessionPath, onRetry, onRetryInNewSession, 
 
   if (message.role === 'user') {
     const { files: attachedFiles, text: messageText } = parseAttachedFiles(message.content)
+    const layout = useAgentLayout(true)
 
     return (
-      <Message from="user">
-        <div className="flex items-start gap-2.5 mb-2.5">
+      <Message from="user" className={layout.messageAlignClass}>
+        <div className={`flex items-start gap-2.5 mb-2.5 ${layout.userHeaderFlexClass}`}>
           <UserAvatar avatar={userProfile.avatar} size={35} />
-          <div className="flex flex-col justify-between h-[35px]">
+          <div className={`flex flex-col justify-between h-[35px] ${layout.userInfoAlignClass}`}>
             <span className="text-sm font-semibold text-foreground/60 leading-none">{userProfile.userName}</span>
             <span className="text-[10px] text-foreground/[0.38] leading-none">{formatMessageTime(message.createdAt)}</span>
           </div>
         </div>
-        <MessageContent>
+        <MessageContent className={`${layout.contentPaddingClass} ${layout.contentItemsClass}`}>
           {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <div className={`flex flex-wrap gap-1.5 mb-2 ${layout.attachmentsClass}`}>
               {attachedFiles.map((file) => (
                 <AttachedFileChip key={file.path} file={file} />
               ))}
             </div>
           )}
           {messageText && (
-            <UserMessageContent>{messageText}</UserMessageContent>
+            <UserMessageContent className={layout.userContentTextClass}>{messageText}</UserMessageContent>
           )}
         </MessageContent>
         {/* 操作按钮（hover 时可见） */}
         {messageText && (
-          <MessageActions className="pl-[46px] mt-0.5">
+          <MessageActions className={`mt-0.5 ${layout.actionsClass}`}>
             <CopyButton content={messageText} />
           </MessageActions>
         )}

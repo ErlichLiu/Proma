@@ -9,8 +9,14 @@ import type { EnvironmentCheckResult, PromaPermissionMode, ThinkingConfig, Agent
 /** 主题模式 */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
+/** 消息布局模式 */
+export type ChatMessageLayout = 'left-aligned' | 'left-right'
+
 /** 默认主题模式 */
 export const DEFAULT_THEME_MODE: ThemeMode = 'dark'
+
+/** 默认消息布局模式 */
+export const DEFAULT_CHAT_MESSAGE_LAYOUT: ChatMessageLayout = 'left-aligned'
 
 /** 应用设置 */
 export interface AppSettings {
@@ -44,6 +50,8 @@ export interface AppSettings {
   agentMaxTurns?: number
   /** 教程推荐横幅是否已关闭 */
   tutorialBannerDismissed?: boolean
+  /** 消息布局模式 */
+  chatMessageLayout?: ChatMessageLayout
 }
 
 /** 持久化的标签页状态 */

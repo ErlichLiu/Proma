@@ -36,6 +36,7 @@ import { InlineEditForm } from './InlineEditForm'
 import { UserAvatar } from './UserAvatar'
 import { getModelLogo } from '@/lib/model-logo'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { useChatLayout } from '@/hooks/useChatLayout'
 import type { ChatMessage } from '@proma/shared'
 import type { InlineEditSubmitPayload } from './InlineEditForm'
 import { ChatToolActivityIndicator } from './ChatToolActivityIndicator'
@@ -110,6 +111,7 @@ export function ChatMessageItem({
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const userProfile = useAtomValue(userProfileAtom)
+  const layout = useChatLayout(message.role === 'user', isParallelMode)
 
   /** 确认删除消息 */
   const handleDeleteConfirm = async (): Promise<void> => {
@@ -129,12 +131,9 @@ export function ChatMessageItem({
     void onSubmitInlineEdit(message, payload)
   }, [message, onSubmitInlineEdit])
 
-  // 并排模式下，user 消息不使用 from="user" 以避免右对齐
-  const messageFrom = isParallelMode ? 'assistant' : message.role
-
   return (
     <>
-      <Message from={messageFrom}>
+      <Message from={message.role} className={layout.messageAlignClass}>
         {/* assistant 头像 + 模型名 + 时间 */}
         {message.role === 'assistant' && (
           <MessageHeader
@@ -152,16 +151,16 @@ export function ChatMessageItem({
 
         {/* user 头像 + 用户名 + 时间 */}
         {message.role === 'user' && (
-          <div className="flex items-start gap-2.5 mb-2.5">
+          <div className={`flex items-start gap-2.5 mb-2.5 ${layout.userHeaderFlexClass}`}>
             <UserAvatar avatar={userProfile.avatar} size={35} />
-            <div className="flex flex-col justify-between h-[35px]">
+            <div className={`flex flex-col justify-between h-[35px] ${layout.userInfoAlignClass}`}>
               <span className="text-sm font-semibold text-foreground/60 leading-none">{userProfile.userName}</span>
               <span className="text-[10px] text-foreground/[0.38] leading-none">{formatMessageTime(message.createdAt)}</span>
             </div>
           </div>
         )}
 
-        <MessageContent>
+        <MessageContent className={`${layout.contentPaddingClass} ${layout.contentItemsClass}`}>
           {message.role === 'assistant' ? (
             <>
               {/* 工具活动记录（历史消息） */}
@@ -202,7 +201,7 @@ export function ChatMessageItem({
             /* 用户消息 - 附件 + 可折叠文本 / 原地编辑 */
             <>
               {!isInlineEditing && message.attachments && message.attachments.length > 0 && (
-                <MessageAttachments attachments={message.attachments} />
+                <MessageAttachments attachments={message.attachments} className={layout.attachmentsClass} />
               )}
               {isInlineEditing ? (
                 <InlineEditForm
@@ -211,7 +210,7 @@ export function ChatMessageItem({
                   onCancel={() => onCancelInlineEdit?.()}
                 />
               ) : message.content && (
-                <UserMessageContent>{message.content}</UserMessageContent>
+                <UserMessageContent className={layout.userContentTextClass}>{message.content}</UserMessageContent>
               )}
             </>
           )}
@@ -219,7 +218,7 @@ export function ChatMessageItem({
 
         {/* 操作按钮（非 streaming 时显示，hover 时可见） */}
         {(message.content || (message.attachments && message.attachments.length > 0)) && !isStreaming && !isInlineEditing && (
-          <MessageActions className="pl-[46px] mt-0.5">
+          <MessageActions className={`mt-0.5 ${layout.actionsClass}`}>
             <CopyButton content={message.content} />
             {message.role === 'assistant' && conversationId && (
               <MigrateToAgentButton conversationId={conversationId} />

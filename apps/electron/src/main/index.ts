@@ -112,13 +112,8 @@ function createWindow(): void {
   })
 
   // Load the renderer
-  const isDev = !app.isPackaged
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools()
-  } else {
-    mainWindow.loadFile(join(__dirname, 'renderer', 'index.html'))
-  }
+  // 强制使用本地构建文件，不依赖开发服务器
+  mainWindow.loadFile(join(__dirname, 'renderer', 'index.html'))
 
   // 窗口就绪后最大化显示
   mainWindow.once('ready-to-show', () => {
@@ -128,8 +123,6 @@ function createWindow(): void {
 
   // 拦截页面内导航，外部链接用系统浏览器打开，防止 Electron 窗口被覆盖
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    // 允许开发模式下的 Vite HMR 热重载
-    if (isDev && url.startsWith('http://localhost:')) return
     event.preventDefault()
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url)

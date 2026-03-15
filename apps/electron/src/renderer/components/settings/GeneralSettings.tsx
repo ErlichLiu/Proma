@@ -16,6 +16,8 @@ import {
   SettingsRow,
   SettingsToggle,
 } from './primitives'
+import { Check } from 'lucide-react'
+import { LABEL_CLASS, DESCRIPTION_CLASS } from './primitives/SettingsUIConstants'
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
 import { UserAvatar } from '../chat/UserAvatar'
 import { userProfileAtom } from '@/atoms/user-profile'
@@ -23,7 +25,12 @@ import {
   notificationsEnabledAtom,
   updateNotificationsEnabled,
 } from '@/atoms/notifications'
+import {
+  chatMessageLayoutAtom,
+  updateChatMessageLayout,
+} from '@/atoms/chat-message-layout'
 import { cn } from '@/lib/utils'
+import type { ChatMessageLayout } from '../../../types'
 
 /** emoji-mart 选择回调的 emoji 对象类型 */
 interface EmojiMartEmoji {
@@ -35,9 +42,24 @@ interface EmojiMartEmoji {
   shortcodes: string
 }
 
+/** 布局模式定义 */
+const LAYOUT_MODES = [
+  {
+    value: 'left-aligned' as const,
+    label: '左对齐',
+    description: '所有消息左对齐显示',
+  },
+  {
+    value: 'left-right' as const,
+    label: '左右分布',
+    description: '用户消息右对齐，AI 消息左对齐',
+  },
+]
+
 export function GeneralSettings(): React.ReactElement {
   const [userProfile, setUserProfile] = useAtom(userProfileAtom)
   const [notificationsEnabled, setNotificationsEnabled] = useAtom(notificationsEnabledAtom)
+  const [chatMessageLayout, setChatMessageLayout] = useAtom(chatMessageLayoutAtom)
   const [isEditingName, setIsEditingName] = React.useState(false)
   const [nameInput, setNameInput] = React.useState(userProfile.userName)
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false)
@@ -91,6 +113,12 @@ export function GeneralSettings(): React.ReactElement {
       setIsEditingName(false)
     }
   }
+
+  /** 切换消息布局模式 */
+  const handleLayoutChange = React.useCallback((layout: ChatMessageLayout) => {
+    setChatMessageLayout(layout)
+    updateChatMessageLayout(layout)
+  }, [setChatMessageLayout])
 
   return (
     <div className="space-y-6">
@@ -211,6 +239,113 @@ export function GeneralSettings(): React.ReactElement {
               updateNotificationsEnabled(checked)
             }}
           />
+          {/* 会话显示模式 - 卡片式选择器 */}
+          <div className="px-4 py-3">
+            <div className={cn(LABEL_CLASS)}>会话显示模式</div>
+            <div className={cn(DESCRIPTION_CLASS, 'mt-0.5 mb-3')}>选择消息气泡的排列方式</div>
+            <div className="grid grid-cols-2 gap-3">
+              {LAYOUT_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => handleLayoutChange(mode.value)}
+                  className={cn(
+                    'relative flex flex-col items-center gap-3 p-3 rounded-xl border-2 transition-all duration-200',
+                    'hover:border-primary/50 hover:bg-foreground/[0.02]',
+                    chatMessageLayout === mode.value
+                      ? 'border-primary bg-primary/[0.03]'
+                      : 'border-border bg-background'
+                  )}
+                >
+                  {/* 预览图 - 高度自适应内容，无多余空白 */}
+                  <div className="w-full rounded-lg bg-muted/50 p-2 flex flex-col gap-1.5">
+                    {mode.value === 'left-aligned' ? (
+                      /* 左对齐模式预览 */
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-primary/20 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-3/4 bg-foreground/10 rounded" />
+                            <div className="h-2 w-1/2 bg-foreground/10 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-foreground/10 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-2/3 bg-primary/15 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-primary/20 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-4/5 bg-foreground/10 rounded" />
+                            <div className="h-2 w-1/2 bg-foreground/10 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-foreground/10 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-3/5 bg-primary/15 rounded" />
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      /* 左右分布模式预览 */
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-primary/20 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-3/4 bg-foreground/10 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-row-reverse">
+                          <div className="w-4 h-4 rounded-full bg-foreground/10 shrink-0" />
+                          <div className="flex-1 flex justify-end">
+                            <div className="h-2 w-1/2 bg-primary/15 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-full bg-primary/20 shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2 w-2/3 bg-foreground/10 rounded" />
+                            <div className="h-2 w-1/3 bg-foreground/10 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-row-reverse">
+                          <div className="w-4 h-4 rounded-full bg-foreground/10 shrink-0" />
+                          <div className="flex-1 flex justify-end">
+                            <div className="h-2 w-3/5 bg-primary/15 rounded" />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* 底部信息 */}
+                  <div className="flex items-center gap-2 w-full">
+                    {/* 选择框 */}
+                    <div
+                      className={cn(
+                        'w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
+                        chatMessageLayout === mode.value
+                          ? 'border-primary bg-primary'
+                          : 'border-muted-foreground/30'
+                      )}
+                    >
+                      {chatMessageLayout === mode.value && (
+                        <Check className="w-3 h-3 text-primary-foreground" strokeWidth={3} />
+                      )}
+                    </div>
+                    {/* 文字信息 */}
+                    <div className="flex flex-col items-start">
+                      <span className="text-sm font-medium text-foreground">{mode.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{mode.description}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         </SettingsCard>
       </SettingsSection>
     </div>

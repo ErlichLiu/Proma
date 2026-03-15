@@ -34,6 +34,10 @@ import {
   notificationsEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
+import {
+  chatMessageLayoutAtom,
+  initializeChatMessageLayout,
+} from './atoms/chat-message-layout'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { useGlobalChatListeners } from './hooks/useGlobalChatListeners'
 import { tabsAtom, splitLayoutAtom } from './atoms/tab-atoms'
@@ -241,6 +245,21 @@ function NotificationsInitializer(): null {
 }
 
 /**
+ * 消息布局初始化组件
+ *
+ * 从主进程加载消息布局设置。
+ */
+function ChatMessageLayoutInitializer(): null {
+  const setLayout = useSetAtom(chatMessageLayoutAtom)
+
+  useEffect(() => {
+    initializeChatMessageLayout(setLayout)
+  }, [setLayout])
+
+  return null
+}
+
+/**
  * Chat IPC 监听器初始化组件
  *
  * 全局挂载，永不销毁。确保 Chat 流式事件
@@ -357,6 +376,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeInitializer />
     <AgentSettingsInitializer />
     <NotificationsInitializer />
+    <ChatMessageLayoutInitializer />
     <ChatListenersInitializer />
     <AgentListenersInitializer />
     <ChatToolInitializer />

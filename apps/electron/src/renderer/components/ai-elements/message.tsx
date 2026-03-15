@@ -121,8 +121,7 @@ export function MessageContent({
     <div
       className={cn(
         'flex w-full max-w-full min-w-0 flex-col gap-2 overflow-hidden pl-[46px]',
-        'group-[.is-user]:text-foreground',
-        'group-[.is-assistant]:text-foreground',
+        'text-foreground',
         className
       )}
       {...props}
@@ -396,8 +395,10 @@ export const UserMessageContent = React.memo(
       setIsExpanded((prev) => !prev)
     }, [])
 
+    const isRightAligned = className?.includes('text-right')
+
     return (
-      <div className={cn('relative rounded-[10px] bg-foreground/[0.045] dark:bg-foreground/[0.08] px-3.5 py-2.5', shouldCollapse && !isExpanded && 'pb-6', className)} {...props}>
+      <div className={cn('relative rounded-[10px] bg-foreground/[0.045] dark:bg-foreground/[0.08] px-3.5 py-2.5 w-fit', shouldCollapse && !isExpanded && 'pb-6', isRightAligned && 'ml-auto', className)} {...props}>
         <div
           ref={contentRef}
           className={cn(

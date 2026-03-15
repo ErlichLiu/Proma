@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { getSettingsPath } from './config-paths'
-import { DEFAULT_THEME_MODE } from '../../types'
+import { DEFAULT_THEME_MODE, DEFAULT_CHAT_MESSAGE_LAYOUT } from '../../types'
 import type { AppSettings } from '../../types'
 
 /**
@@ -21,6 +21,7 @@ export function getSettings(): AppSettings {
   if (!existsSync(filePath)) {
     return {
       themeMode: DEFAULT_THEME_MODE,
+      chatMessageLayout: DEFAULT_CHAT_MESSAGE_LAYOUT,
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,
@@ -33,6 +34,7 @@ export function getSettings(): AppSettings {
     return {
       ...data,
       themeMode: data.themeMode || DEFAULT_THEME_MODE,
+      chatMessageLayout: data.chatMessageLayout || DEFAULT_CHAT_MESSAGE_LAYOUT,
       onboardingCompleted: data.onboardingCompleted ?? false,
       environmentCheckSkipped: data.environmentCheckSkipped ?? false,
       notificationsEnabled: data.notificationsEnabled ?? true,
@@ -41,6 +43,7 @@ export function getSettings(): AppSettings {
     console.error('[设置] 读取失败:', error)
     return {
       themeMode: DEFAULT_THEME_MODE,
+      chatMessageLayout: DEFAULT_CHAT_MESSAGE_LAYOUT,
       onboardingCompleted: false,
       environmentCheckSkipped: false,
       notificationsEnabled: true,

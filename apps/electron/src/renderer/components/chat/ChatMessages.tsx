@@ -333,7 +333,7 @@ export function ChatMessages({
 
             {/* 正在生成 / 停止后等待磁盘消息加载的临时 assistant 消息 */}
             {(streaming || smoothContent || smoothReasoning) && (
-              <Message from="assistant">
+              <Message from="assistant" className="items-start">
                 <MessageHeader
                   model={streamingModel ?? undefined}
                   time={formatMessageTime(Date.now())}
@@ -345,7 +345,7 @@ export function ChatMessages({
                     />
                   }
                 />
-                <MessageContent>
+                <MessageContent className="pl-[46px]">
                   {/* 工具活动指示器 */}
                   <ChatToolActivityIndicator activities={toolActivities} />
 
