@@ -441,6 +441,35 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 另存图片到用户选择的位置（原生 Save As 对话框）
+  ipcMain.handle(
+    CHAT_IPC_CHANNELS.SAVE_IMAGE_AS,
+    async (event, localPath: string, defaultFilename: string): Promise<boolean> => {
+      const { dialog, BrowserWindow } = await import('electron')
+      const { writeFileSync } = await import('node:fs')
+      const { extname: pathExtname } = await import('node:path')
+
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const ext = pathExtname(defaultFilename).replace('.', '').toLowerCase()
+      const filterMap: Record<string, string> = { jpg: 'JPEG', jpeg: 'JPEG', png: 'PNG', gif: 'GIF', webp: 'WebP', bmp: 'BMP' }
+      const filterName = filterMap[ext] ?? 'Image'
+
+      const result = await dialog.showSaveDialog(win ?? BrowserWindow.getFocusedWindow()!, {
+        defaultPath: defaultFilename,
+        filters: [
+          { name: `${filterName} 图片`, extensions: [ext || 'png'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      })
+
+      if (result.canceled || !result.filePath) return false
+
+      const base64 = readAttachmentAsBase64(localPath)
+      writeFileSync(result.filePath, Buffer.from(base64, 'base64'))
+      return true
+    }
+  )
+
   // 删除附件
   ipcMain.handle(
     CHAT_IPC_CHANNELS.DELETE_ATTACHMENT,

@@ -194,6 +194,21 @@ function collectReferenceImages(context: NanoBananaContext): GeminiPart[] {
 }
 
 /**
+ * Gemini 多轮对话中，模型响应包含 thoughtSignature 后，
+ * 后续所有 user 消息的 text part 也必须携带 thoughtSignature。
+ * 使用 Gemini 官方提供的跳过验证占位符。
+ * @see https://ai.google.dev/gemini-api/docs/thought-signatures
+ */
+const DUMMY_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'
+
+/** 检查对话历史中是否存在 thoughtSignature */
+function historyHasThoughtSignature(history: GeminiContent[]): boolean {
+  return history.some((c) =>
+    c.parts.some((p) => p.thoughtSignature || p.thought_signature),
+  )
+}
+
+/**
  * 构建 Gemini API 请求体
  */
 function buildGeminiRequest(
@@ -205,10 +220,15 @@ function buildGeminiRequest(
     imageSize?: string
   },
 ): Record<string, unknown> {
-  // 当前用户输入：参考图 + 文字提示
+  // 多轮对话中 model 响应含 thoughtSignature 时，新 user 的 text part 也必须带签名
+  const needsSignature = history.length > 0 && historyHasThoughtSignature(history)
+
   const userParts: GeminiPart[] = [
     ...referenceImageParts,
-    { text: prompt },
+    {
+      text: prompt,
+      ...(needsSignature && { thoughtSignature: DUMMY_THOUGHT_SIGNATURE }),
+    },
   ]
 
   // 合并历史 + 当前用户消息

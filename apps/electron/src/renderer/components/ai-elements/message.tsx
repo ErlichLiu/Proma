@@ -509,14 +509,8 @@ function MessageAttachmentImage({ attachment, isSingle = false }: MessageAttachm
 
   /** 保存图片到本地 */
   const handleSave = React.useCallback((): void => {
-    if (!imageSrc) return
-    const link = document.createElement('a')
-    link.href = imageSrc
-    link.download = attachment.filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }, [imageSrc, attachment.filename])
+    window.electronAPI.saveImageAs(attachment.localPath, attachment.filename)
+  }, [attachment.localPath, attachment.filename])
 
   if (!imageSrc) {
     return (
