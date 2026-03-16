@@ -105,10 +105,37 @@ export function TabBar(): React.ReactElement {
       startIndex: idx,
     }
 
+    // 标签页分离检测阈值（像素）
+    const DETACH_THRESHOLD_Y = 60
+
     const handleMove = (me: PointerEvent): void => {
       if (!dragState.current) return
       const dx = Math.abs(me.clientX - dragState.current.startX)
       if (dx > 5) dragState.current.dragging = true
+
+      // 检测垂直方向拖出标签栏 → 分离标签页
+      const dy = me.clientY - e.clientY
+      if (dy > DETACH_THRESHOLD_Y && tabs.length > 1) {
+        const tab = tabs.find((t) => t.id === dragState.current?.tabId)
+        if (!tab) return
+
+        // 清理拖拽状态
+        document.removeEventListener('pointermove', handleMove)
+        document.removeEventListener('pointerup', handleUp)
+        dragState.current = null
+
+        // 调用 IPC 分离标签页
+        window.electronAPI.detachTab({
+          type: tab.type,
+          sessionId: tab.id,
+          title: tab.title,
+          screenX: me.screenX,
+          screenY: me.screenY,
+        })
+
+        // 关闭当前窗口中的标签
+        handleClose(tab.id)
+      }
     }
 
     const handleUp = (): void => {
@@ -119,7 +146,7 @@ export function TabBar(): React.ReactElement {
 
     document.addEventListener('pointermove', handleMove)
     document.addEventListener('pointerup', handleUp)
-  }, [tabs])
+  }, [tabs, handleClose])
 
   // 水平滚动支持
   const handleWheel = React.useCallback((e: React.WheelEvent) => {

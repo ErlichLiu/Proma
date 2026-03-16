@@ -194,7 +194,25 @@ export const IPC_CHANNELS = {
   GET_GIT_REPO_STATUS: 'git:get-repo-status',
   /** 在系统默认浏览器中打开外部链接 */
   OPEN_EXTERNAL: 'shell:open-external',
+  /** 将标签页分离到新窗口 */
+  DETACH_TAB: 'window:detach-tab',
 } as const
+
+/**
+ * 标签页分离请求参数
+ */
+export interface DetachTabInput {
+  /** 标签页类型 */
+  type: 'chat' | 'agent'
+  /** 会话 ID */
+  sessionId: string
+  /** 标签页标题 */
+  title: string
+  /** 鼠标释放时的屏幕 X 坐标 */
+  screenX: number
+  /** 鼠标释放时的屏幕 Y 坐标 */
+  screenY: number
+}
 
 /**
  * IPC 通道名称类型

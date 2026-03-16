@@ -5,12 +5,25 @@ import { AppShell } from './components/app-shell/AppShell'
 import { OnboardingView } from './components/onboarding/OnboardingView'
 import { TutorialBanner } from './components/tutorial/TutorialBanner'
 import { TooltipProvider } from './components/ui/tooltip'
+import { DetachedWindow } from './components/DetachedWindow'
 import { environmentCheckResultAtom } from './atoms/environment'
 import { conversationsAtom } from './atoms/chat-atoms'
 import { tabsAtom, splitLayoutAtom, openTab } from './atoms/tab-atoms'
 import type { AppShellContextType } from './contexts/AppShellContext'
 
+/** 检测是否为分离标签页窗口 */
+const isDetachedWindow = new URLSearchParams(window.location.search).get('detached') === '1'
+
 export default function App(): React.ReactElement {
+  // 分离标签页窗口：直接渲染单标签视图，跳过 onboarding / AppShell
+  if (isDetachedWindow) {
+    return <DetachedWindow />
+  }
+
+  return <MainApp />
+}
+
+function MainApp(): React.ReactElement {
   const setEnvironmentResult = useSetAtom(environmentCheckResultAtom)
   const store = useStore()
   const [isLoading, setIsLoading] = React.useState(true)
