@@ -23,7 +23,7 @@ import { createRequire } from 'node:module'
 import { app } from 'electron'
 import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload } from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
-import type { PermissionRequest, PromaPermissionMode, AskUserRequest } from '@proma/shared'
+import type { PermissionRequest, PromaPermissionMode, AskUserRequest, ExitPlanModeRequest } from '@proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError, friendlyErrorMessage, mapSDKErrorToTypedError, extractErrorDetails } from './adapters/claude-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
@@ -41,6 +41,7 @@ import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-bui
 import { permissionService } from './agent-permission-service'
 import type { PermissionResult, CanUseToolOptions } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
+import { exitPlanService } from './agent-exit-plan-service'
 import { getMemoryConfig } from './memory-service'
 import { searchMemory, addMemory, formatSearchResult } from './memos-client'
 import {
@@ -383,14 +384,8 @@ export class AgentOrchestrator {
   private eventBus: AgentEventBus
   private activeSessions = new Set<string>()
 
-  /** 队列消息本地记录（sessionId → 消息列表） */
-  private queuedMessages = new Map<string, Array<{
-    uuid: string
-    text: string
-    priority: 'now' | 'next' | 'later'
-    cancelled: boolean
-    persisted: boolean
-  }>>()
+  /** 队列消息本地记录（sessionId → UUID 集合，用于防重） */
+  private queuedMessageUuids = new Map<string, Set<string>>()
 
   /** 被用户手动中止的会话集合（在 stop 中标记，catch block 中消费） */
   private stoppedBySessions = new Set<string>()
@@ -937,7 +932,20 @@ export class AgentOrchestrator {
           : (appSettings.agentPermissionMode ?? 'acceptEdits'))
       console.log(`[Agent 编排] 权限模式: ${permissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
 
-      const canUseTool = permissionMode === 'acceptEdits'
+      // ExitPlanMode 拦截器：所有权限模式下统一走 UI 审批流程
+      const handleExitPlanMode = (toolInput: Record<string, unknown>, signal: AbortSignal): Promise<PermissionResult> => {
+        return exitPlanService.handleExitPlanMode(
+          sessionId,
+          toolInput,
+          signal,
+          (request: ExitPlanModeRequest) => {
+            this.eventBus.emit(sessionId, { kind: 'proma_event', event: { type: 'exit_plan_mode_request', request } })
+          },
+        )
+      }
+
+      // 构建基础 canUseTool 回调
+      const baseCanUseTool = permissionMode === 'acceptEdits'
         ? permissionService.createCanUseTool(
             sessionId,
             (request: PermissionRequest) => {
@@ -949,20 +957,25 @@ export class AgentOrchestrator {
             },
           )
         : permissionMode === 'plan'
-          ? async (toolName: string, _input: Record<string, unknown>, _options: CanUseToolOptions): Promise<PermissionResult> => {
-              // Plan 模式：自动批准所有工具调用（包括 SDK 内部 Hook）
-              if (toolName === 'ExitPlanMode' && workspaceSlug) {
-                // 退出计划模式时，切换到完全自动模式
-                setWorkspacePermissionMode(workspaceSlug, 'bypassPermissions')
-                this.eventBus.emit(sessionId, {
-                  kind: 'proma_event',
-                  event: { type: 'permission_mode_changed', mode: 'bypassPermissions' },
-                })
-                console.log(`[Agent 编排] Plan 模式 ExitPlanMode：已切换到完全自动模式`)
-              }
+          ? async (_toolName: string, _input: Record<string, unknown>, _options: CanUseToolOptions): Promise<PermissionResult> => {
+              // Plan 模式：自动批准所有工具调用（ExitPlanMode 已在外层拦截）
               return { behavior: 'allow' as const, updatedInput: _input }
             }
           : undefined
+
+      // 包装 canUseTool：优先拦截 ExitPlanMode，其余走基础逻辑
+      const canUseTool = async (toolName: string, input: Record<string, unknown>, options: CanUseToolOptions): Promise<PermissionResult> => {
+        // ExitPlanMode 统一走 UI 审批
+        if (toolName === 'ExitPlanMode') {
+          return handleExitPlanMode(input, options.signal)
+        }
+        // 有基础回调则委托
+        if (baseCanUseTool) {
+          return baseCanUseTool(toolName, input, options)
+        }
+        // bypassPermissions 模式：自动批准
+        return { behavior: 'allow' as const, updatedInput: input }
+      }
 
       // 13. 构建 Adapter 查询选项
       const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
@@ -982,7 +995,7 @@ export class AgentOrchestrator {
         // 始终为 true：Worker 子代理使用 SDK 内部 mailbox 通信，
         // 若不跳过权限检查会导致 Worker 阻塞超时并提前停止
         allowDangerouslySkipPermissions: true,
-        ...(canUseTool && { canUseTool }),
+        canUseTool,
         ...(permissionMode === 'acceptEdits' && { allowedTools: [...SAFE_TOOLS] }),
         systemPrompt: {
           type: 'preset',
@@ -1261,15 +1274,28 @@ export class AgentOrchestrator {
               }
             }
 
-            // Turn 结束时：先持久化累积消息，再 flush 排队用户消息（保证 JSONL 顺序正确）
+            // Turn 结束时：持久化累积消息
             if (msg.type === 'result') {
               this.persistSDKMessages(sessionId, accumulatedMessages)
               accumulatedMessages.length = 0
-              this.flushPendingQueuedMessages(sessionId)
+            }
+
+            // 过滤 SDK 内部生成的 user 消息（如 Skill 展开文本），避免在前端渲染为用户消息
+            // 仅允许含 tool_result 的 user 消息通过（这些是工具调用的响应，需要展示）
+            // 初始用户消息已通过前端乐观注入显示，无需 SDK 重复推送
+            let shouldEmit = true
+            if (msg.type === 'user') {
+              const content = (msg as { message?: { content?: Array<{ type: string }> } }).message?.content
+              const hasToolResult = Array.isArray(content) && content.some((b) => b.type === 'tool_result')
+              if (!hasToolResult) {
+                shouldEmit = false
+              }
             }
 
             // Agent Teams: 当有 teammate 活跃时，延迟 result 消息
-            if (msg.type === 'result' && startedTaskIds.size > 0) {
+            if (!shouldEmit) {
+              // 跳过 SDK 内部 user 消息的前端推送
+            } else if (msg.type === 'result' && startedTaskIds.size > 0) {
               console.log(`[Agent 编排] 延迟 result 消息（${startedTaskIds.size} 个 teammate 活跃）`)
               deferredResultMessage = msg
             } else {
@@ -1315,9 +1341,8 @@ export class AgentOrchestrator {
           }
           retrySucceeded = true
 
-          // 15. 持久化 assistant 消息（先 flush 未持久化的排队消息，保证顺序）
+          // 15. 持久化 assistant 消息
           this.persistSDKMessages(sessionId, accumulatedMessages)
-          this.flushPendingQueuedMessages(sessionId)
 
           // 16. Agent Teams Auto-Resume：teammates 完成后自动收集结果并汇总
           console.log(`[Agent 编排] Auto-resume 条件检查: startedTasks=${startedTaskIds.size}, sdkSession=${!!capturedSdkSessionId}, active=${this.activeSessions.has(sessionId)}`)
@@ -1431,8 +1456,6 @@ export class AgentOrchestrator {
           if (!this.activeSessions.has(sessionId)) {
             const wasStoppedByUser = this.stoppedBySessions.delete(sessionId)
             console.log(`[Agent 编排] 会话 ${sessionId} 已被用户中止`)
-            // flush 未持久化的排队消息
-            this.flushPendingQueuedMessages(sessionId)
             this.persistSDKMessages(sessionId, accumulatedMessages)
             callbacks.onComplete(getAgentSessionMessages(sessionId), { stoppedByUser: wasStoppedByUser })
             return
@@ -1559,9 +1582,10 @@ export class AgentOrchestrator {
 
     } finally {
       this.activeSessions.delete(sessionId)
-      this.queuedMessages.delete(sessionId)
+      this.queuedMessageUuids.delete(sessionId)
       permissionService.clearSessionPending(sessionId)
       askUserService.clearSessionPending(sessionId)
+      exitPlanService.clearSessionPending(sessionId)
     }
   }
 
@@ -1574,7 +1598,7 @@ export class AgentOrchestrator {
   stop(sessionId: string): void {
     this.activeSessions.delete(sessionId)
     this.stoppedBySessions.add(sessionId)
-    this.queuedMessages.delete(sessionId)
+    this.queuedMessageUuids.delete(sessionId)
     this.adapter.abort(sessionId)
     console.log(`[Agent 编排] 已中止会话: ${sessionId}`)
   }
@@ -1590,146 +1614,70 @@ export class AgentOrchestrator {
     console.log(`[Agent 编排] 正在中止所有活跃会话 (${this.activeSessions.size} 个)...`)
     this.adapter.dispose()
     this.activeSessions.clear()
-    this.queuedMessages.clear()
+    this.queuedMessageUuids.clear()
   }
 
   // ===== 队列消息管理 =====
 
   /**
-   * 排队发送消息
+   * 流式追加消息
    *
-   * 在 Agent 运行中注入用户消息到 SDK 命令队列。
-   * 默认 priority: 'next'（当前 turn 完成后发送）。
+   * 在 Agent 运行中注入用户消息到 SDK，使用 'now' 优先级立即处理。
+   * 消息立即持久化到 JSONL。
    *
-   * @returns 队列消息 UUID
+   * @returns 消息 UUID
    */
   async queueMessage(
     sessionId: string,
     text: string,
-    priority: 'now' | 'next' | 'later' = 'next',
+    _priority?: string,
     presetUuid?: string,
   ): Promise<string> {
     if (!this.activeSessions.has(sessionId)) {
-      throw new Error(`[Agent 编排] 会话未运行，无法排队消息: ${sessionId}`)
+      throw new Error(`[Agent 编排] 会话未运行，无法追加消息: ${sessionId}`)
     }
 
     if (!this.adapter.sendQueuedMessage) {
-      throw new Error('[Agent 编排] 当前适配器不支持队列消息')
+      throw new Error('[Agent 编排] 当前适配器不支持流式追加消息')
     }
 
-    // 使用前端预生成的 UUID（乐观更新去重），或生成新的
     const uuid = presetUuid || randomUUID()
 
-    // 记录到本地队列
-    const queue = this.queuedMessages.get(sessionId) ?? []
-    queue.push({ uuid, text, priority, cancelled: false, persisted: false })
-    this.queuedMessages.set(sessionId, queue)
+    // 防重记录
+    const uuids = this.queuedMessageUuids.get(sessionId) ?? new Set<string>()
+    uuids.add(uuid)
+    this.queuedMessageUuids.set(sessionId, uuids)
 
-    // 构造 SDKUserMessage 并注入
+    // 构造 SDKUserMessage 并注入（强制 'now' 优先级）
     const sdkMessage = {
       type: 'user' as const,
       message: { role: 'user' as const, content: text },
       parent_tool_use_id: null,
-      priority,
+      priority: 'now' as const,
       uuid,
       session_id: sessionId,
     }
 
     try {
       await this.adapter.sendQueuedMessage(sessionId, sdkMessage)
-      console.log(`[Agent 编排] 队列消息已注入: sessionId=${sessionId}, uuid=${uuid}, priority=${priority}`)
-      // 注意：不再立即持久化到 JSONL。持久化延迟到 turn 结束时（result 消息），
-      // 保证 JSONL 顺序正确：turn1 output → queued_user → turn2 output。
+      console.log(`[Agent 编排] 追加消息已注入: sessionId=${sessionId}, uuid=${uuid}`)
+
+      // 立即持久化到 JSONL
+      const persistMsg: SDKMessage = {
+        type: 'user',
+        uuid,
+        message: {
+          content: [{ type: 'text', text }],
+        },
+        parent_tool_use_id: null,
+        _createdAt: Date.now(),
+      } as unknown as SDKMessage
+      appendSDKMessages(sessionId, [persistMsg])
     } catch (error) {
-      // 注入失败时从本地队列移除
-      const q = this.queuedMessages.get(sessionId)
-      if (q) {
-        const idx = q.findIndex((m) => m.uuid === uuid)
-        if (idx >= 0) q.splice(idx, 1)
-      }
+      uuids.delete(uuid)
       throw error
     }
 
     return uuid
-  }
-
-  /**
-   * flush 未持久化的排队用户消息到 JSONL 并通知前端
-   *
-   * 在 turn 结束时（result 消息）调用，保证 JSONL 顺序正确：
-   * turn1 output → queued_user → turn2 output
-   */
-  private flushPendingQueuedMessages(sessionId: string): void {
-    const queue = this.queuedMessages.get(sessionId)
-    if (!queue) return
-
-    const pending = queue.filter((m) => !m.cancelled && !m.persisted)
-    if (pending.length === 0) return
-
-    for (const qm of pending) {
-      const persistMsg: SDKMessage = {
-        type: 'user',
-        uuid: qm.uuid,
-        message: {
-          content: [{ type: 'text', text: qm.text }],
-        },
-        parent_tool_use_id: null,
-        _createdAt: Date.now(),
-        _queuedMessage: true,
-      } as unknown as SDKMessage
-      appendSDKMessages(sessionId, [persistMsg])
-      qm.persisted = true
-
-      // 通知前端：排队消息已被消费，可安全显示在对话历史中
-      this.eventBus.emit(sessionId, {
-        kind: 'proma_event',
-        event: { type: 'queued_message_consumed', messageUuid: qm.uuid, text: qm.text },
-      })
-      console.log(`[Agent 编排] 排队消息已持久化并通知前端: uuid=${qm.uuid}`)
-    }
-  }
-
-  /**
-   * 取消队列中的待发送消息
-   *
-   * 标记本地记录为已取消，并尝试通过适配器取消 SDK 队列。
-   */
-  cancelQueuedMessage(sessionId: string, messageUuid: string): void {
-    const queue = this.queuedMessages.get(sessionId)
-    if (!queue) return
-
-    const msg = queue.find((m) => m.uuid === messageUuid)
-    if (!msg || msg.cancelled) return
-
-    msg.cancelled = true
-    console.log(`[Agent 编排] 队列消息已取消: sessionId=${sessionId}, uuid=${messageUuid}`)
-
-    // 尝试通知 SDK 取消（最佳努力）
-    this.adapter.cancelQueuedMessage?.(sessionId, messageUuid).catch((err) => {
-      console.warn(`[Agent 编排] SDK 取消队列消息失败（已在本地标记取消）:`, err)
-    })
-  }
-
-  /**
-   * 提升队列消息为立即发送
-   *
-   * 取消原队列消息，以 'now' 优先级重新注入。
-   *
-   * @returns 新队列消息 UUID
-   */
-  async promoteQueuedMessage(sessionId: string, messageUuid: string): Promise<string> {
-    const queue = this.queuedMessages.get(sessionId)
-    if (!queue) throw new Error(`[Agent 编排] 无队列消息: ${sessionId}`)
-
-    const msg = queue.find((m) => m.uuid === messageUuid && !m.cancelled)
-    if (!msg) throw new Error(`[Agent 编排] 队列消息不存在或已取消: ${messageUuid}`)
-
-    const text = msg.text
-
-    // 取消原消息
-    this.cancelQueuedMessage(sessionId, messageUuid)
-
-    // 以 'now' 优先级重新发送
-    return this.queueMessage(sessionId, text, 'now')
   }
 }

@@ -38,7 +38,6 @@ import { ScrollPositionManager } from '@/hooks/useScrollPositionMemory'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/spinner'
 import { groupIntoTurns, MessageGroupRenderer } from './SDKMessageRenderer'
-import { QueuedMessageBubble } from './QueuedMessageBubble'
 import type { AgentMessage, RetryAttempt, SDKMessage } from '@proma/shared'
 import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
 
@@ -742,9 +741,6 @@ export function AgentMessages({ sessionId, messages, persistedSDKMessages, strea
                 basePath={sessionPath || undefined}
               />
             ))}
-
-            {/* 排队中的用户消息气泡 */}
-            <QueuedMessageBubble sessionId={sessionId} />
 
             {/* 有实时助手内容时：仅追加运行指示器 */}
             {hasLiveAssistantContent && (streaming || retrying) && (
