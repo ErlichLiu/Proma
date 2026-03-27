@@ -37,7 +37,7 @@ import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, g
 import { getWorkspaceAttachedDirectories } from './agent-workspace-manager'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
-import { buildSystemPromptAppend, buildDynamicContext } from './agent-prompt-builder'
+import { buildSystemPrompt, buildDynamicContext } from './agent-prompt-builder'
 import { permissionService } from './agent-permission-service'
 import type { PermissionResult, CanUseToolOptions } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
@@ -1000,11 +1000,12 @@ export class AgentOrchestrator {
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: buildSystemPromptAppend({
+          append: buildSystemPrompt({
             workspaceName: workspace?.name,
             workspaceSlug,
             sessionId,
             permissionMode,
+            memoryEnabled: (() => { const mc = getMemoryConfig(); return mc.enabled && !!mc.apiKey })(),
           }),
         },
         resumeSessionId: existingSdkSessionId,
@@ -1194,7 +1195,7 @@ export class AgentOrchestrator {
             if (msg.type === 'assistant') {
               const assistantMsg = msg as SDKAssistantMessage
               if (assistantMsg.error) {
-                const { detailedMessage, originalError } = extractErrorDetails(assistantMsg)
+                const { detailedMessage, originalError } = extractErrorDetails(assistantMsg as unknown as Parameters<typeof extractErrorDetails>[0])
                 let errorCode = assistantMsg.error.errorType || 'unknown_error'
                 if (isPromptTooLongError(detailedMessage, originalError)) {
                   errorCode = 'prompt_too_long'
