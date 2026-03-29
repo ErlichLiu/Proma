@@ -1824,18 +1824,23 @@ export function registerIpcHandlers(): void {
   // 注册更新 IPC 处理器
   registerUpdaterIpc()
 
-  // 启动时自动归档
-  try {
-    const settings = getSettings()
-    const days = settings.archiveAfterDays ?? 7
-    if (days > 0) {
-      const archivedChats = autoArchiveConversations(days)
-      const archivedSessions = autoArchiveAgentSessions(days)
-      if (archivedChats + archivedSessions > 0) {
-        console.log(`[自动归档] 已归档 ${archivedChats} 个对话, ${archivedSessions} 个 Agent 会话`)
+  // 启动时自动归档 + 每 24 小时定期检查
+  const runAutoArchive = (): void => {
+    try {
+      const settings = getSettings()
+      const days = settings.archiveAfterDays ?? 7
+      if (days > 0) {
+        const archivedChats = autoArchiveConversations(days)
+        const archivedSessions = autoArchiveAgentSessions(days)
+        if (archivedChats + archivedSessions > 0) {
+          console.log(`[自动归档] 已归档 ${archivedChats} 个对话, ${archivedSessions} 个 Agent 会话`)
+        }
       }
+    } catch (error) {
+      console.error('[自动归档] 自动归档失败:', error)
     }
-  } catch (error) {
-    console.error('[自动归档] 启动时自动归档失败:', error)
   }
+
+  runAutoArchive()
+  setInterval(runAutoArchive, 24 * 60 * 60 * 1000)
 }
