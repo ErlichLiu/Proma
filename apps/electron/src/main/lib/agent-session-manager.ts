@@ -19,7 +19,7 @@ import {
   getAgentWorkspacePath,
 } from './config-paths'
 import { getAgentWorkspace } from './agent-workspace-manager'
-import type { AgentSessionMeta, AgentMessage, SDKMessage, ForkSessionInput } from '@proma/shared'
+import type { AgentSessionMeta, AgentMessage, SDKMessage, ForkSessionInput, AgentMessageSearchResult } from '@proma/shared'
 import { getConversationMessages } from './conversation-manager'
 import { clearNanoBananaAgentHistory } from './chat-tools/nano-banana-mcp'
 
@@ -272,7 +272,7 @@ function convertLegacyMessage(legacy: AgentMessage): SDKMessage {
  */
 export function updateAgentSessionMeta(
   id: string,
-  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'sdkSessionId' | 'workspaceId' | 'pinned' | 'attachedDirectories' | 'forkedFromSdkSessionId' | 'forkAtMessageUuid' | 'forkSourceDir'>>,
+  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'sdkSessionId' | 'workspaceId' | 'pinned' | 'archived' | 'attachedDirectories' | 'forkedFromSdkSessionId' | 'forkAtMessageUuid' | 'forkSourceDir'>>,
 ): AgentSessionMeta {
   const index = readIndex()
   const idx = index.sessions.findIndex((s) => s.id === id)
@@ -521,4 +521,102 @@ export function forkAgentSession(input: ForkSessionInput): AgentSessionMeta {
 
   console.log(`[Agent 会话] 分叉会话已创建（延迟 fork）: ${sourceMeta.title} → ${forkTitle} (${messagesToCopy.length} 条消息)`)
   return newMeta
+}
+
+/**
+ * 自动归档超过指定天数未更新的 Agent 会话
+ *
+ * 置顶会话不会被归档。
+ *
+ * @param daysThreshold 天数阈值
+ * @returns 本次归档的会话数量
+ */
+export function autoArchiveAgentSessions(daysThreshold: number): number {
+  const index = readIndex()
+  const threshold = Date.now() - daysThreshold * 86_400_000
+  let count = 0
+
+  for (const session of index.sessions) {
+    if (!session.pinned && !session.archived && session.updatedAt < threshold) {
+      session.archived = true
+      count++
+    }
+  }
+
+  if (count > 0) {
+    writeIndex(index)
+    console.log(`[Agent 会话] 自动归档 ${count} 个会话（阈值: ${daysThreshold} 天）`)
+  }
+
+  return count
+}
+
+/**
+ * 搜索 Agent 会话消息内容
+ *
+ * 遍历所有会话的 JSONL 文件，逐行搜索 content 字段。
+ * 每个会话最多返回 1 条最佳匹配，总计最多 30 条结果。
+ *
+ * @param query 搜索关键词
+ * @returns 匹配结果列表
+ */
+export function searchAgentSessionMessages(query: string): AgentMessageSearchResult[] {
+  if (!query || query.length < 2) return []
+
+  const index = readIndex()
+  const results: AgentMessageSearchResult[] = []
+  const queryLower = query.toLowerCase()
+  const maxResults = 30
+
+  for (const session of index.sessions) {
+    if (results.length >= maxResults) break
+
+    const filePath = getAgentSessionMessagesPath(session.id)
+    if (!existsSync(filePath)) continue
+
+    try {
+      const raw = readFileSync(filePath, 'utf-8')
+      const lines = raw.split('\n').filter((line) => line.trim())
+
+      for (const line of lines) {
+        const parsed = JSON.parse(line)
+        // 兼容旧 AgentMessage 和新 SDKMessage 格式
+        const content = parsed.content ?? ''
+        const role = parsed.role ?? 'assistant'
+        const messageId = parsed.id ?? parsed.uuid ?? ''
+        if (!content) continue
+
+        const contentLower = (typeof content === 'string' ? content : '').toLowerCase()
+        const matchIndex = contentLower.indexOf(queryLower)
+        if (matchIndex === -1) continue
+
+        // 提取匹配上下文 snippet
+        const textContent = typeof content === 'string' ? content : ''
+        const snippetStart = Math.max(0, matchIndex - 40)
+        const snippetEnd = Math.min(textContent.length, matchIndex + query.length + 40)
+        const snippet = (snippetStart > 0 ? '...' : '') +
+          textContent.slice(snippetStart, snippetEnd) +
+          (snippetEnd < textContent.length ? '...' : '')
+        const matchStart = matchIndex - snippetStart + (snippetStart > 0 ? 3 : 0)
+
+        results.push({
+          sessionId: session.id,
+          sessionTitle: session.title,
+          messageId,
+          role,
+          snippet,
+          matchStart,
+          matchLength: query.length,
+          archived: session.archived,
+        })
+
+        // 每个会话只取 1 条匹配
+        break
+      }
+    } catch {
+      // 跳过读取失败的文件
+    }
+  }
+
+  return results
 }
