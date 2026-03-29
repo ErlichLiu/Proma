@@ -38,6 +38,8 @@ export interface StreamSSEResult {
   toolCalls: ToolCall[]
   /** 停止原因（'tool_use' 表示需要执行工具后继续） */
   stopReason?: string
+  /** Responses API 的 response.id（如有） */
+  responseId?: string
 }
 
 /**
@@ -77,6 +79,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   let content = ''
   let reasoning = ''
   let stopReason: string | undefined
+  let responseId: string | undefined
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -111,6 +114,16 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
         const events = adapter.parseSSELine(data)
 
         for (const event of events) {
+          // 适配器可能会发出 done（例如 Chat Completions 的 tool_calls finish_reason）。
+          // 为避免上层收到重复 done，这里只记录 stopReason，不直接转发 done，
+          // 最终由 streamSSE 在函数末尾统一发出一次 done。
+          if (event.type === 'done') {
+            if (event.stopReason) {
+              stopReason = event.stopReason
+            }
+            continue
+          }
+
           if (event.type === 'chunk') {
             content += event.delta
           } else if (event.type === 'reasoning') {
@@ -123,6 +136,8 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
               args: '',
               metadata: event.metadata,
             })
+          } else if (event.type === 'meta' && event.responseId) {
+            responseId = event.responseId
           } else if (event.type === 'tool_call_delta') {
             const tcId = event.toolCallId || currentToolCallId
             if (tcId) {
@@ -131,8 +146,6 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
                 pending.args += event.argumentsDelta
               }
             }
-          } else if (event.type === 'done' && event.stopReason) {
-            stopReason = event.stopReason
           }
           onEvent(event)
         }
@@ -169,7 +182,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   }
 
   onEvent({ type: 'done', stopReason })
-  return { content, reasoning, toolCalls, stopReason }
+  return { content, reasoning, toolCalls, stopReason, responseId }
 }
 
 // ===== 非流式标题请求 =====

@@ -15,11 +15,12 @@
 import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { CHAT_IPC_CHANNELS } from '@proma/shared'
-import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment, ChatToolActivity } from '@proma/shared'
+import type { ChatSendInput, ChatMessage, GenerateTitleInput, FileAttachment, ChatToolActivity, ChannelApiFormat } from '@proma/shared'
 import {
   getAdapter,
   streamSSE,
   fetchTitle,
+  normalizeOpenAIBaseUrl,
 } from '@proma/core'
 import type { ImageAttachmentData, ContinuationMessage } from '@proma/core'
 import { listChannels, decryptApiKey } from './channel-manager'
@@ -269,9 +270,18 @@ export async function sendMessage(
 
     // 9. 工具续接循环
     let continuationMessages: ContinuationMessage[] = []
+    let previousResponseId: string | undefined
     let round = 0
     /** 标记最近一轮是否执行了工具（用于判断是否需要最终响应轮） */
     let pendingToolResults = false
+    let apiFormatForLoop: ChannelApiFormat =
+      channel.provider === 'openai' || channel.provider === 'custom'
+        ? (channel.apiFormat ?? 'chat_completions')
+        : 'chat_completions'
+    const effectiveBaseUrl =
+      channel.provider === 'openai'
+        ? normalizeOpenAIBaseUrl(channel.baseUrl)
+        : channel.baseUrl
 
     /** 流式事件处理器（工具轮和最终响应轮复用） */
     const handleStreamEvent = (event: { type: string; delta?: string; toolCallId?: string; toolName?: string }): void => {
@@ -310,9 +320,11 @@ export async function sendMessage(
       pendingToolResults = false
 
       const request = adapter.buildStreamRequest({
-        baseUrl: channel.baseUrl,
+        baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
+        apiFormat: apiFormatForLoop,
+        previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,
         systemMessage: effectiveSystemMessage,
@@ -323,13 +335,31 @@ export async function sendMessage(
         continuationMessages: continuationMessages.length > 0 ? continuationMessages : undefined,
       })
 
-      const { content, toolCalls, stopReason } = await streamSSE({
+      const { content, toolCalls, stopReason, responseId } = await streamSSE({
         request,
         adapter,
         signal: controller.signal,
         fetchFn,
         onEvent: handleStreamEvent,
       })
+
+      if (responseId) {
+        previousResponseId = responseId
+      }
+
+      // Responses 模式下，如果需要继续 tool loop 但没拿到本轮 responseId，
+      // 下一轮无法可靠地通过 previous_response_id 续接。
+      // 为保证可用性，这里自动降级到 Chat Completions 继续循环。
+      if (
+        apiFormatForLoop === 'responses'
+        && stopReason === 'tool_use'
+        && toolCalls.length > 0
+        && !responseId
+      ) {
+        console.warn('[聊天服务] Responses 模式未收到 responseId，自动降级为 Chat Completions 继续 tool loop')
+        apiFormatForLoop = 'chat_completions'
+        previousResponseId = undefined
+      }
 
       // 如果没有工具调用或不是 tool_use 停止，退出循环
       if (!toolCalls || toolCalls.length === 0 || stopReason !== 'tool_use') {
@@ -383,9 +413,11 @@ export async function sendMessage(
       console.log(`[聊天服务] 工具轮次已达上限 (${MAX_TOOL_ROUNDS})，发起最终响应轮`)
 
       const finalRequest = adapter.buildStreamRequest({
-        baseUrl: channel.baseUrl,
+        baseUrl: effectiveBaseUrl,
         apiKey,
         modelId,
+        apiFormat: apiFormatForLoop,
+        previousResponseId,
         history: enrichedHistory,
         userMessage: enrichedUserMessage,
         systemMessage: effectiveSystemMessage,
@@ -561,9 +593,16 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
   try {
     const adapter = getAdapter(channel.provider)
     const request = adapter.buildTitleRequest({
-      baseUrl: channel.baseUrl,
+      baseUrl:
+        channel.provider === 'openai'
+          ? normalizeOpenAIBaseUrl(channel.baseUrl)
+          : channel.baseUrl,
       apiKey,
       modelId,
+      apiFormat:
+        channel.provider === 'openai' || channel.provider === 'custom'
+          ? channel.apiFormat
+          : 'chat_completions',
       prompt: TITLE_PROMPT + userMessage,
     })
 

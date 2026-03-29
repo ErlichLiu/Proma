@@ -1,43 +1,61 @@
 # dependencies (bun install)
-node_modules
+node_modules/
+.bun/
 
 # output
-out
-dist
+out/
+dist/
+build/
+release/
 *.tgz
+*.tsbuildinfo
+
+# vendor binaries (downloaded / generated)
+vendor/
+apps/electron/vendor/
 
 # code coverage
-coverage
+coverage/
 *.lcov
+.nyc_output/
+
+# test outputs
+test-results/
+playwright-report/
+reports/
 
 # logs
-logs
-_.log
+logs/
+*.log
+*.tmp
+*.swp
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
 
 # caches
 .eslintcache
-.cache
-*.tsbuildinfo
+.cache/
 
 # IntelliJ based IDEs
-.idea
+.idea/
+
+# VSCode
+.vscode/
 
 # Finder (MacOS) folder config
 .DS_Store
+Thumbs.db
 
-# ignore craft-agents-oss folder
-craft-agents-oss
+# Codex local workspace state
+.codex/
 
-# ignore what_are_humans_thinking folder
-what_are_humans_thinking
+# --- AI/Agent local instructions (do not commit) ---
+AGENTS.md
+CLAUDE.md
 
-# vendor binaries
-vendor
+# ignore local scratch folders
+craft-agents-oss/
+what_are_humans_thinking/
