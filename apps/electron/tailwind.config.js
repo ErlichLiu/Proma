@@ -7,11 +7,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        border: 'hsl(var(--border))',
+        border: 'hsl(var(--border) / <alpha-value>)',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
+        background: 'hsl(var(--background) / <alpha-value>)',
+        foreground: 'hsl(var(--foreground) / <alpha-value>)',
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
@@ -44,7 +44,7 @@ export default {
           DEFAULT: 'hsl(var(--dialog))',
           foreground: 'hsl(var(--dialog-foreground))',
         },
-        'content-area': 'hsl(var(--content-area))',
+        'content-area': 'hsl(var(--content-area) / <alpha-value>)',
       },
       keyframes: {
         'slide-in-from-top': {
