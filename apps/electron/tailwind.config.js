@@ -44,6 +44,7 @@ export default {
           DEFAULT: 'hsl(var(--dialog))',
           foreground: 'hsl(var(--dialog-foreground))',
         },
+        'content-area': 'hsl(var(--content-area))',
       },
       keyframes: {
         'slide-in-from-top': {

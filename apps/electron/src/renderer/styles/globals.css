@@ -25,6 +25,7 @@
     --popover-foreground: 0 0% 3.9%;
     --dialog: 0 0% 100%;
     --dialog-foreground: 0 0% 3.9%;
+    --content-area: 0 0% 100%;            /* 主内容区域背景 */
   }
 
   .dark {
@@ -49,6 +50,7 @@
     --popover-foreground: 0 0% 98%;
     --dialog: 0 0% 3.9%;
     --dialog-foreground: 0 0% 98%;
+    --content-area: 0 0% 7%;              /* 主内容区域背景 zinc-900 */
   }
 
   /* ===== 特殊风格主题 ===== */
@@ -76,6 +78,7 @@
     --popover-foreground: 210 30% 15%;
     --dialog: 0 0% 100%;                  /* 设置弹窗：白色 */
     --dialog-foreground: 210 30% 15%;
+    --content-area: 205 40% 92%;          /* 主内容区域 = card */
   }
 
   /* 深海青绿（深色） - 深蓝背景 + 青绿强调色 */
@@ -101,6 +104,7 @@
     --popover-foreground: 210 20% 92%;
     --dialog: 210 20% 12%;                /* 设置弹窗：中性深灰蓝 */
     --dialog-foreground: 210 20% 92%;
+    --content-area: 210 35% 11%;          /* 主内容区域 = card */
   }
 }
 
