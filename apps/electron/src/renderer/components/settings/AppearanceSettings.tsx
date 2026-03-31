@@ -47,16 +47,16 @@ interface SpecialStyle {
 
 const SPECIAL_STYLES: SpecialStyle[] = [
   {
+    id: 'slate-light',
+    name: '云朵舞者',
+    variant: 'light',
+    preview: { left: '#e8e6e2', right: '#f0efec' },
+  },
+  {
     id: 'ocean-light',
     name: '晴空碧海',
     variant: 'light',
     preview: { left: '#b8d4e5', right: '#d4e5f0' },
-  },
-  {
-    id: 'ocean-dark',
-    name: '苍穹暮色',
-    variant: 'dark',
-    preview: { left: '#1a2535', right: '#3a6a9b' },
   },
   {
     id: 'forest-light',
@@ -65,16 +65,16 @@ const SPECIAL_STYLES: SpecialStyle[] = [
     preview: { left: '#e2e9e4', right: '#3f8361' },
   },
   {
+    id: 'ocean-dark',
+    name: '苍穹暮色',
+    variant: 'dark',
+    preview: { left: '#1a2535', right: '#3a6a9b' },
+  },
+  {
     id: 'forest-dark',
     name: '森息夜语',
     variant: 'dark',
     preview: { left: '#1b2721', right: '#185337' },
-  },
-  {
-    id: 'slate-light',
-    name: '云朵舞者',
-    variant: 'light',
-    preview: { left: '#e8e6e2', right: '#f0efec' },
   },
   {
     id: 'slate-dark',
