@@ -26,6 +26,10 @@
     --dialog: 0 0% 100%;
     --dialog-foreground: 0 0% 3.9%;
     --content-area: 0 0% 100%;            /* 主内容区域背景 */
+    /* 毛玻璃 Tooltip：深色半透明背景 + 白色文字 */
+    --tooltip: 0 0% 15%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 0 0% 75%;
   }
 
   .dark {
@@ -51,6 +55,10 @@
     --dialog: 0 0% 12%;                   /* 设置弹窗：比背景/内容区更亮，悬浮感 */
     --dialog-foreground: 0 0% 98%;
     --content-area: 0 0% 7%;              /* 主内容区域背景 zinc-900 */
+    /* 毛玻璃 Tooltip：深色半透明背景 + 白色文字 */
+    --tooltip: 0 0% 20%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 0 0% 70%;
   }
 
   /* ===== 特殊风格主题 ===== */
@@ -79,6 +87,10 @@
     --dialog: 0 0% 100%;                  /* 设置弹窗：白色 */
     --dialog-foreground: 210 30% 15%;
     --content-area: 205 40% 97%;          /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：海洋蓝深色背景 */
+    --tooltip: 210 45% 18%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 210 20% 75%;
   }
 
   /* 苍穹暮色（深色） - 深蓝背景 + 蓝色强调色 */
@@ -105,6 +117,10 @@
     --dialog: 210 25% 16%;                /* 设置弹窗：比内容区更亮，悬浮感 */
     --dialog-foreground: 210 20% 92%;
     --content-area: 210 35% 11%;          /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：深蓝背景 */
+    --tooltip: 210 40% 22%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 210 20% 70%;
   }
 
   /* ===== 大地色系 ===== */
@@ -133,6 +149,10 @@
     --dialog: 0 0% 100%;                  /* 设置弹窗：白色 */
     --dialog-foreground: 25 30% 15%;
     --content-area: 35 25% 96%;           /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：暖棕深色背景 */
+    --tooltip: 25 35% 18%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 30 20% 75%;
   }
 
   /* 焦糖暮野（深色） - 深棕背景 + 琥珀强调 */
@@ -159,6 +179,10 @@
     --dialog: 25 22% 18%;                 /* 设置弹窗：比背景明显更亮 */
     --dialog-foreground: 35 20% 90%;
     --content-area: 25 28% 12%;           /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：深棕背景 */
+    --tooltip: 25 30% 22%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 30 20% 70%;
   }
 
   /* ===== 赛博朋克色系 ===== */
@@ -187,6 +211,10 @@
     --dialog: 0 0% 100%;                  /* 设置弹窗：白色 */
     --dialog-foreground: 260 30% 15%;
     --content-area: 270 18% 97%;          /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：紫色深色背景 */
+    --tooltip: 280 35% 18%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 280 20% 75%;
   }
 
   /* 霓虹暗涌（深色） - 深紫黑背景 + 品红强调 */
@@ -213,6 +241,10 @@
     --dialog: 270 22% 18%;                /* 设置弹窗：比背景明显更亮 */
     --dialog-foreground: 280 15% 90%;
     --content-area: 270 30% 11%;          /* 主内容区域 = card */
+    /* 毛玻璃 Tooltip：深紫背景 */
+    --tooltip: 280 35% 22%;
+    --tooltip-foreground: 0 0% 98%;
+    --tooltip-muted: 280 20% 70%;
   }
 }
 

@@ -44,6 +44,11 @@ export default {
           DEFAULT: 'hsl(var(--dialog))',
           foreground: 'hsl(var(--dialog-foreground))',
         },
+        tooltip: {
+          DEFAULT: 'hsl(var(--tooltip) / <alpha-value>)',
+          foreground: 'hsl(var(--tooltip-foreground) / <alpha-value>)',
+          muted: 'hsl(var(--tooltip-muted) / <alpha-value>)',
+        },
         'content-area': 'hsl(var(--content-area) / <alpha-value>)',
       },
       keyframes: {
