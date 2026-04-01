@@ -214,9 +214,9 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
   return (
     <div
       className={cn(
-        'relative flex-shrink-0 overflow-hidden titlebar-drag-region bg-[hsl(var(--content-area))]',
+        'relative h-full flex-shrink-0 overflow-hidden titlebar-drag-region bg-background/95 backdrop-blur-xl rounded-2xl shadow-xl',
         animateRef.current && 'transition-[width] duration-300 ease-in-out',
-        isOpen ? 'w-[320px] border-l' : hasContent ? 'w-10' : 'w-0',
+        isOpen ? 'w-[320px]' : hasContent ? 'w-10' : 'w-0',
       )}
     >
       {/* 切换按钮 — 始终固定在右上角 */}

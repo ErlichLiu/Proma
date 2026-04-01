@@ -1,13 +1,14 @@
 /**
  * AppShell - 应用主布局容器
  *
- * 布局结构：[LeftSidebar 可折叠] | [MainArea: TabBar + SplitContainer]
+ * 布局结构：[LeftSidebar 可折叠] | [MainArea: TabBar + SplitContainer] | [RightSidePanel 可折叠]
  *
  * MainArea 支持多标签页 + 分屏，Settings 视图为独立覆盖。
  */
 
 import * as React from 'react'
 import { LeftSidebar } from './LeftSidebar'
+import { RightSidePanel } from './RightSidePanel'
 import { MainArea } from '@/components/tabs/MainArea'
 import { AppShellProvider, type AppShellContextType } from '@/contexts/AppShellContext'
 
@@ -28,10 +29,15 @@ export function AppShell({ contextValue }: AppShellProps): React.ReactElement {
           <LeftSidebar />
         </div>
 
-        {/* 右侧容器：relative z-[60] 使其在 z-50 拖动区域之上 */}
+        {/* 中间容器：relative z-[60] 使其在 z-50 拖动区域之上 */}
         <div className="flex-1 min-w-0 p-2 relative z-[60]">
           {/* 主内容区域（TabBar + SplitContainer） */}
           <MainArea />
+        </div>
+
+        {/* 右侧边栏：Agent 文件面板，带圆角和内边距 */}
+        <div className="p-2 pl-0 relative z-[60]">
+          <RightSidePanel />
         </div>
       </div>
     </AppShellProvider>

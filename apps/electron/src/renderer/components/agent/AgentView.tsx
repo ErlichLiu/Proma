@@ -24,7 +24,6 @@ import { PermissionBanner } from './PermissionBanner'
 import { PermissionModeSelector } from './PermissionModeSelector'
 import { AskUserBanner } from './AskUserBanner'
 import { ExitPlanModeBanner } from './ExitPlanModeBanner'
-import { SidePanel } from './SidePanel'
 import { ModelSelector } from '@/components/chat/ModelSelector'
 import { AttachmentPreviewItem } from '@/components/chat/AttachmentPreviewItem'
 import { RichTextInput } from '@/components/ai-elements/rich-text-input'
@@ -57,6 +56,7 @@ import {
   agentThinkingAtom,
   stoppedByUserSessionsAtom,
   agentPlanModeSessionsAtom,
+  agentSessionPathMapAtom,
 } from '@/atoms/agent-atoms'
 import type { AgentContextStatus } from '@/atoms/agent-atoms'
 import { settingsOpenAtom } from '@/atoms/settings-tab'
@@ -238,7 +238,9 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       return map
     })
   }, [sessionId, setDraftsMap])
-  const [sessionPath, setSessionPath] = React.useState<string | null>(null)
+  const sessionPathMap = useAtomValue(agentSessionPathMapAtom)
+  const setSessionPathMap = useSetAtom(agentSessionPathMapAtom)
+  const sessionPath = sessionPathMap.get(sessionId) ?? null
   const [workspaceFilesPath, setWorkspaceFilesPath] = React.useState<string | null>(null)
   const [isDragOver, setIsDragOver] = React.useState(false)
   const [dragFolderWarning, setDragFolderWarning] = React.useState(false)
@@ -278,15 +280,39 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   // 获取当前 session 的工作路径（文件浏览器需要）
   React.useEffect(() => {
     if (!currentWorkspaceId) {
-      setSessionPath(null)
+      setSessionPathMap((prev) => {
+        const map = new Map(prev)
+        map.delete(sessionId)
+        return map
+      })
       return
     }
 
     window.electronAPI
       .getAgentSessionPath(currentWorkspaceId, sessionId)
-      .then(setSessionPath)
-      .catch(() => setSessionPath(null))
-  }, [sessionId, currentWorkspaceId])
+      .then((path) => {
+        if (path) {
+          setSessionPathMap((prev) => {
+            const map = new Map(prev)
+            map.set(sessionId, path)
+            return map
+          })
+        } else {
+          setSessionPathMap((prev) => {
+            const map = new Map(prev)
+            map.delete(sessionId)
+            return map
+          })
+        }
+      })
+      .catch(() => {
+        setSessionPathMap((prev) => {
+          const map = new Map(prev)
+          map.delete(sessionId)
+          return map
+        })
+      })
+  }, [sessionId, currentWorkspaceId, setSessionPathMap])
 
   // 获取工作区共享文件目录路径（@ 引用时需要搜索）
   const workspaceSlug = workspaces.find((w) => w.id === currentWorkspaceId)?.slug ?? null
@@ -1049,7 +1075,6 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
 
   return (
     <AgentSessionProvider sessionId={sessionId}>
-    <div className="flex h-full overflow-hidden">
       {/* 主内容区域 */}
       <div className="flex flex-col h-full flex-1 min-w-0 max-w-[min(72rem,100%)] mx-auto">
         {/* Agent Header */}
@@ -1286,10 +1311,6 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
           </div>
         </div>
       </div>
-
-      {/* 侧面板（Team Activity + File Browser） */}
-      <SidePanel sessionId={sessionId} sessionPath={sessionPath} />
-    </div>
     </AgentSessionProvider>
   )
 }
