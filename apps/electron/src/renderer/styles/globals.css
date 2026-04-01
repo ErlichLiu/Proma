@@ -359,9 +359,9 @@
 }
 
 /* 苍穹暮色：深蓝背景 + 亮蓝文字 */
-.theme-ocean-dark .session-item-selected,
-.theme-ocean-dark .workspace-item-selected {
-  background: hsl(210 40% 18%) !important;  /* 深蓝色背景 */
+.theme-ocean-dark .session-item-selected.session-item-selected,
+.theme-ocean-dark .workspace-item-selected.workspace-item-selected {
+  background-color: hsl(210 40% 18%) !important;  /* 深蓝色背景 */
   color: hsl(205 70% 75%) !important;       /* 亮蓝色文字 */
 }
 .theme-ocean-dark .session-item-selected *,
@@ -382,9 +382,9 @@
 }
 
 /* 森息夜语：深绿背景 + 亮绿文字 */
-.theme-forest-dark .session-item-selected,
-.theme-forest-dark .workspace-item-selected {
-  background: hsl(150 25% 18%) !important;  /* 深绿色背景 */
+.theme-forest-dark .session-item-selected.session-item-selected,
+.theme-forest-dark .workspace-item-selected.workspace-item-selected {
+  background-color: hsl(150 25% 18%) !important;  /* 深绿色背景 */
   color: hsl(150 40% 70%) !important;       /* 亮绿色文字 */
 }
 .theme-forest-dark .session-item-selected *,
@@ -404,9 +404,9 @@
 
 /* ===== 莫兰迪主题：会话/工作区选中状态 ===== */
 /* 莫兰迪夜：淡紫灰背景 + 温暖杏粉文字 */
-.theme-slate-dark .session-item-selected,
-.theme-slate-dark .workspace-item-selected {
-  background: hsl(260 10% 22%) !important;  /* 淡紫灰背景 */
+.theme-slate-dark .session-item-selected.session-item-selected,
+.theme-slate-dark .workspace-item-selected.workspace-item-selected {
+  background-color: hsl(260 10% 22%) !important;  /* 淡紫灰背景 */
   color: hsl(15 30% 75%) !important;        /* 淡杏粉文字 */
 }
 .theme-slate-dark .session-item-selected *,
