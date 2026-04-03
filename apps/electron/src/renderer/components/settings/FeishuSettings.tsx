@@ -196,7 +196,7 @@ function FeishuCliSection(): React.ReactElement {
     >
       <SettingsCard divided={false}>
         <div className="px-4 py-4 space-y-2 text-sm text-muted-foreground">
-          <p className="text-xs">复制配置提示词，并前往飞书Bot日常绑定的<strong>默认工作区</strong>，发送即可让 Proma 协助完成配置。（SKILL仅安装于当前工作区，避免占用大量上下文和增加Token消耗。）</p>
+          <p className="text-xs">复制配置提示词，并前往飞书Bot日常绑定的<strong>默认工作区</strong>，发送即可让 Proma 协助完成配置。</p>
           <button
             type="button"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
@@ -210,7 +210,7 @@ function FeishuCliSection(): React.ReactElement {
             <div className="bg-muted/50 rounded-md p-3 font-mono text-xs space-y-1.5 animate-in fade-in-0 slide-in-from-top-1 duration-200">
               <div><span className="text-foreground/70 font-semibold">步骤 1</span> — 安装飞书 CLI 到全局</div>
               <div className="pl-3 text-foreground/60">npm install -g @larksuite/cli</div>
-              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 2</span> — 将 SKILL 配置到本工作区（不要安装在全局）</div>
+              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 2</span> — 将 SKILL 配置到本工作区（默认配置本工作区，但请提醒用户是否需要额外安装到全局，会使得预置上下文增加，造成不必要的Token消耗）</div>
               <div className="pl-3 text-foreground/60">npx skills add https://github.com/larksuite/cli -y -g</div>
               <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 3</span> — 初始化 CLI 配置</div>
               <div className="pl-3 text-foreground/60">lark-cli config init --new</div>
