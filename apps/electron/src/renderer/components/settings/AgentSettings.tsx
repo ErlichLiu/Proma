@@ -10,9 +10,11 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
+import { toast } from 'sonner'
 import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
@@ -68,25 +70,33 @@ export function AgentSettings(): React.ReactElement {
   // MCP 配置
   const [mcpConfig, setMcpConfig] = React.useState<WorkspaceMcpConfig>({ servers: {} })
   const [skills, setSkills] = React.useState<SkillMeta[]>([])
+  const [globalSkills, setGlobalSkills] = React.useState<SkillMeta[]>([])
   const [skillsDir, setSkillsDir] = React.useState('')
+  const [showInstallDialog, setShowInstallDialog] = React.useState(false)
+  const [installingSkill, setInstallingSkill] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   /** 加载 MCP 配置和 Skills */
   const loadData = React.useCallback(async () => {
     if (!workspaceSlug) {
+      setSkills([])
+      setGlobalSkills([])
+      setSkillsDir('')
       setLoading(false)
       return
     }
 
     try {
-      const [config, skillList, dir] = await Promise.all([
+      const [config, skillList, dir, globalList] = await Promise.all([
         window.electronAPI.getWorkspaceMcpConfig(workspaceSlug),
         window.electronAPI.getWorkspaceSkills(workspaceSlug),
         window.electronAPI.getWorkspaceSkillsDir(workspaceSlug),
+        window.electronAPI.getGlobalSkills(),
       ])
       setMcpConfig(config)
       setSkills(skillList)
       setSkillsDir(dir)
+      setGlobalSkills(globalList)
     } catch (error) {
       console.error('[Agent 设置] 加载工作区配置失败:', error)
     } finally {
@@ -151,15 +161,17 @@ mcp.json 格式如下：
   /** 构建 Skill 配置提示词 */
   const buildSkillPrompt = (): string => {
     const skillsDir = `~/.proma/agent-workspaces/${workspaceSlug}/skills/`
+    const globalSkillsDir = '~/.proma/default-skills/'
     const skillList = skills.length > 0
       ? skills.map((s) => `- ${s.name}: ${s.description ?? '无描述'}`).join('\n')
       : '暂无 Skill'
 
-    return `请帮我配置当前工作区的 Skills，你要主动来帮我实，现你可以采用联网搜索深度研究来尝试，当前环境已经有 Claude Agent SDK 了，除非不确定的时候才来问我，否则默认将帮我完成安装，而不是指导我。
+    return `请帮我配置当前工作区的 Skills，你要主动来帮我实现，你可以采用联网搜索深度研究来尝试，当前环境已经有 Claude Agent SDK 了，除非不确定的时候才来问我，否则默认将帮我完成安装，而不是指导我。
 
 ## 工作区信息
 - 工作区: ${currentWorkspace.name}
 - Skills 目录: ${skillsDir}
+- 全局 Skill 仓库: ${globalSkillsDir}
 
 ## Skill 格式
 每个 Skill 是 skills/ 目录下的一个子目录，目录名即 slug。
@@ -177,7 +189,12 @@ Skill 的详细指令内容...
 ## 当前 Skills
 ${skillList}
 
-请查看 skills/ 目录了解现有配置，根据我的需求创建或编辑 Skill。`
+## 安装与同步规则
+- 如果是当前项目里还没有的新 Skill，请先安装到当前工作区的 skills/ 目录，确保我立刻能用
+- Proma 会把当前工作区中新建的 Skill 自动同步到全局 Skill 仓库
+- 如果是复用已有 Skill，请优先从全局 Skill 仓库安装到当前工作区，而不是重复造一个
+
+请查看 skills/ 目录和全局 Skill 仓库，按照上面的规则创建、安装或编辑 Skill。`
   }
 
   /** 通过 Agent 对话完成配置 */
@@ -278,6 +295,26 @@ ${skillList}
   }
 
   /** 表单保存回调 */
+  const handleInstallGlobalSkill = async (skillSlug: string): Promise<void> => {
+    if (!workspaceSlug || installingSkill) return
+
+    setInstallingSkill(skillSlug)
+    try {
+      const installed = await window.electronAPI.installGlobalSkill(workspaceSlug, skillSlug)
+      setSkills((prev) => prev.some((skill) => skill.slug === installed.slug) ? prev : [...prev, installed])
+      bumpCapabilitiesVersion((v) => v + 1)
+      setShowInstallDialog(false)
+      toast.success(`已安装 Skill: ${installed.name}`)
+    } catch (error) {
+      console.error('[Agent 璁剧疆] 安装全局 Skill 失败:', error)
+      const message = error instanceof Error ? error.message : '未知错误'
+      toast.error('安装全局 Skill 失败', { description: message })
+    } finally {
+      setInstallingSkill(null)
+    }
+  }
+
+  /** 表单保存回调 */
   const handleFormSaved = (): void => {
     setViewMode('list')
     setEditingServer(null)
@@ -366,10 +403,16 @@ ${skillList}
       {/* 区块二：Skills（只读） */}
       <SettingsSection
         title="Skills"
-        description="将 SKILL.md 放入工作区 skills/ 目录即可被 Agent 自动发现"
-        action={skillsDir ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
+        description="当前工作区安装后会立即可用；在工作区中新建的 Skill 会自动同步到全局仓库"
+        action={
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowInstallDialog(true)}>
+              <Plus size={16} />
+              <span>从全局仓库安装</span>
+            </Button>
+            {skillsDir ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
               <button
                 onClick={() => window.electronAPI.openFile(skillsDir)}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
@@ -378,8 +421,10 @@ ${skillList}
               </button>
             </TooltipTrigger>
             <TooltipContent>打开 Skills 目录</TooltipContent>
-          </Tooltip>
-        ) : undefined}
+              </Tooltip>
+            ) : null}
+          </div>
+        }
       >
         {loading ? (
           <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
@@ -407,6 +452,15 @@ ${skillList}
           <span>跟 Proma Agent 对话完成配置</span>
         </Button>
       </SettingsSection>
+
+      <InstallGlobalSkillDialog
+        open={showInstallDialog}
+        onOpenChange={setShowInstallDialog}
+        globalSkills={globalSkills}
+        installedSkills={skills}
+        installingSkill={installingSkill}
+        onInstall={handleInstallGlobalSkill}
+      />
     </div>
   )
 }
@@ -414,6 +468,107 @@ ${skillList}
 // ===== MCP 服务器行子组件 =====
 
 /** 传输类型显示标签 */
+interface InstallGlobalSkillDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  globalSkills: SkillMeta[]
+  installedSkills: SkillMeta[]
+  installingSkill: string | null
+  onInstall: (skillSlug: string) => void
+}
+
+function formatGlobalSkillSource(skill: SkillMeta): string {
+  if (skill.sourceType === 'bundled') return '内置'
+  if (skill.sourceType === 'workspace-authored') {
+    return skill.sourceWorkspaceSlug ? `来自 ${skill.sourceWorkspaceSlug}` : '工作区安装'
+  }
+  return '全局'
+}
+
+function InstallGlobalSkillDialog({
+  open,
+  onOpenChange,
+  globalSkills,
+  installedSkills,
+  installingSkill,
+  onInstall,
+}: InstallGlobalSkillDialogProps): React.ReactElement {
+  const installedSlugs = React.useMemo(
+    () => new Set(installedSkills.map((skill) => skill.slug)),
+    [installedSkills]
+  )
+  const availableSkills = React.useMemo(
+    () => globalSkills.filter((skill) => !installedSlugs.has(skill.slug)),
+    [globalSkills, installedSlugs]
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl gap-0 overflow-hidden p-0">
+        <DialogHeader className="px-6 pb-4 pt-6">
+          <DialogTitle>从全局仓库安装 Skill</DialogTitle>
+          <DialogDescription>
+            从 `~/.proma/default-skills/` 选择一个 Skill，复制到当前工作区的 `skills/` 目录。当前工作区中新建的 Skill 也会自动同步回这个全局仓库。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="px-6 pb-6">
+          {availableSkills.length === 0 ? (
+            <SettingsCard divided={false}>
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                当前没有可安装的全局 Skill，或者它们都已经安装到这个工作区了。
+              </div>
+            </SettingsCard>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {availableSkills.map((skill) => (
+                <SettingsCard key={skill.slug} divided={false} className="overflow-hidden">
+                  <div className="flex h-full flex-col gap-4 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-xl bg-amber-500/12 p-2 text-amber-500 shadow-sm">
+                        <Sparkles size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="truncate text-sm font-medium text-foreground">{skill.name}</div>
+                          {skill.version ? (
+                            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                              v{skill.version}
+                            </span>
+                          ) : null}
+                          {skill.sourceType ? (
+                            <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                              {formatGlobalSkillSource(skill)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">{skill.slug}</div>
+                      </div>
+                    </div>
+
+                    <div className="min-h-[40px] text-sm leading-6 text-muted-foreground">
+                      {skill.description ?? '暂无描述'}
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={() => onInstall(skill.slug)}
+                      disabled={installingSkill !== null}
+                    >
+                      {installingSkill === skill.slug ? '安装中...' : '安装到当前工作区'}
+                    </Button>
+                  </div>
+                </SettingsCard>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const TRANSPORT_LABELS: Record<string, string> = {
   stdio: 'stdio',
   http: 'HTTP',

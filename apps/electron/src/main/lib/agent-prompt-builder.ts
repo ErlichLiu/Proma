@@ -196,6 +196,14 @@ Agent 工具支持 \`model\` 参数（可选值：\`sonnet\` / \`opus\` / \`haik
 - 当前会话目录（cwd）: ~/.proma/agent-workspaces/${ctx.workspaceSlug}/${ctx.sessionId}/
 - MCP 配置: ~/.proma/agent-workspaces/${ctx.workspaceSlug}/mcp.json（顶层 key 是 \`servers\`）
 - Skills 目录: ~/.proma/agent-workspaces/${ctx.workspaceSlug}/skills/
+- 全局 Skill 仓库: ~/.proma/default-skills/
+
+### Skill 安装约定
+
+- 在当前工作区里新建的 Skill 会立刻可用
+- Proma 会自动把当前工作区中新建的 Skill 同步到全局 Skill 仓库
+- 从全局仓库复制到工作区的 Skill 默认视为局部副本，不应自动反向覆盖全局
+- 如果要安装一个全新的 Skill，优先让它先落到当前工作区，再由系统自动同步到全局
 
 ### .context 目录层级
 

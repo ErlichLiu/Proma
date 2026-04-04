@@ -19,6 +19,7 @@ import {
   getInactiveSkillsDir,
   getDefaultSkillsDir,
   parseSkillVersion,
+  SKILL_STORAGE_META_FILE,
 } from './config-paths'
 import type { AgentWorkspace, McpServerEntry, WorkspaceMcpConfig, SkillMeta, WorkspaceCapabilities, PromaPermissionMode } from '@proma/shared'
 import { migratePermissionMode } from '@proma/shared'
@@ -35,6 +36,48 @@ interface AgentWorkspacesIndex {
 
 /** 当前索引版本 */
 const INDEX_VERSION = 2
+
+interface SkillStorageMeta {
+  version: 1
+  sourceType: 'bundled' | 'workspace-authored'
+  sourceWorkspaceSlug?: string
+  syncedAt: number
+}
+
+function readSkillStorageMeta(skillDir: string): SkillStorageMeta | null {
+  const metaPath = join(skillDir, SKILL_STORAGE_META_FILE)
+  if (!existsSync(metaPath)) return null
+
+  try {
+    const raw = readFileSync(metaPath, 'utf-8')
+    const parsed = JSON.parse(raw) as Partial<SkillStorageMeta>
+    if (parsed.version !== 1) return null
+    if (parsed.sourceType !== 'bundled' && parsed.sourceType !== 'workspace-authored') return null
+
+    return {
+      version: 1,
+      sourceType: parsed.sourceType,
+      sourceWorkspaceSlug: parsed.sourceWorkspaceSlug,
+      syncedAt: typeof parsed.syncedAt === 'number' ? parsed.syncedAt : Date.now(),
+    }
+  } catch (error) {
+    console.warn('[Agent 工作区] 读取 Skill 元数据失败:', skillDir, error)
+    return null
+  }
+}
+
+function writeSkillStorageMeta(skillDir: string, meta: SkillStorageMeta): void {
+  writeFileSync(join(skillDir, SKILL_STORAGE_META_FILE), JSON.stringify(meta, null, 2), 'utf-8')
+}
+
+function createWorkspaceAuthoredMeta(workspaceSlug: string): SkillStorageMeta {
+  return {
+    version: 1,
+    sourceType: 'workspace-authored',
+    sourceWorkspaceSlug: workspaceSlug,
+    syncedAt: Date.now(),
+  }
+}
 
 /**
  * 读取工作区索引文件
@@ -461,11 +504,115 @@ export function getWorkspaceSkills(workspaceSlug: string): SkillMeta[] {
   return scanSkillsInDir(getWorkspaceSkillsDir(workspaceSlug), true)
 }
 
+export function getGlobalSkills(): SkillMeta[] {
+  return scanSkillsInDir(getDefaultSkillsDir(), true, true)
+}
+
+export function installGlobalSkill(workspaceSlug: string, skillSlug: string): SkillMeta {
+  const sourcePath = join(getDefaultSkillsDir(), skillSlug)
+  const activeTargetPath = join(getWorkspaceSkillsDir(workspaceSlug), skillSlug)
+  const inactiveTargetPath = join(getInactiveSkillsDir(workspaceSlug), skillSlug)
+
+  if (!existsSync(sourcePath)) {
+    throw new Error(`全局 Skill 不存在: ${skillSlug}`)
+  }
+
+  if (existsSync(activeTargetPath) || existsSync(inactiveTargetPath)) {
+    throw new Error(`Skill 已存在于当前工作区: ${skillSlug}`)
+  }
+
+  cpSync(sourcePath, activeTargetPath, { recursive: true })
+  console.log(`[Agent 工作区] 已安装全局 Skill: ${workspaceSlug}/${skillSlug}`)
+
+  const skillMdPath = join(activeTargetPath, 'SKILL.md')
+  const content = readFileSync(skillMdPath, 'utf-8')
+  return parseSkillFrontmatter(content, skillSlug, true, false, readSkillStorageMeta(activeTargetPath))
+}
+
+/**
+ * 将当前工作区中新创建的 Skill 同步到全局仓库
+ *
+ * 规则：
+ * - 当前工作区新建的 Skill：自动写入 ~/.proma/default-skills/
+ * - 从全局复制到工作区的 Skill：不自动反向覆盖全局
+ * - 已有其他工作区作为来源的全局 Skill：不跨工作区抢占写入权
+ */
+export function syncWorkspaceSkillToGlobal(workspaceSlug: string, skillSlug: string): void {
+  const workspaceSkillPath = join(getWorkspaceSkillsDir(workspaceSlug), skillSlug)
+  const workspaceSkillMdPath = join(workspaceSkillPath, 'SKILL.md')
+
+  if (!existsSync(workspaceSkillPath) || !existsSync(workspaceSkillMdPath)) {
+    return
+  }
+
+  const workspaceMeta = readSkillStorageMeta(workspaceSkillPath)
+
+  // 从全局复制到工作区的 Skill 默认视为局部副本，不自动反向覆盖全局
+  if (workspaceMeta?.sourceType === 'bundled') {
+    return
+  }
+
+  if (
+    workspaceMeta?.sourceType === 'workspace-authored' &&
+    workspaceMeta.sourceWorkspaceSlug &&
+    workspaceMeta.sourceWorkspaceSlug !== workspaceSlug
+  ) {
+    return
+  }
+
+  const globalSkillPath = join(getDefaultSkillsDir(), skillSlug)
+  const globalMeta = readSkillStorageMeta(globalSkillPath)
+
+  if (existsSync(globalSkillPath) && globalMeta?.sourceType === 'bundled') {
+    console.log(`[Agent 工作区] 跳过同步到全局仓库（内置 Skill 同名）: ${workspaceSlug}/${skillSlug}`)
+    return
+  }
+
+  if (existsSync(globalSkillPath) && !globalMeta && !workspaceMeta) {
+    console.log(`[Agent 工作区] 跳过同步到全局仓库（全局 Skill 来源未知）: ${workspaceSlug}/${skillSlug}`)
+    return
+  }
+
+  if (
+    globalMeta?.sourceType === 'workspace-authored' &&
+    globalMeta.sourceWorkspaceSlug &&
+    globalMeta.sourceWorkspaceSlug !== workspaceSlug
+  ) {
+    console.log(`[Agent 工作区] 跳过同步到全局仓库（由其他工作区维护）: ${workspaceSlug}/${skillSlug}`)
+    return
+  }
+
+  if (existsSync(globalSkillPath)) {
+    rmSync(globalSkillPath, { recursive: true, force: true })
+  }
+
+  cpSync(workspaceSkillPath, globalSkillPath, { recursive: true, force: true })
+
+  const syncMeta = createWorkspaceAuthoredMeta(workspaceSlug)
+  writeSkillStorageMeta(globalSkillPath, syncMeta)
+  writeSkillStorageMeta(workspaceSkillPath, syncMeta)
+
+  console.log(`[Agent 工作区] 已同步 Skill 到全局仓库: ${workspaceSlug}/${skillSlug}`)
+}
+
 /**
  * 解析 SKILL.md 的 YAML frontmatter
  */
-function parseSkillFrontmatter(content: string, slug: string, enabled: boolean): SkillMeta {
-  const meta: SkillMeta = { slug, name: slug, enabled }
+function parseSkillFrontmatter(
+  content: string,
+  slug: string,
+  enabled: boolean,
+  isGlobal = false,
+  storageMeta: SkillStorageMeta | null = null,
+): SkillMeta {
+  const meta: SkillMeta = {
+    slug,
+    name: slug,
+    enabled,
+    ...(isGlobal ? { isGlobal: true } : {}),
+    ...(storageMeta?.sourceType ? { sourceType: storageMeta.sourceType } : {}),
+    ...(storageMeta?.sourceWorkspaceSlug ? { sourceWorkspaceSlug: storageMeta.sourceWorkspaceSlug } : {}),
+  }
 
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
   if (!fmMatch) return meta
@@ -529,7 +676,7 @@ export function deleteWorkspaceSkill(workspaceSlug: string, skillSlug: string): 
  *
  * 通用扫描逻辑，供 getWorkspaceSkills 和 getAllWorkspaceSkills 复用。
  */
-function scanSkillsInDir(dir: string, enabled: boolean): SkillMeta[] {
+function scanSkillsInDir(dir: string, enabled: boolean, isGlobal = false): SkillMeta[] {
   const skills: SkillMeta[] = []
 
   try {
@@ -544,7 +691,13 @@ function scanSkillsInDir(dir: string, enabled: boolean): SkillMeta[] {
 
       try {
         const content = readFileSync(skillMdPath, 'utf-8')
-        const meta = parseSkillFrontmatter(content, entry.name, enabled)
+        const meta = parseSkillFrontmatter(
+          content,
+          entry.name,
+          enabled,
+          isGlobal,
+          readSkillStorageMeta(join(dir, entry.name)),
+        )
         skills.push(meta)
       } catch {
         console.warn(`[Agent 工作区] 解析 Skill 失败: ${entry.name}`)

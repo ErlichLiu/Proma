@@ -379,6 +379,9 @@ export interface ElectronAPI {
   /** 获取工作区 Skill 列表（含活跃和不活跃） */
   getWorkspaceSkills: (workspaceSlug: string) => Promise<SkillMeta[]>
 
+  /** 获取全局 Skill 列表（~/.proma/default-skills/） */
+  getGlobalSkills: () => Promise<SkillMeta[]>
+
   /** 获取工作区 Skills 目录绝对路径 */
   getWorkspaceSkillsDir: (workspaceSlug: string) => Promise<string>
 
@@ -387,6 +390,9 @@ export interface ElectronAPI {
 
   /** 切换工作区 Skill 启用/禁用 */
   toggleWorkspaceSkill: (workspaceSlug: string, skillSlug: string, enabled: boolean) => Promise<void>
+
+  /** 从全局 Skill 安装到工作区 */
+  installGlobalSkill: (workspaceSlug: string, skillSlug: string) => Promise<SkillMeta>
 
   /** 订阅 Agent 流式事件（返回清理函数） */
   onAgentStreamEvent: (callback: (event: AgentStreamEvent) => void) => () => void
@@ -1060,6 +1066,10 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_SKILLS, workspaceSlug)
   },
 
+  getGlobalSkills: () => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_GLOBAL_SKILLS)
+  },
+
   getWorkspaceSkillsDir: (workspaceSlug: string) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_SKILLS_DIR, workspaceSlug)
   },
@@ -1070,6 +1080,10 @@ const electronAPI: ElectronAPI = {
 
   toggleWorkspaceSkill: (workspaceSlug: string, skillSlug: string, enabled: boolean) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.TOGGLE_SKILL, workspaceSlug, skillSlug, enabled)
+  },
+
+  installGlobalSkill: (workspaceSlug: string, skillSlug: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.INSTALL_GLOBAL_SKILL, workspaceSlug, skillSlug)
   },
 
   onAgentStreamEvent: (callback: (event: AgentStreamEvent) => void) => {

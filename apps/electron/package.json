@@ -1,6 +1,6 @@
 {
   "name": "@proma/electron",
-  "version": "0.8.1",
+  "version": "0.8.3",
   "description": "Proma next gen ai software with general agents - Electron App",
   "main": "dist/main.cjs",
   "author": {
@@ -13,8 +13,8 @@
     "dev": "concurrently -k -n vite,electron -c blue,green \"bun run dev:vite\" \"bun run dev:electron\"",
     "dev:split": "bash scripts/dev-split.sh",
     "dev:vite": "vite dev",
-    "dev:kill": "pkill -f 'electronmon \\.' 2>/dev/null; pkill -f 'electron.*dist/main' 2>/dev/null; sleep 0.5; true",
-    "dev:electron": "bun run dev:kill && bun run build:main && bun run build:preload && bun run build:resources && sleep 2 && concurrently -k -n main,preload,app -c yellow,magenta,cyan \"bun run watch:main\" \"bun run watch:preload\" \"bunx electronmon .\"",
+    "dev:kill": "pkill -f 'electronmon \\.' 2>/dev/null; pkill -f 'electron.*dist/main' 2>/dev/null; node -e \"setTimeout(() => process.exit(0), 500)\"; true",
+    "dev:electron": "bun run dev:kill && bun run build:main && bun run build:preload && bun run build:resources && node -e \"setTimeout(() => process.exit(0), 2000)\" && concurrently -k -n main,preload,app -c yellow,magenta,cyan \"bun run watch:main\" \"bun run watch:preload\" \"bunx electronmon .\"",
     "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:@anthropic-ai/claude-agent-sdk",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs --external:electron",
     "watch:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:@anthropic-ai/claude-agent-sdk --watch=forever",

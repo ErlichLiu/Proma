@@ -660,6 +660,9 @@ export interface SkillMeta {
   description?: string
   icon?: string
   version?: string
+  isGlobal?: boolean
+  sourceType?: 'bundled' | 'workspace-authored'
+  sourceWorkspaceSlug?: string
   enabled: boolean
 }
 
@@ -1142,12 +1145,16 @@ export const AGENT_IPC_CHANNELS = {
   TEST_MCP_SERVER: 'agent:test-mcp-server',
   /** 获取工作区 Skill 列表 */
   GET_SKILLS: 'agent:get-skills',
+  /** 获取全局 Skill 列表（~/.proma/default-skills/） */
+  GET_GLOBAL_SKILLS: 'agent:get-global-skills',
   /** 获取工作区 Skills 目录绝对路径 */
   GET_SKILLS_DIR: 'agent:get-skills-dir',
   /** 删除工作区 Skill */
   DELETE_SKILL: 'agent:delete-skill',
   /** 切换工作区 Skill 启用/禁用 */
   TOGGLE_SKILL: 'agent:toggle-skill',
+  /** 从全局 Skill 安装到工作区 */
+  INSTALL_GLOBAL_SKILL: 'agent:install-global-skill',
 
   // 流式事件（主进程 → 渲染进程推送）
   /** Agent 流式事件 */

@@ -6,11 +6,19 @@
  */
 
 import { join } from 'node:path'
-import { mkdirSync, existsSync, cpSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, existsSync, cpSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 
 /** 配置目录名称 */
 const CONFIG_DIR_NAME = '.proma'
+export const SKILL_STORAGE_META_FILE = '.proma-skill.json'
+
+interface SkillStorageMeta {
+  version: 1
+  sourceType: 'bundled' | 'workspace-authored'
+  sourceWorkspaceSlug?: string
+  syncedAt: number
+}
 
 /**
  * 获取配置目录路径
@@ -383,6 +391,16 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
+function writeBundledSkillMeta(skillDir: string): void {
+  const meta: SkillStorageMeta = {
+    version: 1,
+    sourceType: 'bundled',
+    syncedAt: Date.now(),
+  }
+
+  writeFileSync(join(skillDir, SKILL_STORAGE_META_FILE), JSON.stringify(meta, null, 2), 'utf-8')
+}
+
 /**
  * 从 app bundle 同步默认 Skills 到 ~/.proma/default-skills/
  *
@@ -417,6 +435,7 @@ export function seedDefaultSkills(): void {
       if (!existsSync(target)) {
         // 缺失的 Skill：直接复制
         cpSync(source, target, { recursive: true })
+        writeBundledSkillMeta(target)
         console.log(`[配置] 已同步默认 Skill: ${entry.name}`)
       } else {
         // 已存在：比较版本，bundled 更新时覆盖
@@ -425,7 +444,11 @@ export function seedDefaultSkills(): void {
 
         if (compareSemver(bundledVer, existingVer) > 0) {
           cpSync(source, target, { recursive: true, force: true })
+          writeBundledSkillMeta(target)
           console.log(`[配置] 已升级默认 Skill: ${entry.name} (${existingVer} → ${bundledVer})`)
+        } else {
+          // 历史版本可能没有元数据，这里顺手补齐
+          writeBundledSkillMeta(target)
         }
       }
     }

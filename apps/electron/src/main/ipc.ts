@@ -148,9 +148,11 @@ import {
   getWorkspaceMcpConfig,
   saveWorkspaceMcpConfig,
   getAllWorkspaceSkills,
+  getGlobalSkills,
   getWorkspaceCapabilities,
   getAgentWorkspace,
   deleteWorkspaceSkill,
+  installGlobalSkill,
   toggleWorkspaceSkill,
   getWorkspacePermissionMode,
   setWorkspacePermissionMode,
@@ -896,6 +898,14 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 获取全局 Skill 列表（~/.proma/default-skills/）
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.GET_GLOBAL_SKILLS,
+    async (): Promise<SkillMeta[]> => {
+      return getGlobalSkills()
+    }
+  )
+
   // 获取工作区 Skills 目录绝对路径
   ipcMain.handle(
     AGENT_IPC_CHANNELS.GET_SKILLS_DIR,
@@ -917,6 +927,14 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.TOGGLE_SKILL,
     async (_, workspaceSlug: string, skillSlug: string, enabled: boolean): Promise<void> => {
       return toggleWorkspaceSkill(workspaceSlug, skillSlug, enabled)
+    }
+  )
+
+  // 从全局 Skill 安装到工作区
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.INSTALL_GLOBAL_SKILL,
+    async (_, workspaceSlug: string, skillSlug: string): Promise<SkillMeta> => {
+      return installGlobalSkill(workspaceSlug, skillSlug)
     }
   )
 

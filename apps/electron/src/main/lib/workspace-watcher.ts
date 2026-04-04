@@ -16,11 +16,13 @@ import type { FSWatcher } from 'node:fs'
 import type { BrowserWindow } from 'electron'
 import { AGENT_IPC_CHANNELS } from '@proma/shared'
 import { getAgentWorkspacesDir } from './config-paths'
+import { syncWorkspaceSkillToGlobal } from './agent-workspace-manager'
 
 /** debounce 延迟（ms） */
 const DEBOUNCE_MS = 300
 
 let watcher: FSWatcher | null = null
+const changedWorkspaceSkills = new Set<string>()
 
 /** 附加目录监听器：路径 → FSWatcher */
 const attachedWatchers = new Map<string, FSWatcher>()
@@ -52,16 +54,24 @@ export function startWorkspaceWatcher(win: BrowserWindow): void {
       if (!filename || win.isDestroyed()) return
 
       // filename 格式: {slug}/mcp.json 或 {slug}/skills/xxx/SKILL.md 或 {slug}/{sessionId}/file.txt
+      const normalizedFilename = filename.replace(/\\/g, '/')
       const isCapabilitiesChange =
-        filename.endsWith('/mcp.json') ||
-        filename.endsWith('\\mcp.json') ||
-        filename.includes('/skills/') ||
-        filename.includes('\\skills/')
+        normalizedFilename.endsWith('/mcp.json') ||
+        normalizedFilename.includes('/skills/') ||
+        normalizedFilename.includes('/skills-inactive/')
+
+      if (normalizedFilename.includes('/skills/')) {
+        const skillRef = extractWorkspaceSkillRef(normalizedFilename)
+        if (skillRef) {
+          changedWorkspaceSkills.add(skillRef)
+        }
+      }
 
       if (isCapabilitiesChange) {
         // MCP/Skills 变化 → 通知侧边栏刷新
         if (capabilitiesTimer) clearTimeout(capabilitiesTimer)
         capabilitiesTimer = setTimeout(() => {
+          flushWorkspaceSkillSyncQueue()
           if (!win.isDestroyed()) {
             win.webContents.send(AGENT_IPC_CHANNELS.CAPABILITIES_CHANGED)
           }
@@ -94,6 +104,7 @@ export function stopWorkspaceWatcher(): void {
     watcher = null
     console.log('[工作区监听] 已停止')
   }
+  changedWorkspaceSkills.clear()
   // 同时清理所有附加目录监听器
   for (const [dirPath, w] of attachedWatchers) {
     w.close()
@@ -145,4 +156,35 @@ export function unwatchAttachedDirectory(dirPath: string): void {
     attachedWatchers.delete(dirPath)
     console.log('[附加目录监听] 已停止:', dirPath)
   }
+}
+
+function extractWorkspaceSkillRef(filename: string): string | null {
+  const segments = filename.split('/').filter(Boolean)
+  if (segments.length < 3) return null
+
+  const skillsIndex = segments.indexOf('skills')
+  if (skillsIndex !== 1) return null
+
+  const workspaceSlug = segments[0]
+  const skillSlug = segments[2]
+
+  if (!workspaceSlug || !skillSlug) return null
+  return `${workspaceSlug}:${skillSlug}`
+}
+
+function flushWorkspaceSkillSyncQueue(): void {
+  if (changedWorkspaceSkills.size === 0) return
+
+  for (const ref of changedWorkspaceSkills) {
+    const [workspaceSlug, skillSlug] = ref.split(':')
+    if (!workspaceSlug || !skillSlug) continue
+
+    try {
+      syncWorkspaceSkillToGlobal(workspaceSlug, skillSlug)
+    } catch (error) {
+      console.error('[工作区监听] 同步 Skill 到全局仓库失败:', ref, error)
+    }
+  }
+
+  changedWorkspaceSkills.clear()
 }
