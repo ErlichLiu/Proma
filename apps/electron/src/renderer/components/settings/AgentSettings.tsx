@@ -14,6 +14,8 @@ import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, Shield
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -785,6 +787,25 @@ function ImportSkillFromWorkspaceDialog({
         .filter((workspace) => workspace.skills.length > 0),
     [otherWorkspaces, installedSlugs]
   )
+  const [selectedWorkspaceSlug, setSelectedWorkspaceSlug] = React.useState('')
+
+  const selectedWorkspace = React.useMemo(
+    () => availableWorkspaces.find((workspace) => workspace.workspaceSlug === selectedWorkspaceSlug) ?? null,
+    [availableWorkspaces, selectedWorkspaceSlug]
+  )
+
+  React.useEffect(() => {
+    if (!open || availableWorkspaces.length === 0) {
+      setSelectedWorkspaceSlug('')
+      return
+    }
+
+    setSelectedWorkspaceSlug((current) =>
+      availableWorkspaces.some((workspace) => workspace.workspaceSlug === current)
+        ? current
+        : availableWorkspaces[0]?.workspaceSlug ?? ''
+    )
+  }, [availableWorkspaces, open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -796,7 +817,7 @@ function ImportSkillFromWorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-6">
+        <div className="space-y-4 px-6 pb-6">
           {availableWorkspaces.length === 0 ? (
             <SettingsCard divided={false}>
               <div className="py-10 text-center text-sm text-muted-foreground">
@@ -805,12 +826,32 @@ function ImportSkillFromWorkspaceDialog({
             </SettingsCard>
           ) : (
             <div className="space-y-6">
-              {availableWorkspaces.map((workspace) => (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-foreground">选择来源工作区</div>
+                <Select value={selectedWorkspaceSlug} onValueChange={setSelectedWorkspaceSlug}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择来源工作区" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableWorkspaces.map((workspace) => (
+                      <SelectItem key={workspace.workspaceSlug} value={workspace.workspaceSlug}>
+                        {workspace.workspaceName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(selectedWorkspace ? [selectedWorkspace] : []).map((workspace) => (
                 <div key={workspace.workspaceSlug}>
-                  <div className="mb-3 text-sm font-medium text-muted-foreground">
-                    {workspace.workspaceName}
+                  <div className="mb-3 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                    <span className="truncate">{workspace.workspaceName}</span>
+                    <span className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-medium tabular-nums">
+                      {workspace.skills.length} 个
+                    </span>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <ScrollArea className="h-[420px] pr-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
                     {workspace.skills.map((skill) => (
                       <SettingsCard key={skill.slug} divided={false} className="overflow-hidden">
                         <div className="flex h-full flex-col gap-4 p-4">
@@ -846,7 +887,8 @@ function ImportSkillFromWorkspaceDialog({
                         </div>
                       </SettingsCard>
                     ))}
-                  </div>
+                    </div>
+                  </ScrollArea>
                 </div>
               ))}
             </div>
