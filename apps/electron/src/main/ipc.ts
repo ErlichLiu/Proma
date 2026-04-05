@@ -1424,6 +1424,7 @@ export function registerIpcHandlers(): void {
       const items = readdirSync(safePath, { withFileTypes: true })
 
       for (const item of items) {
+        if (item.name === '.DS_Store') continue
         const fullPath = resolve(safePath, item.name)
         entries.push({
           name: item.name,
@@ -1556,6 +1557,7 @@ export function registerIpcHandlers(): void {
       const items = readdirSync(safePath, { withFileTypes: true })
 
       for (const item of items) {
+        if (item.name === '.DS_Store') continue
         const fullPath = resolve(safePath, item.name)
         entries.push({
           name: item.name,
