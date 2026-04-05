@@ -144,6 +144,7 @@ import {
   createAgentWorkspace,
   updateAgentWorkspace,
   deleteAgentWorkspace,
+  reorderAgentWorkspaces,
   ensureDefaultWorkspace,
   getWorkspaceMcpConfig,
   saveWorkspaceMcpConfig,
@@ -846,6 +847,14 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.DELETE_WORKSPACE,
     async (_, id: string): Promise<void> => {
       return deleteAgentWorkspace(id)
+    }
+  )
+
+  // 重排工作区顺序
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.REORDER_WORKSPACES,
+    async (_, orderedIds: string[]): Promise<AgentWorkspace[]> => {
+      return reorderAgentWorkspaces(orderedIds)
     }
   )
 
