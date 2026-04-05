@@ -220,7 +220,7 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
       {/* 面板内容 */}
       <div
         className={cn(
-          'w-[320px] h-full flex flex-col titlebar-no-drag pt-3',
+          'w-[320px] h-full flex flex-col titlebar-no-drag pt-0',
           shouldAnimate && 'transition-opacity duration-300',
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none',
         )}
@@ -231,7 +231,7 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
                   {/* ===== 会话文件区（仅当 sessionPath 存在时显示） ===== */}
                   {sessionPath && (
                     <>
-                      <div className="flex items-center gap-1 px-3 h-[32px] flex-shrink-0">
+                      <div className="flex items-center gap-1 pl-2 pr-0.5 h-[34px] flex-shrink-0">
                         <FolderOpen className="size-3 text-muted-foreground" />
                         <span className="text-[11px] font-medium text-muted-foreground">会话文件</span>
                         <Tooltip>
@@ -277,17 +277,17 @@ export function SidePanel({ sessionId, sessionPath }: SidePanelProps): React.Rea
                             <p>刷新文件列表</p>
                           </TooltipContent>
                         </Tooltip>
-                        {/* 关闭面板按钮 */}
+                        {/* 关闭面板按钮 — 右上圆角与面板外层 rounded-2xl 呼应 */}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="h-5 w-5 flex-shrink-0"
+                              className="h-7 w-7 flex-shrink-0 rounded-tl-md rounded-tr-[13px] rounded-br-md rounded-bl-md"
                               onClick={() => setIsOpen((prev) => !prev)}
                             >
-                              <X className="size-2.5" />
+                              <X className="size-3" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent side="bottom">
