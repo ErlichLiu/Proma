@@ -11,7 +11,9 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Settings } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -45,6 +47,12 @@ interface EditingServer {
   entry: McpServerEntry
 }
 
+interface OtherWorkspaceSkillsGroup {
+  workspaceName: string
+  workspaceSlug: string
+  skills: SkillMeta[]
+}
+
 export function AgentSettings(): React.ReactElement {
   const workspaces = useAtomValue(agentWorkspacesAtom)
   const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
@@ -69,6 +77,9 @@ export function AgentSettings(): React.ReactElement {
   const [mcpConfig, setMcpConfig] = React.useState<WorkspaceMcpConfig>({ servers: {} })
   const [skills, setSkills] = React.useState<SkillMeta[]>([])
   const [skillsDir, setSkillsDir] = React.useState('')
+  const [otherWorkspaces, setOtherWorkspaces] = React.useState<OtherWorkspaceSkillsGroup[]>([])
+  const [showImportDialog, setShowImportDialog] = React.useState(false)
+  const [importingSkill, setImportingSkill] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   /** 加载 MCP 配置和 Skills */
@@ -79,14 +90,16 @@ export function AgentSettings(): React.ReactElement {
     }
 
     try {
-      const [config, skillList, dir] = await Promise.all([
+      const [config, skillList, dir, otherWorkspaceSkillGroups] = await Promise.all([
         window.electronAPI.getWorkspaceMcpConfig(workspaceSlug),
         window.electronAPI.getWorkspaceSkills(workspaceSlug),
         window.electronAPI.getWorkspaceSkillsDir(workspaceSlug),
+        window.electronAPI.getOtherWorkspaceSkills(workspaceSlug),
       ])
       setMcpConfig(config)
       setSkills(skillList)
       setSkillsDir(dir)
+      setOtherWorkspaces(otherWorkspaceSkillGroups)
     } catch (error) {
       console.error('[Agent 设置] 加载工作区配置失败:', error)
     } finally {
@@ -277,6 +290,26 @@ ${skillList}
     }
   }
 
+  /** 从其他工作区导入 Skill */
+  const handleImportSkill = async (sourceSlug: string, skillSlug: string): Promise<void> => {
+    if (!workspaceSlug || importingSkill) return
+
+    setImportingSkill(skillSlug)
+    try {
+      const imported = await window.electronAPI.importSkillFromWorkspace(workspaceSlug, sourceSlug, skillSlug)
+      setSkills((prev) => prev.some((skill) => skill.slug === imported.slug) ? prev : [...prev, imported])
+      bumpCapabilitiesVersion((v) => v + 1)
+      setShowImportDialog(false)
+      toast.success(`已导入 Skill: ${imported.name}`)
+    } catch (error) {
+      console.error('[Agent 设置] 导入 Skill 失败:', error)
+      const message = error instanceof Error ? error.message : '未知错误'
+      toast.error('导入 Skill 失败', { description: message })
+    } finally {
+      setImportingSkill(null)
+    }
+  }
+
   /** 表单保存回调 */
   const handleFormSaved = (): void => {
     setViewMode('list')
@@ -367,19 +400,27 @@ ${skillList}
       <SettingsSection
         title="Skills"
         description="将 SKILL.md 放入工作区 skills/ 目录即可被 Agent 自动发现"
-        action={skillsDir ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => window.electronAPI.openFile(skillsDir)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              >
-                <FolderOpen size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>打开 Skills 目录</TooltipContent>
-          </Tooltip>
-        ) : undefined}
+        action={
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowImportDialog(true)}>
+              <Plus size={16} />
+              <span>从其他工作区导入</span>
+            </Button>
+            {skillsDir && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => window.electronAPI.openFile(skillsDir)}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <FolderOpen size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>打开 Skills 目录</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        }
       >
         {loading ? (
           <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
@@ -407,6 +448,15 @@ ${skillList}
           <span>跟 Proma Agent 对话完成配置</span>
         </Button>
       </SettingsSection>
+
+      <ImportSkillFromWorkspaceDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        otherWorkspaces={otherWorkspaces}
+        installedSkills={skills}
+        importingSkill={importingSkill}
+        onImport={handleImportSkill}
+      />
     </div>
   )
 }
@@ -700,6 +750,110 @@ function SkillItemRow({ skill, displayName, expanded, onToggleExpand, onDelete, 
         </div>
       </div>
     </div>
+  )
+}
+
+interface ImportSkillFromWorkspaceDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  otherWorkspaces: OtherWorkspaceSkillsGroup[]
+  installedSkills: SkillMeta[]
+  importingSkill: string | null
+  onImport: (sourceSlug: string, skillSlug: string) => Promise<void>
+}
+
+function ImportSkillFromWorkspaceDialog({
+  open,
+  onOpenChange,
+  otherWorkspaces,
+  installedSkills,
+  importingSkill,
+  onImport,
+}: ImportSkillFromWorkspaceDialogProps): React.ReactElement {
+  const installedSlugs = React.useMemo(
+    () => new Set(installedSkills.map((skill) => skill.slug)),
+    [installedSkills]
+  )
+
+  const availableWorkspaces = React.useMemo(
+    () =>
+      otherWorkspaces
+        .map((workspace) => ({
+          ...workspace,
+          skills: workspace.skills.filter((skill) => !installedSlugs.has(skill.slug)),
+        }))
+        .filter((workspace) => workspace.skills.length > 0),
+    [otherWorkspaces, installedSlugs]
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl gap-0 overflow-hidden p-0">
+        <DialogHeader className="px-6 pb-4 pt-6">
+          <DialogTitle>从其他工作区导入 Skill</DialogTitle>
+          <DialogDescription>
+            从其他工作区中选择 Skill 导入到当前工作区。已安装的同名 Skill 会自动过滤。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="px-6 pb-6">
+          {availableWorkspaces.length === 0 ? (
+            <SettingsCard divided={false}>
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                没有可导入的 Skill。其他工作区暂无 Skill，或者它们都已经安装到当前工作区了。
+              </div>
+            </SettingsCard>
+          ) : (
+            <div className="space-y-6">
+              {availableWorkspaces.map((workspace) => (
+                <div key={workspace.workspaceSlug}>
+                  <div className="mb-3 text-sm font-medium text-muted-foreground">
+                    {workspace.workspaceName}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {workspace.skills.map((skill) => (
+                      <SettingsCard key={skill.slug} divided={false} className="overflow-hidden">
+                        <div className="flex h-full flex-col gap-4 p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="rounded-xl bg-amber-500/12 p-2 text-amber-500 shadow-sm">
+                              <Sparkles size={18} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <div className="truncate text-sm font-medium text-foreground">{skill.name}</div>
+                                {skill.version ? (
+                                  <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                    v{skill.version}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">{skill.slug}</div>
+                            </div>
+                          </div>
+
+                          <div className="min-h-[40px] text-sm leading-6 text-muted-foreground">
+                            {skill.description ?? '暂无描述'}
+                          </div>
+
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => void onImport(workspace.workspaceSlug, skill.slug)}
+                            disabled={importingSkill !== null}
+                          >
+                            {importingSkill === skill.slug ? '导入中...' : '导入'}
+                          </Button>
+                        </div>
+                      </SettingsCard>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
