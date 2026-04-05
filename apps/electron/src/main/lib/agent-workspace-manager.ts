@@ -630,6 +630,75 @@ export function toggleWorkspaceSkill(workspaceSlug: string, skillSlug: string, e
   console.log(`[Agent 工作区] Skill ${enabled ? '启用' : '禁用'}: ${workspaceSlug}/${skillSlug}`)
 }
 
+/**
+ * 获取其他工作区的 Skill 列表，按工作区分组返回。
+ */
+export function getOtherWorkspaceSkills(currentSlug: string): Array<{
+  workspaceName: string
+  workspaceSlug: string
+  skills: SkillMeta[]
+}> {
+  const workspaces = listAgentWorkspaces()
+  const result: Array<{
+    workspaceName: string
+    workspaceSlug: string
+    skills: SkillMeta[]
+  }> = []
+
+  for (const workspace of workspaces) {
+    if (workspace.slug === currentSlug) continue
+
+    const skills = getAllWorkspaceSkills(workspace.slug)
+    if (skills.length === 0) continue
+
+    result.push({
+      workspaceName: workspace.name,
+      workspaceSlug: workspace.slug,
+      skills,
+    })
+  }
+
+  return result
+}
+
+/**
+ * 从其他工作区导入 Skill 到当前工作区。
+ *
+ * 仅复制目录，不记录来源元数据，也不做自动同步。
+ */
+export function importSkillFromWorkspace(
+  targetSlug: string,
+  sourceSlug: string,
+  skillSlug: string,
+): SkillMeta {
+  const sourceActiveDir = getWorkspaceSkillsDir(sourceSlug)
+  const sourceInactiveDir = getInactiveSkillsDir(sourceSlug)
+
+  const sourcePath = existsSync(join(sourceActiveDir, skillSlug))
+    ? join(sourceActiveDir, skillSlug)
+    : existsSync(join(sourceInactiveDir, skillSlug))
+      ? join(sourceInactiveDir, skillSlug)
+      : null
+
+  if (!sourcePath) {
+    throw new Error(`源工作区中不存在 Skill: ${skillSlug}`)
+  }
+
+  const targetPath = join(getWorkspaceSkillsDir(targetSlug), skillSlug)
+  const targetInactivePath = join(getInactiveSkillsDir(targetSlug), skillSlug)
+
+  if (existsSync(targetPath) || existsSync(targetInactivePath)) {
+    throw new Error(`当前工作区已存在同名 Skill: ${skillSlug}`)
+  }
+
+  cpSync(sourcePath, targetPath, { recursive: true })
+  console.log(`[Agent 工作区] 已从 ${sourceSlug} 导入 Skill: ${targetSlug}/${skillSlug}`)
+
+  const skillMdPath = join(targetPath, 'SKILL.md')
+  const content = readFileSync(skillMdPath, 'utf-8')
+  return parseSkillFrontmatter(content, skillSlug, true)
+}
+
 // ===== 权限模式管理 =====
 
 /** 工作区配置文件格式 */

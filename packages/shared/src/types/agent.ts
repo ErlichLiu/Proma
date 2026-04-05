@@ -1150,6 +1150,10 @@ export const AGENT_IPC_CHANNELS = {
   DELETE_SKILL: 'agent:delete-skill',
   /** 切换工作区 Skill 启用/禁用 */
   TOGGLE_SKILL: 'agent:toggle-skill',
+  /** 获取其他工作区的 Skill 列表 */
+  GET_OTHER_WORKSPACE_SKILLS: 'agent:get-other-workspace-skills',
+  /** 从其他工作区导入 Skill 到当前工作区 */
+  IMPORT_SKILL_FROM_WORKSPACE: 'agent:import-skill-from-workspace',
 
   // 流式事件（主进程 → 渲染进程推送）
   /** Agent 流式事件 */

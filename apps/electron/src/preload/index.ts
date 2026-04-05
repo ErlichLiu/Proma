@@ -391,6 +391,16 @@ export interface ElectronAPI {
   /** 切换工作区 Skill 启用/禁用 */
   toggleWorkspaceSkill: (workspaceSlug: string, skillSlug: string, enabled: boolean) => Promise<void>
 
+  /** 获取其他工作区的 Skill 列表 */
+  getOtherWorkspaceSkills: (currentSlug: string) => Promise<Array<{
+    workspaceName: string
+    workspaceSlug: string
+    skills: SkillMeta[]
+  }>>
+
+  /** 从其他工作区导入 Skill */
+  importSkillFromWorkspace: (targetSlug: string, sourceSlug: string, skillSlug: string) => Promise<SkillMeta>
+
   /** 订阅 Agent 流式事件（返回清理函数） */
   onAgentStreamEvent: (callback: (event: AgentStreamEvent) => void) => () => void
 
@@ -1077,6 +1087,19 @@ const electronAPI: ElectronAPI = {
 
   toggleWorkspaceSkill: (workspaceSlug: string, skillSlug: string, enabled: boolean) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.TOGGLE_SKILL, workspaceSlug, skillSlug, enabled)
+  },
+
+  getOtherWorkspaceSkills: (currentSlug: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_OTHER_WORKSPACE_SKILLS, currentSlug)
+  },
+
+  importSkillFromWorkspace: (targetSlug: string, sourceSlug: string, skillSlug: string) => {
+    return ipcRenderer.invoke(
+      AGENT_IPC_CHANNELS.IMPORT_SKILL_FROM_WORKSPACE,
+      targetSlug,
+      sourceSlug,
+      skillSlug,
+    )
   },
 
   onAgentStreamEvent: (callback: (event: AgentStreamEvent) => void) => {
