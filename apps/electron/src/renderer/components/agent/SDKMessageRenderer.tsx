@@ -16,7 +16,7 @@ import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split } fro
 import { useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
 import { ContentBlock } from './ContentBlock'
-import { DurationBadge } from './AgentMessages'
+import { DurationBadge, AgentRunningIndicator } from './AgentMessages'
 import {
   Message,
   MessageHeader,
@@ -318,9 +318,11 @@ export interface AssistantTurnRendererProps {
   isStreaming?: boolean
   /** 是否被用户中断 */
   stoppedByUser?: boolean
+  /** Agent 运行开始时间戳（用于流式状态下的运行指示器） */
+  startedAt?: number
 }
 
-export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, isStreaming, stoppedByUser }: AssistantTurnRendererProps): React.ReactElement | null {
+export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, isStreaming, stoppedByUser, startedAt }: AssistantTurnRendererProps): React.ReactElement | null {
   const channels = useAtomValue(channelsAtom)
   // 收集所有 assistant 消息的内容块，保留 parent_tool_use_id 关联
   interface EnrichedBlock {
@@ -424,8 +426,12 @@ export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, isS
           </div>
         )}
       </MessageContent>
-      {/* 操作栏：左侧耗时标签 + 右侧操作按钮（流式输出中隐藏） */}
-      {!isStreaming && (() => {
+      {/* 操作栏 / 运行指示器：共用位置，避免切换时跳动 */}
+      {isStreaming && startedAt != null ? (
+        <div className="pl-[46px] mt-0.5 min-h-[28px] flex items-center">
+          <AgentRunningIndicator startedAt={startedAt} />
+        </div>
+      ) : isStreaming ? null : (() => {
         const textContent = topLevelBlocks
           .filter((b) => b.type === 'text' && 'text' in b)
           .map((b) => (b as { text: string }).text)
@@ -737,6 +743,8 @@ export interface MessageGroupRendererProps {
   isStreaming?: boolean
   /** 是否被用户中断 */
   stoppedByUser?: boolean
+  /** Agent 运行开始时间戳 */
+  startedAt?: number
 }
 
 /**
@@ -796,7 +804,7 @@ export function getGroupPreview(group: MessageGroup): string {
   return texts.join(' ').slice(0, 200)
 }
 
-export function MessageGroupRenderer({ group, allMessages, basePath, onFork, isStreaming, stoppedByUser }: MessageGroupRendererProps): React.ReactElement | null {
+export function MessageGroupRenderer({ group, allMessages, basePath, onFork, isStreaming, stoppedByUser, startedAt }: MessageGroupRendererProps): React.ReactElement | null {
   const groupId = getGroupId(group)
 
   if (group.type === 'user') {
@@ -824,6 +832,7 @@ export function MessageGroupRenderer({ group, allMessages, basePath, onFork, isS
         onFork={onFork}
         isStreaming={isStreaming}
         stoppedByUser={stoppedByUser}
+        startedAt={startedAt}
       />
     </div>
   )

@@ -609,7 +609,7 @@ export function DurationBadge({ durationMs, usage }: { durationMs: number; usage
 }
 
 /** Agent 运行指示器 — Shimmer Spinner + 无括号的运行时间 */
-function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.ReactElement {
+export function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.ReactElement {
   const [elapsed, setElapsed] = React.useState(0)
 
   React.useEffect(() => {
@@ -799,22 +799,28 @@ export function AgentMessages({ sessionId, messages, messagesLoaded, persistedSD
               ))
             )}
 
-            {/* 实时 SDKMessage 渲染（流式期间，按 Turn 分组 — 与持久化渲染一致） */}
-            {liveGroups.map((group) => (
-              <MessageGroupRenderer
-                key={getGroupId(group)}
-                group={group}
-                allMessages={allSDKMessages}
-                basePath={sessionPath || undefined}
-                isStreaming
-              />
-            ))}
+            {/* 实时 SDKMessage 渲染（流式期间，按 Turn 分组 — 运行指示器由最后一个 assistant turn 内部渲染） */}
+            {(() => {
+              const lastAssistantIdx = liveGroups.findLastIndex((g) => g.type === 'assistant-turn')
+              return liveGroups.map((group, idx) => {
+                const isLastAssistantTurn = streaming && idx === lastAssistantIdx
+                return (
+                  <MessageGroupRenderer
+                    key={getGroupId(group)}
+                    group={group}
+                    allMessages={allSDKMessages}
+                    basePath={sessionPath || undefined}
+                    isStreaming={streaming || undefined}
+                    startedAt={isLastAssistantTurn ? startedAt : undefined}
+                  />
+                )
+              })
+            })()}
 
-            {/* 有实时助手内容时：仅追加运行指示器 */}
-            {hasLiveAssistantContent && (streaming || retrying) && (
-              <div className="pl-[56px] mt-0.5">
-                {retrying && <RetryingNotice retrying={retrying} />}
-                {streaming && <AgentRunningIndicator startedAt={startedAt} />}
+            {/* 有实时助手内容时：仅追加重试通知（运行指示器已移入 turn 内部） */}
+            {hasLiveAssistantContent && retrying && (
+              <div className="pl-[46px] mt-0.5">
+                <RetryingNotice retrying={retrying} />
               </div>
             )}
 
