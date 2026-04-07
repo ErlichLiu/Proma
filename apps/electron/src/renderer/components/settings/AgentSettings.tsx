@@ -10,7 +10,7 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Settings } from 'lucide-react'
+import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Settings, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -36,7 +36,7 @@ import {
 import { settingsTabAtom, settingsOpenAtom } from '@/atoms/settings-tab'
 import { appModeAtom } from '@/atoms/app-mode'
 import { chatToolsAtom } from '@/atoms/chat-tool-atoms'
-import type { McpServerEntry, SkillMeta, WorkspaceMcpConfig, ThinkingConfig, AgentEffort } from '@proma/shared'
+import type { McpServerEntry, SkillMeta, OtherWorkspaceSkillsGroup, WorkspaceMcpConfig, ThinkingConfig, AgentEffort } from '@proma/shared'
 import { SettingsSection, SettingsCard, SettingsRow, SettingsSegmentedControl, SettingsInput } from './primitives'
 import { McpServerForm } from './McpServerForm'
 
@@ -47,12 +47,6 @@ type ViewMode = 'list' | 'create' | 'edit'
 interface EditingServer {
   name: string
   entry: McpServerEntry
-}
-
-interface OtherWorkspaceSkillsGroup {
-  workspaceName: string
-  workspaceSlug: string
-  skills: SkillMeta[]
 }
 
 export function AgentSettings(): React.ReactElement {
@@ -82,6 +76,7 @@ export function AgentSettings(): React.ReactElement {
   const [otherWorkspaces, setOtherWorkspaces] = React.useState<OtherWorkspaceSkillsGroup[]>([])
   const [showImportDialog, setShowImportDialog] = React.useState(false)
   const [importingSkill, setImportingSkill] = React.useState<string | null>(null)
+  const [updatingSkill, setUpdatingSkill] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   /** 加载 MCP 配置和 Skills */
@@ -92,22 +87,37 @@ export function AgentSettings(): React.ReactElement {
     }
 
     try {
-      const [config, skillList, dir, otherWorkspaceSkillGroups] = await Promise.all([
+      const [config, skillList, dir] = await Promise.all([
         window.electronAPI.getWorkspaceMcpConfig(workspaceSlug),
         window.electronAPI.getWorkspaceSkills(workspaceSlug),
         window.electronAPI.getWorkspaceSkillsDir(workspaceSlug),
-        window.electronAPI.getOtherWorkspaceSkills(workspaceSlug),
       ])
       setMcpConfig(config)
       setSkills(skillList)
       setSkillsDir(dir)
-      setOtherWorkspaces(otherWorkspaceSkillGroups)
     } catch (error) {
       console.error('[Agent 设置] 加载工作区配置失败:', error)
     } finally {
       setLoading(false)
     }
   }, [workspaceSlug])
+
+  /** 懒加载其他工作区 Skill（打开导入弹窗时触发） */
+  const loadOtherWorkspaces = React.useCallback(async () => {
+    if (!workspaceSlug) return
+    try {
+      const groups = await window.electronAPI.getOtherWorkspaceSkills(workspaceSlug)
+      setOtherWorkspaces(groups)
+    } catch (error) {
+      console.error('[Agent 设置] 加载其他工作区 Skill 失败:', error)
+    }
+  }, [workspaceSlug])
+
+  React.useEffect(() => {
+    if (showImportDialog) {
+      void loadOtherWorkspaces()
+    }
+  }, [showImportDialog, loadOtherWorkspaces])
 
   React.useEffect(() => {
     loadData()
@@ -312,6 +322,25 @@ ${skillList}
     }
   }
 
+  /** 从源工作区同步更新已导入的 Skill */
+  const handleUpdateSkill = async (skillSlug: string): Promise<void> => {
+    if (!workspaceSlug || updatingSkill) return
+
+    setUpdatingSkill(skillSlug)
+    try {
+      const updated = await window.electronAPI.updateSkillFromSource(workspaceSlug, skillSlug)
+      setSkills((prev) => prev.map((s) => s.slug === skillSlug ? updated : s))
+      bumpCapabilitiesVersion((v) => v + 1)
+      toast.success(`已同步更新 Skill: ${updated.name}`)
+    } catch (error) {
+      console.error('[Agent 设置] 更新 Skill 失败:', error)
+      const message = error instanceof Error ? error.message : '未知错误'
+      toast.error('更新 Skill 失败', { description: message })
+    } finally {
+      setUpdatingSkill(null)
+    }
+  }
+
   /** 表单保存回调 */
   const handleFormSaved = (): void => {
     setViewMode('list')
@@ -438,6 +467,7 @@ ${skillList}
             skillsDir={skillsDir}
             onDelete={handleDeleteSkill}
             onToggle={handleToggleSkill}
+            onUpdate={handleUpdateSkill}
           />
         )}
 
@@ -576,9 +606,10 @@ interface SkillGroupedListProps {
   skillsDir: string
   onDelete: (slug: string, name: string) => void
   onToggle: (slug: string, enabled: boolean) => void
+  onUpdate: (slug: string) => void
 }
 
-function SkillGroupedList({ skills, skillsDir, onDelete, onToggle }: SkillGroupedListProps): React.ReactElement {
+function SkillGroupedList({ skills, skillsDir, onDelete, onToggle, onUpdate }: SkillGroupedListProps): React.ReactElement {
   const groups = React.useMemo(() => groupSkillsByPrefix(skills), [skills])
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
   const [expandedSkill, setExpandedSkill] = React.useState<string | null>(null)
@@ -612,6 +643,7 @@ function SkillGroupedList({ skills, skillsDir, onDelete, onToggle }: SkillGroupe
             onDelete={onDelete}
             onToggleEnabled={onToggle}
             onOpenFolder={openSkillFolder}
+            onUpdate={onUpdate}
           />
         ) : (
           /* 独立 skill 不分组，平铺展示 */
@@ -626,6 +658,7 @@ function SkillGroupedList({ skills, skillsDir, onDelete, onToggle }: SkillGroupe
                 onDelete={() => onDelete(skill.slug, skill.name)}
                 onToggleEnabled={(enabled) => onToggle(skill.slug, enabled)}
                 onOpenFolder={() => openSkillFolder(skill.slug)}
+                onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
               />
             ))}
           </SettingsCard>
@@ -644,9 +677,10 @@ interface SkillGroupCardProps {
   onDelete: (slug: string, name: string) => void
   onToggleEnabled: (slug: string, enabled: boolean) => void
   onOpenFolder: (slug: string) => void
+  onUpdate: (slug: string) => void
 }
 
-function SkillGroupCard({ group, expanded, expandedSkill, onToggle, onExpandSkill, onDelete, onToggleEnabled, onOpenFolder }: SkillGroupCardProps): React.ReactElement {
+function SkillGroupCard({ group, expanded, expandedSkill, onToggle, onExpandSkill, onDelete, onToggleEnabled, onOpenFolder, onUpdate }: SkillGroupCardProps): React.ReactElement {
   return (
     <SettingsCard divided={false}>
       {/* 分组头部 */}
@@ -678,6 +712,7 @@ function SkillGroupCard({ group, expanded, expandedSkill, onToggle, onExpandSkil
               onDelete={() => onDelete(skill.slug, skill.name)}
               onToggleEnabled={(enabled) => onToggleEnabled(skill.slug, enabled)}
               onOpenFolder={() => onOpenFolder(skill.slug)}
+              onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
               indent
             />
           ))}
@@ -695,10 +730,11 @@ interface SkillItemRowProps {
   onDelete: () => void
   onToggleEnabled: (enabled: boolean) => void
   onOpenFolder: () => void
+  onUpdate?: () => void
   indent?: boolean
 }
 
-function SkillItemRow({ skill, displayName, expanded, onToggleExpand, onDelete, onToggleEnabled, onOpenFolder, indent }: SkillItemRowProps): React.ReactElement {
+function SkillItemRow({ skill, displayName, expanded, onToggleExpand, onDelete, onToggleEnabled, onOpenFolder, onUpdate, indent }: SkillItemRowProps): React.ReactElement {
   return (
     <div className={cn('group border-t border-border/50 overflow-hidden', !skill.enabled && 'opacity-50')}>
       <div className={cn('flex items-center gap-2 px-4 py-2', indent && 'pl-8')}>
@@ -710,7 +746,14 @@ function SkillItemRow({ skill, displayName, expanded, onToggleExpand, onDelete, 
           onClick={onToggleExpand}
           className="flex-1 min-w-0 text-left overflow-hidden"
         >
-          <div className="text-sm font-medium text-foreground truncate">{displayName}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground truncate">{displayName}</span>
+            {skill.hasUpdate && (
+              <span className="shrink-0 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                可更新
+              </span>
+            )}
+          </div>
           {expanded && skill.description && (
             <div className="text-xs text-muted-foreground mt-1 break-words">
               {skill.description}
@@ -723,6 +766,19 @@ function SkillItemRow({ skill, displayName, expanded, onToggleExpand, onDelete, 
 
         {/* 操作按钮 */}
         <div className="flex items-center gap-1 flex-shrink-0">
+          {onUpdate && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onUpdate}
+                  className="p-1.5 rounded-md text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 transition-colors"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>从源工作区同步更新</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -850,7 +906,7 @@ function ImportSkillFromWorkspaceDialog({
                       {workspace.skills.length} 个
                     </span>
                   </div>
-                  <ScrollArea className="h-[420px] pr-4">
+                  <ScrollArea className="max-h-[420px] pr-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                     {workspace.skills.map((skill) => (
                       <SettingsCard key={skill.slug} divided={false} className="overflow-hidden">

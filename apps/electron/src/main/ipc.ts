@@ -153,6 +153,7 @@ import {
   getAgentWorkspace,
   deleteWorkspaceSkill,
   importSkillFromWorkspace,
+  updateSkillFromSource,
   toggleWorkspaceSkill,
   getWorkspacePermissionMode,
   setWorkspacePermissionMode,
@@ -925,11 +926,7 @@ export function registerIpcHandlers(): void {
   // 获取其他工作区的 Skill 列表
   ipcMain.handle(
     AGENT_IPC_CHANNELS.GET_OTHER_WORKSPACE_SKILLS,
-    async (_, currentSlug: string): Promise<Array<{
-      workspaceName: string
-      workspaceSlug: string
-      skills: SkillMeta[]
-    }>> => {
+    async (_, currentSlug: string) => {
       return getOtherWorkspaceSkills(currentSlug)
     }
   )
@@ -939,6 +936,14 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.IMPORT_SKILL_FROM_WORKSPACE,
     async (_, targetSlug: string, sourceSlug: string, skillSlug: string): Promise<SkillMeta> => {
       return importSkillFromWorkspace(targetSlug, sourceSlug, skillSlug)
+    }
+  )
+
+  // 从源工作区同步更新已导入的 Skill
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.UPDATE_SKILL_FROM_SOURCE,
+    async (_, targetSlug: string, skillSlug: string): Promise<SkillMeta> => {
+      return updateSkillFromSource(targetSlug, skillSlug)
     }
   )
 
