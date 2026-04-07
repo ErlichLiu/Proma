@@ -229,6 +229,8 @@ export function RichTextInput({
   onPasteFilesRef.current = onPasteFiles
   // Mention 活跃状态（阻止 Enter 发送消息）
   const mentionActiveRef = useRef(false)
+  // Mention 弹窗中的可选项数量（0 时 Enter 不阻塞发送）
+  const mentionItemCountRef = useRef(0)
   // 工作区路径引用（给 Suggestion 使用）
   const workspacePathRef = useRef<string | null>(workspacePath ?? null)
   workspacePathRef.current = workspacePath ?? null
@@ -244,19 +246,19 @@ export function RichTextInput({
 
   // Mention Suggestion 配置（稳定引用，不随 workspacePath 变化重建）
   const mentionSuggestion = useMemo(
-    () => createFileMentionSuggestion(workspacePathRef, mentionActiveRef, attachedDirsRef),
+    () => createFileMentionSuggestion(workspacePathRef, mentionActiveRef, attachedDirsRef, mentionItemCountRef),
     [],
   )
 
   // Skill Suggestion 配置（/ 触发）
   const skillSuggestion = useMemo(
-    () => createSkillMentionSuggestion(workspaceSlugRef, mentionActiveRef),
+    () => createSkillMentionSuggestion(workspaceSlugRef, mentionActiveRef, mentionItemCountRef),
     [],
   )
 
   // MCP Suggestion 配置（# 触发）
   const mcpSuggestion = useMemo(
-    () => createMcpMentionSuggestion(workspaceSlugRef, mentionActiveRef),
+    () => createMcpMentionSuggestion(workspaceSlugRef, mentionActiveRef, mentionItemCountRef),
     [],
   )
 
@@ -365,6 +367,22 @@ export function RichTextInput({
         return false
       },
       handleKeyDown: (view, event) => {
+        // macOS 上 Cmd+B/S 被全局快捷键占用，用 Ctrl+B/S 作为格式化替代键
+        const isMacOS = navigator.platform.startsWith('Mac')
+        if (isMacOS && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          const key = event.key.toLowerCase()
+          if (key === 'b') {
+            event.preventDefault()
+            editor?.chain().focus().toggleBold().run()
+            return true
+          }
+          if (key === 's') {
+            event.preventDefault()
+            editor?.chain().focus().toggleStrike().run()
+            return true
+          }
+        }
+
         // Enter 提交，Shift+Enter 换行
         if (event.key === 'Enter' && !event.shiftKey) {
           // 如果在代码块中，允许正常换行
@@ -380,8 +398,8 @@ export function RichTextInput({
             return false
           }
 
-          // Mention 列表打开时，让 TipTap Mention 处理 Enter
-          if (mentionActiveRef.current) {
+          // Mention 列表打开且有可选项时，让 TipTap Mention 处理 Enter
+          if (mentionActiveRef.current && mentionItemCountRef.current > 0) {
             return false
           }
 
