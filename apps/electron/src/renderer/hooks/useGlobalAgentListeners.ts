@@ -273,7 +273,7 @@ export function useGlobalAgentListeners(): void {
         enabled,
         {
           force: true,
-          playSound: soundEnabled,
+          playSound: enabled && soundEnabled,
           soundType,
           sounds,
           onNavigate: makeNavigateToSession(sessionId, sessionTitle),
@@ -499,7 +499,7 @@ export function useGlobalAgentListeners(): void {
           `[${sessionTitle}] 任务已完成`,
           enabled,
           {
-            playSound: soundEnabled,
+            playSound: enabled && soundEnabled,
             soundType: 'taskComplete',
             sounds,
             onNavigate: makeNavigateToSession(data.sessionId, sessionTitle),
