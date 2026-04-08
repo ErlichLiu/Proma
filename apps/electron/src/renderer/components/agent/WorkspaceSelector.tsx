@@ -47,7 +47,7 @@ export function WorkspaceSelector(): React.ReactElement {
 
   // 拖拽状态
   const [dragId, setDragId] = React.useState<string | null>(null)
-  const [dropTargetId, setDropTargetId] = React.useState<string | null>(null)
+  const [dropIndicator, setDropIndicator] = React.useState<{ id: string; position: 'before' | 'after' } | null>(null)
 
   /** 切换工作区 */
   const handleSelect = (workspace: AgentWorkspace): void => {
@@ -98,6 +98,7 @@ export function WorkspaceSelector(): React.ReactElement {
 
   const handleCreateKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Enter') {
+      if (e.nativeEvent.isComposing) return
       e.preventDefault()
       handleCreate()
     } else if (e.key === 'Escape') {
@@ -139,6 +140,7 @@ export function WorkspaceSelector(): React.ReactElement {
 
   const handleRenameKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Enter') {
+      if (e.nativeEvent.isComposing) return
       e.preventDefault()
       handleRename()
     } else if (e.key === 'Escape') {
@@ -189,22 +191,28 @@ export function WorkspaceSelector(): React.ReactElement {
   const handleDragOver = (e: React.DragEvent, wsId: string): void => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    if (dragId && wsId !== dragId) {
-      setDropTargetId(wsId)
+    if (!dragId || wsId === dragId) {
+      setDropIndicator(null)
+      return
     }
+    // 根据鼠标在目标元素的上半/下半部分决定插入位置
+    const rect = e.currentTarget.getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    const position = e.clientY < midY ? 'before' : 'after'
+    setDropIndicator({ id: wsId, position })
   }
 
   const handleDragLeave = (e: React.DragEvent): void => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setDropTargetId(null)
+      setDropIndicator(null)
     }
   }
 
   const handleDrop = (e: React.DragEvent, targetId: string): void => {
     e.preventDefault()
-    if (!dragId || dragId === targetId) {
+    if (!dragId || dragId === targetId || !dropIndicator || dropIndicator.id !== targetId) {
       setDragId(null)
-      setDropTargetId(null)
+      setDropIndicator(null)
       return
     }
 
@@ -214,19 +222,21 @@ export function WorkspaceSelector(): React.ReactElement {
 
     const reordered = [...workspaces]
     const [moved] = reordered.splice(fromIdx, 1)
-    const insertIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
+    // 从原数组中移除后，目标索引需要调整
+    const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
+    const insertIdx = dropIndicator.position === 'after' ? adjustedToIdx + 1 : adjustedToIdx
     reordered.splice(insertIdx, 0, moved!)
 
     setWorkspaces(reordered)
     setDragId(null)
-    setDropTargetId(null)
+    setDropIndicator(null)
 
     window.electronAPI.reorderAgentWorkspaces(reordered.map((w) => w.id)).catch(console.error)
   }
 
   const handleDragEnd = (): void => {
     setDragId(null)
-    setDropTargetId(null)
+    setDropIndicator(null)
   }
 
   return (
@@ -245,26 +255,30 @@ export function WorkspaceSelector(): React.ReactElement {
         </div>
 
         {/* 工作区列表 */}
-        <div className="max-h-[120px] overflow-y-auto scrollbar-thin flex flex-col gap-0.5 p-1">
+        <div className="max-h-[120px] overflow-y-auto scrollbar-thin flex flex-col p-1">
           {workspaces.map((ws) => (
-            <div
-              key={ws.id}
-              draggable={editingId !== ws.id}
-              onDragStart={(e) => handleDragStart(e, ws.id)}
-              onDragOver={(e) => handleDragOver(e, ws.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, ws.id)}
-              onDragEnd={handleDragEnd}
-              onClick={() => handleSelect(ws)}
-              className={cn(
-                'group w-full flex items-center gap-1 px-1 py-[5px] rounded-md text-[13px] transition-colors duration-100 cursor-pointer titlebar-no-drag',
-                ws.id === currentWorkspaceId
-                  ? 'workspace-item-selected bg-foreground/[0.08] text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-                  : 'text-foreground/70 hover:bg-foreground/[0.04]',
-                dragId === ws.id && 'opacity-40',
-                dropTargetId === ws.id && 'ring-1 ring-primary/40',
+            <div key={ws.id} className="relative">
+              {/* 上方插入指示线 */}
+              {dropIndicator?.id === ws.id && dropIndicator.position === 'before' && (
+                <div className="absolute top-0 left-1 right-1 h-0.5 bg-primary rounded-full z-10" />
               )}
-            >
+
+              <div
+                draggable={editingId !== ws.id}
+                onDragStart={(e) => handleDragStart(e, ws.id)}
+                onDragOver={(e) => handleDragOver(e, ws.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, ws.id)}
+                onDragEnd={handleDragEnd}
+                onClick={() => handleSelect(ws)}
+                className={cn(
+                  'group w-full flex items-center gap-1 px-1 py-[5px] rounded-md text-[13px] transition-colors duration-100 cursor-pointer titlebar-no-drag',
+                  ws.id === currentWorkspaceId
+                    ? 'workspace-item-selected bg-foreground/[0.08] text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
+                    : 'text-foreground/70 hover:bg-foreground/[0.04]',
+                  dragId === ws.id && 'opacity-40',
+                )}
+              >
               {/* 拖拽手柄 */}
               <GripVertical size={12} className="flex-shrink-0 text-foreground/20 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing" />
 
@@ -304,6 +318,12 @@ export function WorkspaceSelector(): React.ReactElement {
                     )}
                   </div>
                 </>
+              )}
+              </div>
+
+              {/* 下方插入指示线 */}
+              {dropIndicator?.id === ws.id && dropIndicator.position === 'after' && (
+                <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-primary rounded-full z-10" />
               )}
             </div>
           ))}
