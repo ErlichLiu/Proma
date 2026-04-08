@@ -196,9 +196,21 @@ export function WorkspaceSelector(): React.ReactElement {
       return
     }
     // 根据鼠标在目标元素的上半/下半部分决定插入位置
+    // 中线附近 30% 区域为死区，避免鼠标抖动导致横线闪烁
     const rect = e.currentTarget.getBoundingClientRect()
-    const midY = rect.top + rect.height / 2
-    const position = e.clientY < midY ? 'before' : 'after'
+    const ratio = (e.clientY - rect.top) / rect.height
+    let position: 'before' | 'after'
+    if (ratio < 0.35) {
+      position = 'before'
+    } else if (ratio > 0.65) {
+      position = 'after'
+    } else {
+      // 死区内保持当前方向不变
+      if (dropIndicator?.id === wsId) return
+      position = ratio < 0.5 ? 'before' : 'after'
+    }
+    // 仅在状态变化时更新，减少不必要的重渲染
+    if (dropIndicator?.id === wsId && dropIndicator.position === position) return
     setDropIndicator({ id: wsId, position })
   }
 
