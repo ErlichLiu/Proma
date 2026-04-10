@@ -30,8 +30,10 @@ import {
   notificationsEnabledAtom,
   notificationSoundEnabledAtom,
   notificationSoundsAtom,
+  inputNotificationPopupEnabledAtom,
   updateNotificationsEnabled,
   updateNotificationSoundEnabled,
+  updateInputNotificationPopupEnabled,
   updateNotificationSound,
   playNotificationSound,
   NOTIFICATION_SOUNDS,
@@ -56,6 +58,7 @@ export function GeneralSettings(): React.ReactElement {
   const [notificationsEnabled, setNotificationsEnabled] = useAtom(notificationsEnabledAtom)
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useAtom(notificationSoundEnabledAtom)
   const [notificationSounds, setNotificationSounds] = useAtom(notificationSoundsAtom)
+  const [inputPopupEnabled, setInputPopupEnabled] = useAtom(inputNotificationPopupEnabledAtom)
   const [isEditingName, setIsEditingName] = React.useState(false)
   const [nameInput, setNameInput] = React.useState(userProfile.userName)
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false)
@@ -256,6 +259,15 @@ export function GeneralSettings(): React.ReactElement {
             onCheckedChange={(checked) => {
               setNotificationSoundEnabled(checked)
               updateNotificationSoundEnabled(checked)
+            }}
+          />
+          <SettingsToggle
+            label="跨会话 Input 弹窗"
+            description="当其他 Agent 会话需要你的操作时，在右下角弹出提醒"
+            checked={inputPopupEnabled}
+            onCheckedChange={(checked) => {
+              setInputPopupEnabled(checked)
+              updateInputNotificationPopupEnabled(checked)
             }}
           />
           <SoundPicker

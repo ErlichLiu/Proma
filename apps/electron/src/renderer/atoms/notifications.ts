@@ -9,6 +9,25 @@
 import { atom } from 'jotai'
 import type { NotificationSoundId, NotificationSoundType, NotificationSoundSettings } from '@/types/settings'
 
+// ===== 跨会话 Input 弹窗通知类型 =====
+
+/** 弹窗通知的触发类型 */
+export type InputNotificationType = 'permission' | 'ask_user' | 'plan'
+
+/** 跨会话 Input 弹窗通知条目 */
+export interface InputNotification {
+  /** 唯一 ID */
+  id: string
+  /** 目标会话 ID */
+  sessionId: string
+  /** 目标会话标题 */
+  sessionTitle: string
+  /** 通知类型 */
+  type: InputNotificationType
+  /** 描述文本，如"请求使用工具: Bash" */
+  message: string
+}
+
 // ===== 音频资源导入 =====
 import soundDing from '@/assets/sound/ding.mp3'
 import soundDingDong from '@/assets/sound/ding-dong.mp3'
@@ -63,6 +82,12 @@ export const notificationSoundEnabledAtom = atom<boolean>(true)
 /** 各场景通知音配置 */
 export const notificationSoundsAtom = atom<NotificationSoundSettings>({})
 
+/** 跨会话 Input 弹窗通知是否启用（默认 true） */
+export const inputNotificationPopupEnabledAtom = atom<boolean>(true)
+
+/** 跨会话 Input 弹窗通知队列 */
+export const inputNotificationsAtom = atom<InputNotification[]>([])
+
 // ===== 初始化 =====
 
 /**
@@ -71,13 +96,15 @@ export const notificationSoundsAtom = atom<NotificationSoundSettings>({})
 export async function initializeNotifications(
   setEnabled: (enabled: boolean) => void,
   setSoundEnabled: (enabled: boolean) => void,
-  setSounds: (sounds: NotificationSoundSettings) => void
+  setSounds: (sounds: NotificationSoundSettings) => void,
+  setInputPopupEnabled: (enabled: boolean) => void
 ): Promise<void> {
   try {
     const settings = await window.electronAPI.getSettings()
     setEnabled(settings.notificationsEnabled ?? true)
     setSoundEnabled(settings.notificationSoundEnabled ?? true)
     setSounds(settings.notificationSounds ?? {})
+    setInputPopupEnabled(settings.inputNotificationPopupEnabled ?? true)
   } catch (error) {
     console.error('[通知] 初始化失败:', error)
   }
@@ -104,6 +131,17 @@ export async function updateNotificationSoundEnabled(enabled: boolean): Promise<
     await window.electronAPI.updateSettings({ notificationSoundEnabled: enabled })
   } catch (error) {
     console.error('[通知] 更新提示音设置失败:', error)
+  }
+}
+
+/**
+ * 更新跨会话弹窗通知开关并持久化
+ */
+export async function updateInputNotificationPopupEnabled(enabled: boolean): Promise<void> {
+  try {
+    await window.electronAPI.updateSettings({ inputNotificationPopupEnabled: enabled })
+  } catch (error) {
+    console.error('[通知] 更新弹窗通知设置失败:', error)
   }
 }
 

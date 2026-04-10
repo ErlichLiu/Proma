@@ -31,11 +31,14 @@ import {
   notificationsEnabledAtom,
   notificationSoundEnabledAtom,
   notificationSoundsAtom,
+  inputNotificationPopupEnabledAtom,
+  inputNotificationsAtom,
   sendDesktopNotification,
 } from '@/atoms/notifications'
 import { tabsAtom, splitLayoutAtom, openTab, updateTabTitle } from '@/atoms/tab-atoms'
 import type { AgentStreamState } from '@/atoms/agent-atoms'
 import type { NotificationSoundType } from '@/types/settings'
+import type { InputNotificationType } from '@/atoms/notifications'
 import type { AgentStreamEvent, AgentStreamCompletePayload, AgentEvent, AgentStreamPayload, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, SDKContentBlock, SDKUserContentBlock } from '@proma/shared'
 
 // ============================================================================
@@ -261,8 +264,22 @@ export function useGlobalAgentListeners(): void {
       return sessions.find((s) => s.id === sessionId)?.title ?? '未命名会话'
     }
 
-    /** 发送阻塞通知（带提示音 + 会话导航） */
-    const sendBlockingNotification = (sessionId: string, title: string, body: string, soundType: NotificationSoundType) => {
+    /** 判断 sessionId 是否已在某个面板的活跃 tab 中可见 */
+    const isSessionVisible = (sessionId: string): boolean => {
+      const tabs = store.get(tabsAtom)
+      const layout = store.get(splitLayoutAtom)
+      const activeTabIds = new Set(layout.panels.map((p) => p.activeTabId).filter(Boolean))
+      return tabs.some((tab) => tab.sessionId === sessionId && activeTabIds.has(tab.id))
+    }
+
+    /** 发送阻塞通知（带提示音 + 会话导航），并在后台会话时入队弹窗 */
+    const sendBlockingNotification = (
+      sessionId: string,
+      title: string,
+      body: string,
+      soundType: NotificationSoundType,
+      popupType?: InputNotificationType
+    ) => {
       const enabled = store.get(notificationsEnabledAtom)
       const soundEnabled = store.get(notificationSoundEnabledAtom)
       const sounds = store.get(notificationSoundsAtom)
@@ -279,6 +296,24 @@ export function useGlobalAgentListeners(): void {
           onNavigate: makeNavigateToSession(sessionId, sessionTitle),
         }
       )
+      // 若目标 session 不在任何活跃面板中，且弹窗通知已启用，则入队弹窗
+      if (popupType && !isSessionVisible(sessionId) && store.get(inputNotificationPopupEnabledAtom)) {
+        store.set(inputNotificationsAtom, (prev) => {
+          // 同 session + 同类型：更新已有条目（防止堆积）
+          const exists = prev.find((n) => n.sessionId === sessionId && n.type === popupType)
+          const newItem = {
+            id: exists?.id ?? `${sessionId}-${popupType}-${Date.now()}`,
+            sessionId,
+            sessionTitle,
+            type: popupType,
+            message: body,
+          }
+          if (exists) {
+            return prev.map((n) => (n.id === exists.id ? newItem : n))
+          }
+          return [...prev, newItem]
+        })
+      }
     }
     // ===== 0. 初始化：从持久化 meta 恢复 stoppedByUser 状态 =====
     window.electronAPI.listAgentSessions().then((sessions) => {
@@ -420,7 +455,8 @@ export function useGlobalAgentListeners(): void {
               event.request.toolName
                 ? `Agent 请求使用工具: ${event.request.toolName}`
                 : 'Agent 需要你的权限确认',
-              'permissionRequest'
+              'permissionRequest',
+              'permission'
             )
           } else if (event.type === 'ask_user_request') {
             // AskUser 请求入队（统一通道，不区分当前/后台会话）
@@ -435,7 +471,8 @@ export function useGlobalAgentListeners(): void {
               sessionId,
               'Agent 需要你的输入',
               event.request.questions[0]?.question ?? 'Agent 有问题需要你回答',
-              'permissionRequest'
+              'permissionRequest',
+              'ask_user'
             )
           } else if (event.type === 'exit_plan_mode_request') {
             // ExitPlanMode 请求入队
@@ -457,7 +494,8 @@ export function useGlobalAgentListeners(): void {
               sessionId,
               'Agent 计划待审批',
               'Agent 已完成计划，等待你的审批',
-              'exitPlanMode'
+              'exitPlanMode',
+              'plan'
             )
           } else if (event.type === 'enter_plan_mode') {
             // 进入 Plan 模式

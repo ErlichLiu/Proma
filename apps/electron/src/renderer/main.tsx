@@ -37,6 +37,7 @@ import {
   notificationsEnabledAtom,
   notificationSoundEnabledAtom,
   notificationSoundsAtom,
+  inputNotificationPopupEnabledAtom,
   initializeNotifications,
 } from './atoms/notifications'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
@@ -49,6 +50,7 @@ import { dingtalkBotStatesAtom } from './atoms/dingtalk-atoms'
 import { currentConversationIdAtom, channelsAtom, channelsLoadedAtom, selectedModelAtom } from './atoms/chat-atoms'
 import type { FeishuBotBridgeState, FeishuBridgeState, FeishuNotificationSentPayload, DingTalkBotBridgeState, DingTalkBridgeState } from '@proma/shared'
 import { Toaster } from './components/ui/sonner'
+import { InputNotificationPopup } from './components/agent/InputNotificationPopup'
 import { toast } from 'sonner'
 import { diffCapabilities, migratePermissionMode } from '@proma/shared'
 import type { WorkspaceCapabilities } from '@proma/shared'
@@ -299,10 +301,11 @@ function NotificationsInitializer(): null {
   const setEnabled = useSetAtom(notificationsEnabledAtom)
   const setSoundEnabled = useSetAtom(notificationSoundEnabledAtom)
   const setSounds = useSetAtom(notificationSoundsAtom)
+  const setInputPopupEnabled = useSetAtom(inputNotificationPopupEnabledAtom)
 
   useEffect(() => {
-    initializeNotifications(setEnabled, setSoundEnabled, setSounds)
-  }, [setEnabled, setSoundEnabled, setSounds])
+    initializeNotifications(setEnabled, setSoundEnabled, setSounds, setInputPopupEnabled)
+  }, [setEnabled, setSoundEnabled, setSounds, setInputPopupEnabled])
 
   return null
 }
@@ -506,6 +509,7 @@ if (isQuickTaskWindow) {
       <App />
       <UpdateDialog />
       <Toaster position="top-right" />
+      <InputNotificationPopup />
     </React.StrictMode>
   )
 }

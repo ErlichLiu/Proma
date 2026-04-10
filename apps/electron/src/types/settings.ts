@@ -88,6 +88,8 @@ export interface AppSettings {
   sendWithCmdEnter?: boolean
   /** 用户自定义快捷键覆盖 */
   shortcutOverrides?: ShortcutOverrides
+  /** 跨会话 Input 弹窗通知是否启用（默认 true） */
+  inputNotificationPopupEnabled?: boolean
 }
 
 /** 持久化的标签页状态 */
