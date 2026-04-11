@@ -1422,6 +1422,12 @@ export class AgentOrchestrator {
               this.adapter.abort(sessionId)
               pendingNext?.catch(() => {})
               pendingNext = null
+              // 等待 generator finally 块执行完毕（最多 1s），防止旧 finally 与新 query 注册产生竞态
+              const returnPromise = queryIterator.return?.(undefined as never).catch(() => {})
+              await Promise.race([
+                returnPromise,
+                new Promise<void>((r) => setTimeout(r, 1000)),
+              ])
               lastRetryableError = `Agent 响应超时（${IDLE_TIMEOUT_MS / 1000}s 无输出），正在自动重试`
               this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
               accumulatedMessages.length = 0

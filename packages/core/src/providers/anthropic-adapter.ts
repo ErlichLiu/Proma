@@ -203,17 +203,21 @@ function appendContinuationMessages(
  * - Opus 4.6: max_tokens 最高 128k，推荐 budget ≤ 32k
  * - Opus 4.5: max_tokens 最高 64k，推荐 budget ≤ 24k
  * - Sonnet 4.x: max_tokens 最高 64k，推荐 budget 10k–24k
+ *
+ * maxTokens = budget + THINKING_OUTPUT_HEADROOM（为非 thinking 输出内容预留空间）
  */
+const THINKING_OUTPUT_HEADROOM = 8192
+
 function getThinkingConfig(modelId: string): { budget: number; maxTokens: number } {
-  if (modelId.includes('claude-opus-4')) {
+  if (/^claude-opus-4[-.]/.test(modelId) || modelId === 'claude-opus-4') {
     // Opus 4.x：预算充足以支撑复杂长会话推理，防止 thinking block 截断
-    return { budget: 32000, maxTokens: 40192 }
+    return { budget: 32000, maxTokens: 32000 + THINKING_OUTPUT_HEADROOM }
   }
-  if (modelId.includes('claude-sonnet-4')) {
+  if (/^claude-sonnet-4[-.]/.test(modelId) || modelId === 'claude-sonnet-4') {
     // Sonnet 4.x：适度提升，兼顾质量与响应速度
-    return { budget: 20000, maxTokens: 28192 }
+    return { budget: 20000, maxTokens: 20000 + THINKING_OUTPUT_HEADROOM }
   }
-  // 其他模型兜底（原有值，对所有模型均合法）
+  // 其他模型兜底（保持原有值 budget=16384/maxTokens=32768，对所有已知模型均合法）
   return { budget: 16384, maxTokens: 32768 }
 }
 
