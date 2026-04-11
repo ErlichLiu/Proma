@@ -171,7 +171,7 @@ function isSessionNotFoundError(errorMessage: string, stderr?: string): boolean 
 const MAX_AUTO_RETRIES = 3
 
 /** 单次 API 调用最长无响应时间（毫秒），超时后触发自动重试 */
-const IDLE_TIMEOUT_MS = 500_000
+const IDLE_TIMEOUT_MS = 120_000
 
 /** 计算重试延迟（指数退避：1s, 2s, 4s） */
 function getRetryDelayMs(attempt: number): number {
@@ -1542,9 +1542,29 @@ export class AgentOrchestrator {
               }
             }
 
-            // Turn 结束时：持久化累积消息
+            // Turn 结束时：持久化累积消息，并检测 0-token 空响应
             if (msg.type === 'result') {
-              capturedResultSubtype = (msg as { subtype?: string }).subtype
+              const resultMsg = msg as import('@proma/shared').SDKResultMessage
+              capturedResultSubtype = resultMsg.subtype
+
+              // 检测"成功但 0 输出"：API 返回 HTTP 200 但模型未产出任何 token
+              // 根因：tool_result 后无文本触发的已知 Anthropic bug（见 sdk-python#958）
+              // 此时 SDK 正常结束 turn，不会自行报错，需要在此层拦截并重试
+              if (
+                resultMsg.subtype === 'success' &&
+                resultMsg.usage.output_tokens === 0 &&
+                attempt <= MAX_AUTO_RETRIES
+              ) {
+                console.log(
+                  `[Agent 编排] 检测到 0-token 空响应 (output_tokens=0, subtype=success)，触发自动重试 (attempt=${attempt})`,
+                )
+                lastRetryableError = 'Agent 返回空响应（0 输出 tokens），正在自动重试'
+                this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
+                accumulatedMessages.length = 0
+                shouldRetryFromError = true
+                break
+              }
+
               this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
               accumulatedMessages.length = 0
             }
