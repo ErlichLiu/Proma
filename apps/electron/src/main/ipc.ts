@@ -82,6 +82,7 @@ import type {
   WeChatConfig,
   WeChatBridgeState,
   SDKMessage,
+  WorkspaceCapabilitiesSummary,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus } from './lib/runtime-init'
@@ -166,6 +167,14 @@ import {
   attachWorkspaceDirectory,
   detachWorkspaceDirectory,
 } from './lib/agent-workspace-manager'
+import {
+  listAgentProfiles,
+  getAgentProfile,
+  createAgentProfile,
+  updateAgentProfile,
+  deleteAgentProfile,
+} from './lib/agent-profile-service'
+import type { AgentProfile, AgentProfileCreateInput, AgentProfileUpdateInput } from '@proma/shared'
 import { getMemoryConfig, setMemoryConfig } from './lib/memory-service'
 import { getAllToolInfos } from './lib/chat-tool-registry'
 import { updateToolState, updateToolCredentials, getToolCredentials, addCustomTool, deleteCustomTool } from './lib/chat-tool-config'
@@ -1037,6 +1046,58 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.UPDATE_SKILL_FROM_SOURCE,
     async (_, targetSlug: string, skillSlug: string): Promise<SkillMeta> => {
       return updateSkillFromSource(targetSlug, skillSlug)
+    }
+  )
+
+  // ===== Agent Profile 管理 =====
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.LIST_PROFILES,
+    async (): Promise<AgentProfile[]> => {
+      return listAgentProfiles()
+    }
+  )
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.GET_PROFILE,
+    async (_, id: string): Promise<AgentProfile | null> => {
+      return getAgentProfile(id)
+    }
+  )
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.CREATE_PROFILE,
+    async (_, input: AgentProfileCreateInput): Promise<AgentProfile> => {
+      return createAgentProfile(input)
+    }
+  )
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.UPDATE_PROFILE,
+    async (_, id: string, input: AgentProfileUpdateInput): Promise<AgentProfile | null> => {
+      return updateAgentProfile(id, input)
+    }
+  )
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.DELETE_PROFILE,
+    async (_, id: string): Promise<boolean> => {
+      return deleteAgentProfile(id)
+    }
+  )
+
+  // ===== 获取所有工作区的能力汇总 =====
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.LIST_ALL_CAPABILITIES,
+    async (): Promise<WorkspaceCapabilitiesSummary[]> => {
+      const workspaces = listAgentWorkspaces()
+      return workspaces.map((ws) => ({
+        workspaceId: ws.id,
+        workspaceName: ws.name,
+        workspaceSlug: ws.slug,
+        capabilities: getWorkspaceCapabilities(ws.slug),
+      }))
     }
   )
 
@@ -2369,6 +2430,7 @@ export function registerIpcHandlers(): void {
           mode: input.mode,
           text: input.text,
           files: input.files,
+          agentProfileId: input.agentProfileId,
         })
         mainWin.show()
         mainWin.focus()

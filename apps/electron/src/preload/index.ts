@@ -51,6 +51,7 @@ import type {
   SkillMeta,
   OtherWorkspaceSkillsGroup,
   WorkspaceCapabilities,
+  WorkspaceCapabilitiesSummary,
   FileEntry,
   FileSearchResult,
   EnvironmentCheckResult,
@@ -95,6 +96,9 @@ import type {
   WeChatBridgeState,
   AgentQueueMessageInput,
   PendingRequestsSnapshot,
+  AgentProfile,
+  AgentProfileCreateInput,
+  AgentProfileUpdateInput,
 } from '@proma/shared'
 import type { UserProfile, AppSettings, QuickTaskSubmitInput, QuickTaskOpenSessionData } from '../types'
 import { QUICK_TASK_IPC_CHANNELS } from '../types'
@@ -358,6 +362,26 @@ export interface ElectronAPI {
 
   /** 停止任务 */
   stopTask: (input: StopTaskInput) => Promise<void>
+
+  // ===== Agent Profile 管理 =====
+
+  /** 获取 Agent Profile 列表 */
+  listAgentProfiles: () => Promise<AgentProfile[]>
+
+  /** 获取单个 Agent Profile */
+  getAgentProfile: (id: string) => Promise<AgentProfile | null>
+
+  /** 创建 Agent Profile */
+  createAgentProfile: (input: AgentProfileCreateInput) => Promise<AgentProfile>
+
+  /** 更新 Agent Profile */
+  updateAgentProfile: (id: string, input: AgentProfileUpdateInput) => Promise<AgentProfile | null>
+
+  /** 删除 Agent Profile */
+  deleteAgentProfile: (id: string) => Promise<boolean>
+
+  /** 获取所有工作区的能力汇总（供 Agent Profile 编辑页） */
+  listAllCapabilities: () => Promise<WorkspaceCapabilitiesSummary[]>
 
   // ===== Agent 工作区管理相关 =====
 
@@ -1058,6 +1082,26 @@ const electronAPI: ElectronAPI = {
 
   stopTask: (input: StopTaskInput) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.STOP_TASK, input)
+  },
+
+  // Agent Profile 管理
+  listAgentProfiles: () => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_PROFILES)
+  },
+  getAgentProfile: (id: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_PROFILE, id)
+  },
+  createAgentProfile: (input: AgentProfileCreateInput) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_PROFILE, input)
+  },
+  updateAgentProfile: (id: string, input: AgentProfileUpdateInput) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.UPDATE_PROFILE, id, input)
+  },
+  deleteAgentProfile: (id: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.DELETE_PROFILE, id)
+  },
+  listAllCapabilities: () => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_ALL_CAPABILITIES)
   },
 
   // Agent 工作区管理

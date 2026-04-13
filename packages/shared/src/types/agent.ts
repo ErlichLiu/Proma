@@ -540,11 +540,99 @@ export interface AgentSessionMeta {
   resumeAtMessageUuid?: string
   /** 最后一次流式执行是否被用户主动中断 */
   stoppedByUser?: boolean
+  /** 使用的 Agent Profile ID（隐式默认 Agent 时为空） */
+  agentProfileId?: string
+  // TODO: 以下 override 字段为 Phase 3（会话输入框 Agent 配置切换）预留，暂未实现消费端
+  /** 会话级临时覆盖：渠道 */
+  overrideChannelId?: string
+  /** 会话级临时覆盖：模型 */
+  overrideModelId?: string
+  /** 会话级临时覆盖：思考模式 */
+  overrideThinking?: ThinkingConfig
+  /** 会话级临时覆盖：推理深度 */
+  overrideEffort?: AgentEffort
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
   updatedAt: number
 }
+
+// ===== Agent Profile（全局 Agent 配置模板） =====
+
+/** Agent Profile 中挑选的 MCP 服务器引用 */
+export interface AgentProfileMcpRef {
+  /** 来源工作区 ID */
+  workspaceId: string
+  /** MCP server 名称（对应 mcp.json 中的 key） */
+  serverName: string
+}
+
+/** Agent Profile 中挑选的 Skill 引用 */
+export interface AgentProfileSkillRef {
+  /** 来源工作区 ID */
+  workspaceId: string
+  /** Skill 目录名 */
+  skillName: string
+}
+
+/**
+ * Agent Profile — 全局 Agent 配置模板
+ *
+ * 独立于工作区的 Agent 角色定义，包含模型配置、能力挑选、附加提示词等。
+ * 存储在 ~/.proma/agents.json
+ */
+export interface AgentProfile {
+  id: string
+  /** 显示名，如 "PPT Agent" */
+  name: string
+  /** 描述，如 "专注制作演示文稿" */
+  description?: string
+  /** emoji 图标标识 */
+  icon?: string
+  /** 预置 Agent 标记（不可删除） */
+  isBuiltin?: boolean
+
+  // 模型配置
+  defaultChannelId?: string
+  defaultModelId?: string
+  thinking?: ThinkingConfig
+  effort?: AgentEffort
+  maxBudgetUsd?: number
+  maxTurns?: number
+
+  // 能力配置 — 从全局所有工作区的 MCP/Skills 池中挑选
+  enabledMcpServers: AgentProfileMcpRef[]
+  enabledSkills: AgentProfileSkillRef[]
+
+  /** 附加提示词（追加在默认 system prompt 之后，用于微调角色/行为） */
+  additionalPrompt?: string
+
+  /** 默认工作区 ID（未指定时在此创建会话） */
+  defaultWorkspaceId?: string
+
+  createdAt: number
+  updatedAt: number
+}
+
+/** 创建 Agent Profile 的输入 */
+export interface AgentProfileCreateInput {
+  name: string
+  description?: string
+  icon?: string
+  defaultChannelId?: string
+  defaultModelId?: string
+  thinking?: ThinkingConfig
+  effort?: AgentEffort
+  maxBudgetUsd?: number
+  maxTurns?: number
+  enabledMcpServers?: AgentProfileMcpRef[]
+  enabledSkills?: AgentProfileSkillRef[]
+  additionalPrompt?: string
+  defaultWorkspaceId?: string
+}
+
+/** 更新 Agent Profile 的输入（部分更新） */
+export type AgentProfileUpdateInput = Partial<AgentProfileCreateInput>
 
 /**
  * Agent 持久化消息
@@ -692,6 +780,14 @@ export interface WorkspaceCapabilities {
   skills: SkillMeta[]
 }
 
+/** 所有工作区的能力汇总（供 Agent Profile 编辑页勾选） */
+export interface WorkspaceCapabilitiesSummary {
+  workspaceId: string
+  workspaceName: string
+  workspaceSlug: string
+  capabilities: WorkspaceCapabilities
+}
+
 // ===== Agent 发送输入 =====
 
 /**
@@ -718,6 +814,8 @@ export interface AgentSendInput {
   mentionedSkills?: string[]
   /** 用户通过 #mcp:xxx 引用的 MCP 服务器名称列表 */
   mentionedMcpServers?: string[]
+  /** 指定的 Agent Profile ID */
+  agentProfileId?: string
 }
 
 // ===== Agent 队列消息 =====
@@ -1313,6 +1411,20 @@ export const AGENT_IPC_CHANNELS = {
   // 待处理请求恢复（渲染进程重载后查询主进程状态）
   /** 获取所有待处理的交互请求快照 */
   GET_PENDING_REQUESTS: 'agent:get-pending-requests',
+
+  // Agent Profile 管理
+  /** 获取 Agent Profile 列表 */
+  LIST_PROFILES: 'agent:list-profiles',
+  /** 获取单个 Agent Profile */
+  GET_PROFILE: 'agent:get-profile',
+  /** 创建 Agent Profile */
+  CREATE_PROFILE: 'agent:create-profile',
+  /** 更新 Agent Profile */
+  UPDATE_PROFILE: 'agent:update-profile',
+  /** 删除 Agent Profile */
+  DELETE_PROFILE: 'agent:delete-profile',
+  /** 获取所有工作区的 MCP/Skills 汇总（供 Profile 编辑页勾选） */
+  LIST_ALL_CAPABILITIES: 'agent:list-all-capabilities',
 } as const
 
 /**

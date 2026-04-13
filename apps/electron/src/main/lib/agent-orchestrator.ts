@@ -16,12 +16,12 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { existsSync, mkdirSync, symlinkSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, dirname, resolve, sep } from 'node:path'
+import { existsSync, mkdirSync, symlinkSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { app } from 'electron'
-import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload, RewindSessionResult } from '@proma/shared'
+import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload, RewindSessionResult, AgentProfileMcpRef, AgentProfileSkillRef, ThinkingConfig, AgentEffort } from '@proma/shared'
 import { SAFE_TOOLS } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest, ExitPlanModeRequest } from '@proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
@@ -33,7 +33,7 @@ import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { appendSDKMessages, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages, getAgentSessionSDKMessages, truncateSDKMessages, resolveUserUuidFromSDK, rewindFilesFromSnapshot } from './agent-session-manager'
 import { getAgentWorkspace, getWorkspaceMcpConfig, ensurePluginManifest, getWorkspacePermissionMode, setWorkspacePermissionMode } from './agent-workspace-manager'
-import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, getWorkspaceFilesDir } from './config-paths'
+import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, getWorkspaceFilesDir, getAgentProfilePluginDir } from './config-paths'
 import { getWorkspaceAttachedDirectories } from './agent-workspace-manager'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
@@ -42,6 +42,7 @@ import { permissionService } from './agent-permission-service'
 import type { PermissionResult, CanUseToolOptions } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
 import { exitPlanService, type ExitPlanPermissionResult } from './agent-exit-plan-service'
+import { getAgentProfile } from './agent-profile-service'
 import { getMemoryConfig } from './memory-service'
 import { searchMemory, addMemory, formatSearchResult } from './memos-client'
 import {
@@ -539,6 +540,137 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 根据 Agent Profile 的 enabledMcpServers 精确构建 MCP 服务器配置
+   * 只加载 Profile 指定的服务器（可能来自不同工作区），不加载工作区全量。
+   */
+  private buildProfileMcpServers(refs: AgentProfileMcpRef[]): Record<string, Record<string, unknown>> {
+    const mcpServers: Record<string, Record<string, unknown>> = {}
+    for (const ref of refs) {
+      const sourceWs = getAgentWorkspace(ref.workspaceId)
+      if (!sourceWs) continue
+      const sourceMcpCfg = getWorkspaceMcpConfig(sourceWs.slug)
+      const entry = sourceMcpCfg.servers?.[ref.serverName]
+      if (!entry || !entry.enabled) continue
+      if (mcpServers[ref.serverName]) continue // 避免同名冲突
+      if (entry.type === 'stdio' && entry.command) {
+        const mergedEnv: Record<string, string> = {
+          ...(process.env.PATH && { PATH: process.env.PATH }),
+          ...entry.env,
+        }
+        mcpServers[ref.serverName] = {
+          type: 'stdio',
+          command: entry.command,
+          ...(entry.args?.length && { args: entry.args }),
+          ...(Object.keys(mergedEnv).length > 0 && { env: mergedEnv }),
+          required: false,
+          startup_timeout_sec: entry.timeout ?? 30,
+        }
+      } else if ((entry.type === 'http' || entry.type === 'sse') && entry.url) {
+        mcpServers[ref.serverName] = {
+          type: entry.type,
+          url: entry.url,
+          ...(entry.headers && Object.keys(entry.headers).length > 0 && { headers: entry.headers }),
+          required: false,
+        }
+      }
+    }
+    if (Object.keys(mcpServers).length > 0) {
+      console.log(`[Agent 编排] 已加载 Agent Profile 指定的 ${Object.keys(mcpServers).length} 个 MCP 服务器`)
+    }
+    return mcpServers
+  }
+
+  /** 正在构建 plugin 目录的 profileId 集合，防止并发重建 */
+  private pluginBuildLocks = new Set<string>()
+
+  /**
+   * 为 Agent Profile 构建临时 plugin 目录，只 symlink Profile 选中的 Skills。
+   * 目录结构：
+   *   ~/.proma/.cache/agent-plugins/<profileId>/
+   *     .claude-plugin/plugin.json
+   *     skills/
+   *       <skillName> -> <source workspace>/skills/<skillName>
+   *
+   * @returns 临时 plugin 目录的绝对路径，可直接作为 SDK plugin path
+   */
+  private buildProfilePluginDir(
+    profileId: string,
+    skillRefs: AgentProfileSkillRef[],
+  ): string {
+    const pluginDir = getAgentProfilePluginDir(profileId)
+    const skillsDir = join(pluginDir, 'skills')
+    const manifestDir = join(pluginDir, '.claude-plugin')
+
+    // 快速一致性检查：已有目录且 skill 列表未变 → 直接复用
+    if (existsSync(skillsDir)) {
+      const expected = new Set(skillRefs.map(r => r.skillName).sort())
+      try {
+        const existing = new Set(readdirSync(skillsDir).filter(n => !n.startsWith('.')).sort())
+        if (expected.size === existing.size && [...expected].every(s => existing.has(s))) {
+          return pluginDir
+        }
+      } catch { /* 读取失败则重建 */ }
+    }
+
+    // 并发守卫：同一 profileId 不允许并发重建
+    if (this.pluginBuildLocks.has(profileId)) {
+      // 另一个 session 正在构建，直接返回目录路径（即使目录可能不完整，
+      // SDK 在加载时会容错处理缺失的 skill）
+      console.warn(`[Agent 编排] Profile ${profileId} 的 plugin 目录正在被另一个会话构建，跳过重建`)
+      return pluginDir
+    }
+
+    this.pluginBuildLocks.add(profileId)
+    try {
+      // 需要重建：清除旧目录
+      if (existsSync(pluginDir)) {
+        rmSync(pluginDir, { recursive: true, force: true })
+      }
+
+      // 创建目录结构
+      mkdirSync(skillsDir, { recursive: true })
+      mkdirSync(manifestDir, { recursive: true })
+
+      // 写入 plugin.json
+      writeFileSync(
+        join(manifestDir, 'plugin.json'),
+        JSON.stringify({ name: `proma-agent-${profileId}`, version: '1.0.0' }),
+      )
+
+      // 为每个 skillRef 创建 symlink（校验路径防穿越）
+      for (const ref of skillRefs) {
+        const sourceWs = getAgentWorkspace(ref.workspaceId)
+        if (!sourceWs) continue
+        const sourceSkillDir = join(getAgentWorkspacePath(sourceWs.slug), 'skills', ref.skillName)
+        if (!existsSync(sourceSkillDir)) continue
+        const targetLink = resolve(skillsDir, ref.skillName)
+        // 防止路径穿越：确保 targetLink 在 skillsDir 内
+        if (!targetLink.startsWith(skillsDir + sep)) continue
+        try {
+          symlinkSync(sourceSkillDir, targetLink, 'dir')
+        } catch (err) {
+          console.warn(`[Agent 编排] 创建 Skill symlink 失败: ${ref.skillName}`, err)
+        }
+      }
+
+      console.log(`[Agent 编排] 已构建 Profile plugin 目录: ${pluginDir} (${skillRefs.length} skills)`)
+    } finally {
+      this.pluginBuildLocks.delete(profileId)
+    }
+    return pluginDir
+  }
+
+  /**
+   * 清理 Agent Profile 的临时 plugin 目录
+   */
+  static cleanupProfilePluginDir(profileId: string): void {
+    const pluginDir = getAgentProfilePluginDir(profileId)
+    if (existsSync(pluginDir)) {
+      rmSync(pluginDir, { recursive: true, force: true })
+    }
+  }
+
+  /**
    * 注入 SDK 内置记忆工具（全局，不依赖工作区）
    */
   private async injectMemoryTools(
@@ -759,7 +891,47 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers } = input
+    const { sessionId, userMessage, channelId: inputChannelId, modelId: inputModelId, workspaceId: inputWorkspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, agentProfileId } = input
+
+    // 读取 Agent Profile 配置（如果指定了）
+    let profileChannelId: string | undefined
+    let profileModelId: string | undefined
+    let profileWorkspaceId: string | undefined
+    let profileAdditionalPrompt: string | undefined
+    let profileMcpServerRefs: AgentProfileMcpRef[] | undefined
+    let profileSkillRefs: AgentProfileSkillRef[] | undefined
+    let profileThinking: ThinkingConfig | undefined
+    let profileEffort: AgentEffort | undefined
+    let profileMaxBudgetUsd: number | undefined
+    let profileMaxTurns: number | undefined
+
+    if (agentProfileId) {
+      const profile = getAgentProfile(agentProfileId)
+      if (profile) {
+        console.log(`[Agent 编排] 使用 Agent Profile: ${profile.name} (${profile.id})`)
+        profileChannelId = profile.defaultChannelId
+        profileModelId = profile.defaultModelId
+        profileWorkspaceId = profile.defaultWorkspaceId
+        profileAdditionalPrompt = profile.additionalPrompt
+        profileMcpServerRefs = profile.enabledMcpServers
+        profileSkillRefs = profile.enabledSkills
+        profileThinking = profile.thinking
+        profileEffort = profile.effort
+        profileMaxBudgetUsd = profile.maxBudgetUsd
+        profileMaxTurns = profile.maxTurns
+      }
+    }
+
+    // 配置优先级：
+    // - channelId/modelId: 会话输入（renderer per-session map）> Agent Profile > 全局默认
+    //   renderer 在选择 Agent 时已将 profile 的 channel/model 写入 session map，
+    //   用户手动切换模型时会覆盖 session map，因此 inputChannelId/inputModelId 始终是最终决策。
+    // - workspaceId: 会话输入 > Agent Profile（会话已有工作区上下文时不应被 profile 覆盖）
+    // - additionalPrompt/MCP/Skills: Agent Profile > 会话输入
+    const channelId = inputChannelId || profileChannelId || ''
+    const modelId = inputModelId || profileModelId
+    const workspaceId = inputWorkspaceId || profileWorkspaceId
+
     const stderrChunks: string[] = []
 
     // 0. 并发保护
@@ -954,7 +1126,11 @@ export class AgentOrchestrator {
       }
 
       // 10. 构建 MCP 服务器配置 + 记忆工具 + 生图工具 + 自定义工具
-      const mcpServers = this.buildMcpServers(workspaceSlug)
+      // 当 Agent Profile 指定了 enabledMcpServers（含空数组，表示"不使用 MCP"），
+      // 只加载 Profile 指定的 MCP 服务器（精确过滤），否则加载工作区全部 MCP 服务器（默认行为）。
+      const mcpServers = agentProfileId && profileMcpServerRefs !== undefined
+        ? this.buildProfileMcpServers(profileMcpServerRefs)
+        : this.buildMcpServers(workspaceSlug)
       await this.injectMemoryTools(sdk, mcpServers)
       await this.injectNanoBananaTools(sdk, mcpServers, sessionId, agentCwd)
 
@@ -1232,9 +1408,8 @@ export class AgentOrchestrator {
       // 13. 构建 Adapter 查询选项
       // 检测用户选用的模型是否为 Claude 系列，决定 SubAgent 是否使用独立模型分层
       const claudeAvailable = (modelId || DEFAULT_MODEL_ID).toLowerCase().includes('claude')
-      const maxTurns = appSettings.agentMaxTurns && appSettings.agentMaxTurns > 0
-        ? appSettings.agentMaxTurns
-        : undefined
+      const rawMaxTurns = profileMaxTurns ?? appSettings.agentMaxTurns
+      const maxTurns = rawMaxTurns && rawMaxTurns > 0 ? rawMaxTurns : undefined
       const queryOptions: ClaudeAgentQueryOptions = {
         sessionId,
         prompt: finalPrompt,
@@ -1266,13 +1441,29 @@ export class AgentOrchestrator {
             permissionMode: initialPermissionMode,
             memoryEnabled: (() => { const mc = getMemoryConfig(); return mc.enabled && !!mc.apiKey })(),
             claudeAvailable,
-          }),
+          }) + (profileAdditionalPrompt
+            ? `\n\n## Agent 角色附加指令\n\n${profileAdditionalPrompt}`
+            : ''),
         },
         resumeSessionId: existingSdkSessionId,
         // 回退后 resume：从指定消息处继续（SDK 在同一 JSONL 内创建分支）
         ...(rewindResumeAt && { resumeSessionAt: rewindResumeAt }),
         ...(Object.keys(mcpServers).length > 0 && { mcpServers }),
-        ...(workspaceSlug && { plugins: [{ type: 'local' as const, path: getAgentWorkspacePath(workspaceSlug) }] }),
+        // plugins: Agent Profile 指定 enabledSkills（含空数组表示"不使用 Skills"）时精确过滤，否则加载当前工作区全量
+        ...(() => {
+          const plugins: Array<{ type: 'local'; path: string }> = []
+          if (agentProfileId && profileSkillRefs !== undefined) {
+            // Profile 精确模式：构建临时 plugin 目录，只 symlink 选中的 Skills（空数组 = 不加载任何 Skill）
+            if (profileSkillRefs.length > 0) {
+              const profilePluginDir = this.buildProfilePluginDir(agentProfileId, profileSkillRefs)
+              plugins.push({ type: 'local' as const, path: profilePluginDir })
+            }
+          } else if (workspaceSlug) {
+            // 默认模式：加载当前工作区全部 Skills
+            plugins.push({ type: 'local' as const, path: getAgentWorkspacePath(workspaceSlug) })
+          }
+          return plugins.length > 0 ? { plugins } : {}
+        })(),
         // 合并用户附加目录 + 工作区附加目录 + 工作区文件目录
         ...(() => {
           const allDirs = [...(additionalDirectories || [])]
@@ -1292,12 +1483,15 @@ export class AgentOrchestrator {
         })(),
         // 启用文件检查点，支持 rewindFiles 回退
         enableFileCheckpointing: true,
-        // SDK 0.2.52+ 新增选项（从 settings 读取）
-        ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
-        effort: appSettings.agentEffort ?? 'high',
-        ...(appSettings.agentMaxBudgetUsd != null && appSettings.agentMaxBudgetUsd > 0 && {
-          maxBudgetUsd: appSettings.agentMaxBudgetUsd,
+        // SDK 0.2.52+ 新增选项（Agent Profile > settings 全局默认）
+        ...((profileThinking ?? appSettings.agentThinking) && {
+          thinking: profileThinking ?? appSettings.agentThinking,
         }),
+        effort: profileEffort ?? appSettings.agentEffort ?? 'high',
+        ...(() => {
+          const budget = profileMaxBudgetUsd ?? appSettings.agentMaxBudgetUsd
+          return budget != null && budget > 0 ? { maxBudgetUsd: budget } : {}
+        })(),
         // 内置 SubAgent 定义（code-reviewer / explorer / researcher）
         // claudeAvailable=false 时 SubAgent 省略 model 字段，自动继承主 Agent 模型
         agents: buildBuiltinAgents(claudeAvailable),

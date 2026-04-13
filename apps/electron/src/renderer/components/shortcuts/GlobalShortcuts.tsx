@@ -182,8 +182,32 @@ export function GlobalShortcuts(): null {
 
         if (data.mode === 'agent') {
           // Agent 模式：创建会话 + 保存附件到 session 目录
-          const channelId = store.get(agentChannelIdAtom) || undefined
-          const workspaceId = store.get(currentAgentWorkspaceIdAtom) || undefined
+          let channelId = store.get(agentChannelIdAtom) || undefined
+          let workspaceId = store.get(currentAgentWorkspaceIdAtom) || undefined
+
+          // 如果指定了 Agent Profile，使用其默认配置
+          let profileChannelId: string | undefined
+          let profileModelId: string | undefined
+          if (data.agentProfileId) {
+            try {
+              const profile = await window.electronAPI.getAgentProfile(data.agentProfileId)
+              if (profile) {
+                if (profile.defaultChannelId) {
+                  channelId = profile.defaultChannelId
+                  profileChannelId = profile.defaultChannelId
+                }
+                if (profile.defaultModelId) {
+                  profileModelId = profile.defaultModelId
+                }
+                if (profile.defaultWorkspaceId) {
+                  workspaceId = profile.defaultWorkspaceId
+                }
+              }
+            } catch (err) {
+              console.error('[快速任务] 获取 Agent Profile 失败:', err)
+            }
+          }
+
           const meta = await window.electronAPI.createAgentSession(
             undefined,
             channelId,
@@ -232,6 +256,9 @@ export function GlobalShortcuts(): null {
           store.set(agentPendingPromptAtom, {
             sessionId: meta.id,
             message: fileReferences + data.text,
+            agentProfileId: data.agentProfileId,
+            profileChannelId,
+            profileModelId,
           })
         } else {
           // Chat 模式：创建对话 + 保存附件到磁盘

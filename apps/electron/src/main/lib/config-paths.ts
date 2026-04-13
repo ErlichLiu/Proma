@@ -212,6 +212,28 @@ export function getAgentSessionMessagesPath(id: string): string {
 }
 
 /**
+ * 获取 Agent Profile 索引文件路径
+ *
+ * @returns ~/.proma/agents.json
+ */
+export function getAgentProfilesPath(): string {
+  return join(getConfigDir(), 'agents.json')
+}
+
+/**
+ * 获取 Agent Profile 临时 plugin 目录路径（用于 Skill 精确过滤）
+ *
+ * @returns ~/.proma/.cache/agent-plugins/<profileId>/
+ */
+export function getAgentProfilePluginDir(profileId: string): string {
+  // 校验 profileId 为 UUID 格式，防止路径穿越
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId)) {
+    throw new Error(`无效的 profileId: ${profileId}`)
+  }
+  return join(getConfigDir(), '.cache', 'agent-plugins', profileId)
+}
+
+/**
  * 获取 Agent 工作区索引文件路径
  *
  * @returns ~/.proma/agent-workspaces.json

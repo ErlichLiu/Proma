@@ -144,6 +144,8 @@ export interface QuickTaskSubmitInput {
   mode: 'chat' | 'agent'
   /** 附件列表（base64 编码） */
   files?: QuickTaskFile[]
+  /** 指定的 Agent Profile ID（Agent 模式下，不指定则使用预置通用助手） */
+  agentProfileId?: string
 }
 
 /** 快速任务附件 */
@@ -159,4 +161,6 @@ export interface QuickTaskOpenSessionData {
   mode: 'chat' | 'agent'
   text: string
   files?: QuickTaskFile[]
+  /** 指定的 Agent Profile ID */
+  agentProfileId?: string
 }

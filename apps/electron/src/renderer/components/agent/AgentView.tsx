@@ -22,6 +22,7 @@ import { AgentHeader } from './AgentHeader'
 import { ContextUsageBadge } from './ContextUsageBadge'
 import { PermissionBanner } from './PermissionBanner'
 import { PermissionModeSelector } from './PermissionModeSelector'
+import { AgentSelector } from './AgentSelector'
 import { AskUserBanner } from './AskUserBanner'
 import { ExitPlanModeBanner } from './ExitPlanModeBanner'
 import { PlanModeDashedBorder } from './PlanModeDashedBorder'
@@ -70,6 +71,8 @@ import {
   agentPermissionModeMapAtom,
   agentDefaultPermissionModeAtom,
   agentSessionPathMapAtom,
+  agentSessionProfileMapAtom,
+  agentProfilesAtom,
   allPendingAskUserRequestsAtom,
   allPendingExitPlanRequestsAtom,
   finalizeStreamingActivities,
@@ -81,7 +84,7 @@ import { useOpenSession } from '@/hooks/useOpenSession'
 import { AgentSessionProvider } from '@/contexts/session-context'
 import { draftSessionIdsAtom } from '@/atoms/draft-session-atoms'
 import { sendWithCmdEnterAtom } from '@/atoms/shortcut-atoms'
-import type { AgentSendInput, AgentMessage, AgentPendingFile, ModelOption, SDKMessage } from '@proma/shared'
+import type { AgentSendInput, AgentMessage, AgentPendingFile, ModelOption, SDKMessage, AgentProfile } from '@proma/shared'
 import { fileToBase64 } from '@/lib/file-utils'
 
 /** 稳定的空 SDKMessage 数组引用，避免 ?? [] 每次创建新引用 */
@@ -191,6 +194,12 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const agentChannelId = sessionChannelMap.get(sessionId) ?? defaultChannelId
   const agentModelId = sessionModelMap.get(sessionId) ?? defaultModelId
   const agentChannelIds = useAtomValue(agentChannelIdsAtom)
+  // Per-session Agent Profile 选择
+  const sessionProfileMap = useAtomValue(agentSessionProfileMapAtom)
+  const setSessionProfileMap = useSetAtom(agentSessionProfileMapAtom)
+  const profiles = useAtomValue(agentProfilesAtom)
+  const currentProfileId = sessionProfileMap.get(sessionId) ?? null
+  const currentProfile = currentProfileId ? profiles.find(p => p.id === currentProfileId) ?? null : null
   const [agentThinking, setAgentThinking] = useAtom(agentThinkingAtom)
   const setSettingsOpen = useSetAtom(settingsOpenAtom)
   const setDraftSessionIds = useSetAtom(draftSessionIdsAtom)
@@ -473,12 +482,36 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     if (pendingPrompt.sessionId !== sessionId) return
     if (!agentChannelId || streaming) return
 
-    // 快照当前上下文
+    // 同步 pendingPrompt 的 agentProfileId + channel/model 到 per-session maps
+    if (pendingPrompt.agentProfileId) {
+      setSessionProfileMap(prev => {
+        const map = new Map(prev)
+        map.set(sessionId, pendingPrompt.agentProfileId!)
+        return map
+      })
+    }
+    if (pendingPrompt.profileChannelId) {
+      setSessionChannelMap(prev => {
+        const map = new Map(prev)
+        map.set(sessionId, pendingPrompt.profileChannelId!)
+        return map
+      })
+    }
+    if (pendingPrompt.profileModelId) {
+      setSessionModelMap(prev => {
+        const map = new Map(prev)
+        map.set(sessionId, pendingPrompt.profileModelId!)
+        return map
+      })
+    }
+
+    // 快照当前上下文（Profile 配置优先于全局默认）
     const snapshot = {
       message: pendingPrompt.message,
-      channelId: agentChannelId,
-      modelId: agentModelId || undefined,
+      channelId: pendingPrompt.profileChannelId || agentChannelId,
+      modelId: pendingPrompt.profileModelId || agentModelId || undefined,
       workspaceId: currentWorkspaceId || undefined,
+      agentProfileId: pendingPrompt.agentProfileId,
     }
     setPendingPrompt(null)
 
@@ -524,6 +557,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         channelId: snapshot.channelId,
         modelId: snapshot.modelId,
         workspaceId: snapshot.workspaceId,
+        agentProfileId: snapshot.agentProfileId,
       }
       window.electronAPI.sendAgentMessage(input).catch((error) => {
         console.error('[AgentView] 自动发送配置消息失败:', error)
@@ -534,7 +568,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         })
       })
     })
-  }, [messagesLoaded, pendingPrompt, sessionId, agentChannelId, agentModelId, currentWorkspaceId, streaming, setPendingPrompt, setStreamingStates])
+  }, [messagesLoaded, pendingPrompt, sessionId, agentChannelId, agentModelId, currentWorkspaceId, streaming, setPendingPrompt, setStreamingStates, setSessionProfileMap, setSessionChannelMap, setSessionModelMap])
 
   // ===== 附件处理 =====
 
@@ -753,6 +787,31 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     }).catch(console.error)
   }, [sessionId, setSessionChannelMap, setSessionModelMap, setDefaultChannelId, setDefaultModelId])
 
+  /** Agent 选择回调 */
+  const handleAgentSelect = React.useCallback((profile: AgentProfile | null): void => {
+    // 更新 per-session profile map
+    setSessionProfileMap(prev => {
+      const map = new Map(prev)
+      if (profile) map.set(sessionId, profile.id)
+      else map.delete(sessionId)
+      return map
+    })
+
+    // 如果 Profile 有默认渠道/模型，同步更新 per-session channel/model map
+    if (profile?.defaultChannelId) {
+      setSessionChannelMap(prev => { const m = new Map(prev); m.set(sessionId, profile.defaultChannelId!); return m })
+    }
+    if (profile?.defaultModelId) {
+      setSessionModelMap(prev => { const m = new Map(prev); m.set(sessionId, profile.defaultModelId!); return m })
+    }
+    // 更新思考 atom：有配置则应用，取消选择则重置
+    if (profile?.thinking) {
+      setAgentThinking(profile.thinking)
+    } else if (!profile) {
+      setAgentThinking(undefined)
+    }
+  }, [sessionId, setSessionProfileMap, setSessionChannelMap, setSessionModelMap, setAgentThinking])
+
   /** 构建 externalSelectedModel 给 ModelSelector */
   const externalSelectedModel = React.useMemo(() => {
     if (!agentChannelId || !agentModelId) return null
@@ -950,6 +1009,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       channelId: agentChannelId,
       modelId: agentModelId || undefined,
       workspaceId: currentWorkspaceId || undefined,
+      agentProfileId: currentProfileId || undefined,
       ...(attachedDirs.length > 0 && { additionalDirectories: attachedDirs }),
       // 解析用户消息中的 Skill/MCP 引用，传递结构化元数据给后端
       ...(() => {
@@ -974,7 +1034,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         return map
       })
     })
-  }, [inputContent, pendingFiles, attachedDirs, sessionId, agentChannelId, agentModelId, currentWorkspaceId, workspaces, streaming, suggestion, hasAvailableModel, store, setStreamingStates, setPendingFiles, setAgentStreamErrors, setPromptSuggestions, setInputContent, setLiveMessagesMap])
+  }, [inputContent, pendingFiles, attachedDirs, sessionId, agentChannelId, agentModelId, currentWorkspaceId, currentProfileId, workspaces, streaming, suggestion, hasAvailableModel, store, setStreamingStates, setPendingFiles, setAgentStreamErrors, setPromptSuggestions, setInputContent, setLiveMessagesMap])
 
   /** 停止生成 */
   const handleStop = React.useCallback((): void => {
@@ -1354,6 +1414,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
             {/* Footer 工具栏 */}
             <div className="flex items-center justify-between px-2 py-1 h-[48px] gap-4">
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <AgentSelector
+                  selectedProfileId={currentProfileId}
+                  onSelect={handleAgentSelect}
+                />
                 <ModelSelector
                   filterChannelIds={agentChannelIds}
                   externalSelectedModel={externalSelectedModel}

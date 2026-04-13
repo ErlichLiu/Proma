@@ -7,7 +7,7 @@
 
 import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
-import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentWorkspace, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ExitPlanModeRequest, ThinkingConfig, AgentEffort, TaskUsage, SDKMessage } from '@proma/shared'
+import type { AgentSessionMeta, AgentMessage, AgentEvent, AgentWorkspace, AgentProfile, AgentPendingFile, RetryAttempt, PromaPermissionMode, PermissionRequest, AskUserRequest, ExitPlanModeRequest, ThinkingConfig, AgentEffort, TaskUsage, SDKMessage } from '@proma/shared'
 
 /** 活动状态 */
 export type ActivityStatus = 'pending' | 'running' | 'completed' | 'error' | 'backgrounded'
@@ -235,12 +235,19 @@ export function isActivityGroup(item: ActivityGroup | ToolActivity): item is Act
 export interface AgentPendingPrompt {
   sessionId: string
   message: string
+  /** 指定的 Agent Profile ID */
+  agentProfileId?: string
+  /** Profile 指定的渠道（用于 UI 显示和发送） */
+  profileChannelId?: string
+  /** Profile 指定的模型（用于 UI 显示和发送） */
+  profileModelId?: string
 }
 
 // ===== Atoms =====
 
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
 export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
+export const agentProfilesAtom = atom<AgentProfile[]>([])
 export const currentAgentWorkspaceIdAtom = atom<string | null>(null)
 /** 全局默认渠道 ID（新会话继承用，从 settings.json 加载） */
 export const agentChannelIdAtom = atom<string | null>(null)
@@ -253,6 +260,8 @@ export const agentChannelIdsAtom = atom<string[]>([])
 export const agentSessionChannelMapAtom = atom<Map<string, string>>(new Map())
 /** Per-session 模型 ID Map — sessionId → modelId */
 export const agentSessionModelMapAtom = atom<Map<string, string>>(new Map())
+/** Per-session Agent Profile ID Map — sessionId → profileId（键不存在 = 未选择 Profile，使用全局默认） */
+export const agentSessionProfileMapAtom = atom<Map<string, string>>(new Map())
 export const currentAgentSessionIdAtom = atom<string | null>(null)
 export const currentAgentMessagesAtom = atom<AgentMessage[]>([])
 export const agentStreamingStatesAtom = atom<Map<string, AgentStreamState>>(new Map())

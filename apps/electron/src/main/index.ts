@@ -25,6 +25,7 @@ for (const key of Object.keys(process.env)) {
 
 import { createApplicationMenu } from './menu'
 import { registerIpcHandlers } from './ipc'
+import { initAgentProfiles } from './lib/agent-profile-service'
 import { createTray, destroyTray } from './tray'
 import { initializeRuntime } from './lib/runtime-init'
 import { seedDefaultSkills } from './lib/config-paths'
@@ -232,6 +233,9 @@ app.whenReady().then(async () => {
   // Create application menu
   const menu = createApplicationMenu()
   Menu.setApplicationMenu(menu)
+
+  // 初始化 Agent Profile（确保预置通用助手存在）
+  initAgentProfiles()
 
   // Register IPC handlers
   registerIpcHandlers()

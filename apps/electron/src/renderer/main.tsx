@@ -21,6 +21,7 @@ import {
   agentModelIdAtom,
   agentChannelIdsAtom,
   agentWorkspacesAtom,
+  agentProfilesAtom,
   currentAgentWorkspaceIdAtom,
   currentAgentSessionIdAtom,
   workspaceCapabilitiesVersionAtom,
@@ -113,6 +114,7 @@ function AgentSettingsInitializer(): null {
   const setAgentModelId = useSetAtom(agentModelIdAtom)
   const setAgentChannelIds = useSetAtom(agentChannelIdsAtom)
   const setAgentWorkspaces = useSetAtom(agentWorkspacesAtom)
+  const setAgentProfiles = useSetAtom(agentProfilesAtom)
   const setCurrentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const bumpCapabilities = useSetAtom(workspaceCapabilitiesVersionAtom)
   const bumpFiles = useSetAtom(workspaceFilesVersionAtom)
@@ -199,6 +201,11 @@ function AgentSettingsInitializer(): null {
       if (settings.agentMaxTurns != null) {
         setMaxTurns(settings.agentMaxTurns)
       }
+
+      // 加载 Agent Profile 列表
+      window.electronAPI.listAgentProfiles().then((profiles) => {
+        setAgentProfiles(profiles)
+      }).catch((err) => console.error('[AgentSettings] 加载 Agent Profile 失败:', err))
 
       // 加载工作区列表并恢复上次选中的工作区
       window.electronAPI.listAgentWorkspaces().then((workspaces) => {
