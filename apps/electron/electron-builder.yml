@@ -109,6 +109,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  differentialPackage: true
 
 # ============================================
 # 发布配置

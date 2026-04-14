@@ -1,0 +1,6 @@
+# 开发环境自动更新测试配置
+# 使用方法：autoUpdater.forceDevUpdateConfig = true
+
+provider: generic
+url: http://localhost:9000/releases
+updaterCacheDirName: proma-updater

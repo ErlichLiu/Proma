@@ -8,6 +8,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, APP_ICON_IPC_CHANNELS } from '../types'
+import { UPDATER_IPC_CHANNELS } from '../main/lib/updater/updater-types'
 import type {
   RuntimeStatus,
   GitRepoStatus,
@@ -592,23 +593,44 @@ export interface ElectronAPI {
   /** 设置默认提示词 */
   setDefaultPrompt: (id: string | null) => Promise<void>
 
-  // ===== 版本检测相关（仅检测，不自动下载/安装） =====
+  // ===== 版本检测相关 =====
 
   /** 更新 API */
   updater?: {
+    /** 检查更新 */
     checkForUpdates: () => Promise<void>
+    /** 获取当前更新状态 */
     getStatus: () => Promise<{
-      status: 'idle' | 'checking' | 'available' | 'not-available' | 'error'
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
       version?: string
       releaseNotes?: string
       error?: string
+      progress?: {
+        percent: number
+        bytesPerSecond: number
+        total: number
+        transferred: number
+      }
     }>
+    /** 订阅状态变化事件 */
     onStatusChanged: (callback: (status: {
-      status: 'idle' | 'checking' | 'available' | 'not-available' | 'error'
+      status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
       version?: string
       releaseNotes?: string
       error?: string
+      progress?: {
+        percent: number
+        bytesPerSecond: number
+        total: number
+        transferred: number
+      }
     }) => void) => () => void
+    /** 下载更新 */
+    downloadUpdate: () => Promise<void>
+    /** 退出并安装更新 */
+    quitAndInstall: () => Promise<void>
+    /** 设置自动更新开关 */
+    setAutoUpdateEnabled: (enabled: boolean) => Promise<void>
   }
 
   // GitHub Release
@@ -1393,15 +1415,18 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(SYSTEM_PROMPT_IPC_CHANNELS.SET_DEFAULT, id)
   },
 
-  // 自动更新（仅版本检测，不自动下载/安装）
+  // 自动更新（支持检测、下载、安装）
   updater: {
-    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-    getStatus: () => ipcRenderer.invoke('updater:get-status'),
+    checkForUpdates: () => ipcRenderer.invoke(UPDATER_IPC_CHANNELS.CHECK_FOR_UPDATES),
+    getStatus: () => ipcRenderer.invoke(UPDATER_IPC_CHANNELS.GET_STATUS),
     onStatusChanged: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, status: Parameters<typeof callback>[0]): void => callback(status)
-      ipcRenderer.on('updater:status-changed', listener)
-      return () => { ipcRenderer.removeListener('updater:status-changed', listener) }
+      ipcRenderer.on(UPDATER_IPC_CHANNELS.ON_STATUS_CHANGED, listener)
+      return () => { ipcRenderer.removeListener(UPDATER_IPC_CHANNELS.ON_STATUS_CHANGED, listener) }
     },
+    downloadUpdate: () => ipcRenderer.invoke(UPDATER_IPC_CHANNELS.DOWNLOAD_UPDATE),
+    quitAndInstall: () => ipcRenderer.invoke(UPDATER_IPC_CHANNELS.QUIT_AND_INSTALL),
+    setAutoUpdateEnabled: (enabled: boolean) => ipcRenderer.invoke(UPDATER_IPC_CHANNELS.SET_AUTO_UPDATE_ENABLED, enabled),
   },
 
   // GitHub Release

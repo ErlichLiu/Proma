@@ -6,15 +6,25 @@
  */
 
 import * as React from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
-import { RefreshCw, Loader2, CheckCircle2, AlertCircle, Info, Terminal, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { RefreshCw, Loader2, CheckCircle2, AlertCircle, Info, Terminal, ChevronDown, ChevronUp, ExternalLink, Download, Rocket } from 'lucide-react'
 import type { EnvironmentCheckResult, RuntimeStatus } from '@proma/shared'
 import {
   SettingsSection,
   SettingsCard,
   SettingsRow,
 } from './primitives'
-import { updateStatusAtom, updaterAvailableAtom, checkForUpdates } from '@/atoms/updater'
+import {
+  updateStatusAtom,
+  updaterAvailableAtom,
+  autoUpdateEnabledAtom,
+  isDownloadingAtom,
+  isReadyToInstallAtom,
+  checkForUpdates,
+  downloadUpdate,
+  quitAndInstall,
+  setAutoUpdateEnabled,
+} from '@/atoms/updater'
 import {
   environmentCheckResultAtom,
   hasEnvironmentIssuesAtom,
@@ -22,6 +32,7 @@ import {
 import { EnvironmentCheckCard } from '@/components/environment/EnvironmentCheckCard'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { ReleaseNotesViewer } from './ReleaseNotesViewer'
 import { VersionHistory } from './VersionHistory'
 
@@ -35,6 +46,9 @@ const GITHUB_RELEASES_URL = 'https://github.com/ErlichLiu/Proma/releases'
 function UpdateCard(): React.ReactElement | null {
   const available = useAtomValue(updaterAvailableAtom)
   const status = useAtomValue(updateStatusAtom)
+  const isDownloading = useAtomValue(isDownloadingAtom)
+  const isReadyToInstall = useAtomValue(isReadyToInstallAtom)
+  const [autoUpdateEnabled, setAutoUpdateEnabledAtom] = useAtom(autoUpdateEnabledAtom)
   const [checking, setChecking] = React.useState(false)
   const [showReleaseNotes, setShowReleaseNotes] = React.useState(false)
   const [release, setRelease] = React.useState<import('@proma/shared').GitHubRelease | null>(null)
@@ -50,6 +64,19 @@ function UpdateCard(): React.ReactElement | null {
       // 状态由 atom 订阅自动更新，延迟重置 checking 避免按钮闪烁
       setTimeout(() => setChecking(false), 1000)
     }
+  }
+
+  const handleDownload = async (): Promise<void> => {
+    await downloadUpdate()
+  }
+
+  const handleInstall = async (): Promise<void> => {
+    await quitAndInstall()
+  }
+
+  const handleAutoUpdateToggle = async (enabled: boolean): Promise<void> => {
+    setAutoUpdateEnabledAtom(enabled)
+    await setAutoUpdateEnabled(enabled)
   }
 
   const handleGoToDownload = (): void => {
@@ -77,36 +104,83 @@ function UpdateCard(): React.ReactElement | null {
   const isChecking = checking || status.status === 'checking'
   const hasReleaseNotes = status.releaseNotes || release?.body
 
+  // 根据状态决定按钮类型
+  const renderActionButton = (): React.ReactElement => {
+    if (isReadyToInstall) {
+      // 已下载完成，显示"立即安装"按钮
+      return (
+        <button
+          onClick={handleInstall}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Rocket className="h-3.5 w-3.5" />
+          立即安装
+        </button>
+      )
+    }
+
+    if (status.status === 'available') {
+      // 有可用更新，显示"下载更新"按钮
+      return (
+        <button
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          {isDownloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          {isDownloading ? '下载中...' : '下载更新'}
+        </button>
+      )
+    }
+
+    // 其他状态，显示"检查更新"按钮
+    return (
+      <button
+        onClick={handleCheck}
+        disabled={isChecking}
+        className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
+      >
+        {isChecking ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
+        检查更新
+      </button>
+    )
+  }
+
   return (
     <SettingsCard>
+      {/* 自动更新开关 */}
+      <SettingsRow label="自动更新" description="开启后将自动下载并安装更新">
+        <Switch
+          checked={autoUpdateEnabled}
+          onCheckedChange={handleAutoUpdateToggle}
+        />
+      </SettingsRow>
+
+      {/* 软件更新状态 */}
       <SettingsRow label="软件更新">
         <div className="flex items-center gap-3">
           {/* 状态文字 */}
-          <StatusText status={status.status} version={status.version} error={status.error} />
+          <StatusText status={status.status} version={status.version} error={status.error} progress={status.progress} />
 
           {/* 操作按钮 */}
-          {status.status === 'available' ? (
-            <button
-              onClick={handleGoToDownload}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              前往下载
-            </button>
-          ) : (
-            <button
-              onClick={handleCheck}
-              disabled={isChecking}
-              className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
-            >
-              {isChecking ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              检查更新
-            </button>
-          )}
+          {renderActionButton()}
+
+          {/* 前往 GitHub 按钮（始终可用） */}
+          <button
+            onClick={handleGoToDownload}
+            className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            GitHub Releases
+          </button>
         </div>
       </SettingsRow>
 
@@ -141,11 +215,24 @@ function UpdateCard(): React.ReactElement | null {
 }
 
 /** 状态文字组件 */
-function StatusText({ status, version, error }: {
+function StatusText({ status, version, error, progress }: {
   status: string
   version?: string
   error?: string
+  progress?: {
+    percent: number
+    bytesPerSecond: number
+    total: number
+    transferred: number
+  }
 }): React.ReactElement {
+  // 格式化下载速度
+  const formatSpeed = (bytesPerSecond: number): string => {
+    if (bytesPerSecond < 1024) return `${bytesPerSecond} B/s`
+    if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`
+    return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`
+  }
+
   switch (status) {
     case 'checking':
       return <span className="text-xs text-muted-foreground">正在检查...</span>
@@ -154,6 +241,20 @@ function StatusText({ status, version, error }: {
         <span className="text-xs text-primary flex items-center gap-1">
           <ExternalLink className="h-3 w-3" />
           新版本 v{version} 可用
+        </span>
+      )
+    case 'downloading':
+      return (
+        <span className="text-xs text-muted-foreground flex items-center gap-1">
+          <Download className="h-3 w-3" />
+          {progress ? `${progress.percent.toFixed(0)}% (${formatSpeed(progress.bytesPerSecond)})` : '正在下载...'}
+        </span>
+      )
+    case 'downloaded':
+      return (
+        <span className="text-xs text-primary flex items-center gap-1">
+          <CheckCircle2 className="h-3 w-3" />
+          已下载完成，可安装
         </span>
       )
     case 'not-available':

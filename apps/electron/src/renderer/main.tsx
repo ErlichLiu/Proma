@@ -54,6 +54,7 @@ import { diffCapabilities, migratePermissionMode } from '@proma/shared'
 import type { WorkspaceCapabilities } from '@proma/shared'
 import { showCapabilityChangeToasts } from './lib/capabilities-toast'
 import { UpdateDialog } from './components/settings/UpdateDialog'
+import { UpdateProgressToast } from './components/updater/UpdateProgressToast'
 import { GlobalShortcuts } from './components/shortcuts/GlobalShortcuts'
 import './styles/globals.css'
 import 'katex/dist/katex.min.css'
@@ -505,6 +506,7 @@ if (isQuickTaskWindow) {
       <GlobalShortcuts />
       <App />
       <UpdateDialog />
+      <UpdateProgressToast />
       <Toaster position="top-right" />
     </React.StrictMode>
   )

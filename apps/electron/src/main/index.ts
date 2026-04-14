@@ -34,7 +34,7 @@ import { stopAllGenerations } from './lib/chat-service'
 import { initAutoUpdater, cleanupUpdater } from './lib/updater/auto-updater'
 import { startWorkspaceWatcher, stopWorkspaceWatcher } from './lib/workspace-watcher'
 import { startChatToolsWatcher, stopChatToolsWatcher } from './lib/chat-tools-watcher'
-import { getIsQuitting, setQuitting } from './lib/app-lifecycle'
+import { getIsQuitting, setQuitting, getIsQuittingForUpdate } from './lib/app-lifecycle'
 import { registerBridge, startAllBridges, stopAllBridges } from './lib/bridge-registry'
 import { feishuBridgeManager } from './lib/feishu-bridge-manager'
 import { getFeishuMultiBotConfig } from './lib/feishu-config'
@@ -205,6 +205,11 @@ function createWindow(): void {
   // 同时隐藏应用（类似 Cmd+H），确保点击 Dock 图标时 macOS 能正确触发 activate 事件
   if (process.platform === 'darwin') {
     mainWindow.on('close', (event) => {
+      // 更新安装退出：直接放行
+      if (getIsQuittingForUpdate()) {
+        return // 不阻止关闭
+      }
+      // 正常退出：检查是否正在退出
       if (!getIsQuitting()) {
         event.preventDefault()
         mainWindow?.hide()
@@ -264,8 +269,9 @@ app.whenReady().then(async () => {
   // 启动 Chat 工具配置文件监听（Agent 创建工具后自动通知渲染进程）
   startChatToolsWatcher()
 
-  // 生产环境下初始化自动更新
-  if (app.isPackaged && mainWindow) {
+  // 初始化自动更新（生产环境 + 开发测试模式）
+  // 开发模式下使用 forceDevUpdateConfig 进行本地更新测试
+  if (mainWindow) {
     initAutoUpdater(mainWindow)
   }
 
