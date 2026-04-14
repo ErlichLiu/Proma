@@ -11,6 +11,7 @@
  * - 截图前将 :root CSS 变量注入到目标节点 inline style，确保克隆 DOM 主题色正确
  * - 展开折叠的用户消息（移除 max-h-[6.5em] + overflow-hidden）
  * - 过滤外部图片（Google 头像等）避免 CORS/超时
+ * - 截图时自动放宽布局（等效 zoom out），避免内容被窄视口挤压换行
  *
  * 必须放在 StickToBottom（Conversation）内部使用，以访问 scrollRef。
  */
@@ -155,7 +156,6 @@ export function ConversationScreenshot({
     setIsGenerating(true)
 
     const dpr = window.devicePixelRatio || 1
-    const savedScrollTop = el.scrollTop
 
     try {
       // 1. 收集选中消息的 DOM 节点（保持顺序）
@@ -180,21 +180,25 @@ export function ConversationScreenshot({
         || rootStyle.getPropertyValue('--background').trim()
       const bgColor = rawHsl ? `hsl(${rawHsl})` : '#ffffff'
 
-      // 4. 逐消息截取
+      // 4. 计算放宽后的渲染宽度
+      // 等效于 Cmd+"-" 缩放两次（80% zoom → 内容获得 1.25x 逻辑空间）
+      const ZOOM_OUT_FACTOR = 1.25
+      const firstNode = selectedNodes[0]!
+      const originalWidth = firstNode.offsetWidth
+      const widerWidth = Math.round(originalWidth * ZOOM_OUT_FACTOR)
+
+      // 5. 逐消息截取
       const captures: HTMLImageElement[] = []
 
       for (const node of selectedNodes) {
-        // 4a. 展开折叠的用户消息
+        // 5a. 展开折叠的用户消息
         const expandCleanup = expandCollapsedContent(node)
 
         try {
-          // 4b. 滚动该消息到可见区域，确保 DOM 渲染完整
-          node.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior })
-          await waitFrames(3)
-
-          // 4c. 使用 modern-screenshot 截取
+          // 5b. 使用 modern-screenshot 截取（克隆 DOM 渲染，无需 scrollIntoView）
           const dataUrl = await domToPng(node, {
             scale: dpr,
+            width: widerWidth,
             backgroundColor: bgColor,
             // 过滤外部图片，避免 CORS/超时
             filter: (el: Node) => {
@@ -207,10 +211,18 @@ export function ConversationScreenshot({
               }
               return true
             },
-            // 克隆后注入 CSS 变量到根节点
+            // 克隆后注入 CSS 变量 + 放宽布局
             onCloneNode: (cloned: Node) => {
               if (cloned instanceof HTMLElement) {
                 injectCssVars(cloned, cssVars)
+                // 放宽克隆节点，让内容在更宽空间中重排
+                cloned.style.width = `${widerWidth}px`
+                cloned.style.maxWidth = 'none'
+                cloned.style.minWidth = '0'
+                // 确保子元素也不受 max-width 限制
+                cloned.querySelectorAll<HTMLElement>('[class*="max-w-"]').forEach((el) => {
+                  el.style.maxWidth = 'none'
+                })
               }
             },
             // 外部图片获取超时
@@ -227,7 +239,7 @@ export function ConversationScreenshot({
         } catch (err) {
           console.warn('[ConversationScreenshot] 单消息截取失败，跳过:', err)
         } finally {
-          // 4d. 恢复折叠状态
+          // 5d. 恢复折叠状态
           expandCleanup()
         }
       }
@@ -237,7 +249,7 @@ export function ConversationScreenshot({
         return
       }
 
-      // 5. Canvas 拼接
+      // 6. Canvas 拼接
       const padding = Math.round(24 * dpr)
       const gap = Math.round(4 * dpr)
       const maxWidth = Math.max(...captures.map((img) => img.naturalWidth))
@@ -263,14 +275,14 @@ export function ConversationScreenshot({
 
       const finalDataUrl = canvas.toDataURL('image/png')
 
-      // 6. 构建保存路径
+      // 7. 构建保存路径
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const filename = `conversation-screenshot-${timestamp}.png`
       const savePath = sessionType === 'agent' && sessionPath
         ? `${sessionPath}/${filename}`
         : `__attachments__/${sessionId}/${filename}`
 
-      // 7. 保存 + 复制剪贴板
+      // 8. 保存 + 复制剪贴板
       const savedPath = await window.electronAPI.saveConversationScreenshot(finalDataUrl, savePath)
       toast.success('截图已保存并复制到剪贴板', {
         description: savedPath,
@@ -284,8 +296,6 @@ export function ConversationScreenshot({
         description: error instanceof Error ? error.message : '未知错误',
       })
     } finally {
-      // 恢复滚动位置
-      el.scrollTop = savedScrollTop
       setIsGenerating(false)
     }
   }, [scrollRef, selectedIds, items, sessionType, sessionPath, sessionId, handleClose])
@@ -429,19 +439,6 @@ export function ConversationScreenshot({
 }
 
 // ── 辅助函数 ──
-
-/** 等待 N 帧以让布局稳定 */
-function waitFrames(n = 2): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let count = 0
-    const tick = (): void => {
-      count++
-      if (count >= n) resolve()
-      else requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
-}
 
 /** 加载 data URL 为 HTMLImageElement */
 function loadImage(dataUrl: string): Promise<HTMLImageElement> {
