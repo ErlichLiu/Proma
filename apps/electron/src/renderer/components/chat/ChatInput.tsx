@@ -14,7 +14,7 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { CornerDownLeft, Square, Brain, Paperclip, Camera } from 'lucide-react'
+import { CornerDownLeft, Square, Brain, Paperclip } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import { ClearContextButton } from './ClearContextButton'
 import { ContextSettingsPopover } from './ContextSettingsPopover'
@@ -56,11 +56,9 @@ interface ChatInputProps {
   onStop: () => void
   /** 清除上下文回调 */
   onClearContext?: () => void
-  /** 对话截图回调 */
-  onScreenshot?: () => void
 }
 
-export function ChatInput({ conversationId, streaming, pendingAttachments, onSetPendingAttachments, onSend, onStop, onClearContext, onScreenshot }: ChatInputProps): React.ReactElement {
+export function ChatInput({ conversationId, streaming, pendingAttachments, onSetPendingAttachments, onSend, onStop, onClearContext }: ChatInputProps): React.ReactElement {
   const sendWithCmdEnter = useAtomValue(sendWithCmdEnterAtom)
   // 从 Map atom 读写草稿
   const draftsMap = useAtomValue(conversationDraftsAtom)
@@ -293,25 +291,6 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
                   <p>添加附件</p>
                 </TooltipContent>
               </Tooltip>
-
-              {onScreenshot && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-[36px] rounded-full text-foreground/60 hover:text-foreground"
-                      onClick={onScreenshot}
-                    >
-                      <Camera className="size-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>对话截图</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
 
               <ModelSelector />
 

@@ -17,20 +17,24 @@
  */
 
 import * as React from 'react'
+import { useSetAtom } from 'jotai'
 import { domToPng } from 'modern-screenshot'
 import { toast } from 'sonner'
-import { X, Check, Camera, Loader2 } from 'lucide-react'
+import { X, Check, Share } from 'lucide-react'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
 import { Button } from '@/components/ui/button'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { getModelLogo } from '@/lib/model-logo'
 import { cn } from '@/lib/utils'
+import { screenshotGeneratingAtom } from '@/atoms/screenshot-atoms'
 import type { MinimapItem } from './scroll-minimap'
 
 interface ConversationScreenshotProps {
   items: MinimapItem[]
   open: boolean
   onClose: () => void
+  /** 触发截图的消息 ID，默认选中该消息及之前所有消息 */
+  triggerMessageId?: string
   /** Agent 会话的工作目录（完整路径），Chat 传 undefined */
   sessionPath?: string | null
   /** Chat 的 conversationId 或 Agent 的 sessionId */
@@ -43,26 +47,38 @@ export function ConversationScreenshot({
   items,
   open,
   onClose,
+  triggerMessageId,
   sessionPath,
   sessionId,
   sessionType,
 }: ConversationScreenshotProps): React.ReactElement | null {
   const { scrollRef } = useStickToBottomContext()
+  const setScreenshotGenerating = useSetAtom(screenshotGeneratingAtom)
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [lastClickedIndex, setLastClickedIndex] = React.useState<number | null>(null)
-  const [isGenerating, setIsGenerating] = React.useState(false)
   const [isClosing, setIsClosing] = React.useState(false)
   const [isDragging, setIsDragging] = React.useState(false)
   const dragStartIndex = React.useRef<number | null>(null)
 
-  // 面板打开时默认全选
+  // 面板打开时，默认选中触发消息及之前的所有消息
   React.useEffect(() => {
     if (open) {
-      setSelectedIds(new Set(items.map((i) => i.id)))
+      if (triggerMessageId) {
+        const triggerIdx = items.findIndex((i) => i.id === triggerMessageId)
+        if (triggerIdx >= 0) {
+          // 选中该消息及之前所有消息
+          setSelectedIds(new Set(items.slice(0, triggerIdx + 1).map((i) => i.id)))
+        } else {
+          // 找不到该消息（可能是 ID 不匹配），退回全选
+          setSelectedIds(new Set(items.map((i) => i.id)))
+        }
+      } else {
+        setSelectedIds(new Set(items.map((i) => i.id)))
+      }
       setLastClickedIndex(null)
       setIsClosing(false)
     }
-  }, [open, items])
+  }, [open, items, triggerMessageId])
 
   const handleClose = React.useCallback(() => {
     setIsClosing(true)
@@ -153,7 +169,12 @@ export function ConversationScreenshot({
     const el = scrollRef.current
     if (!el || selectedIds.size === 0) return
 
-    setIsGenerating(true)
+    // 立即关闭面板 + 隐藏迷你地图
+    onClose()
+    setScreenshotGenerating(true)
+
+    // 显示顶部 loading 提示
+    const loadingToastId = toast.loading('截图生成中...', { duration: Infinity })
 
     const dpr = window.devicePixelRatio || 1
 
@@ -181,11 +202,9 @@ export function ConversationScreenshot({
       const bgColor = rawHsl ? `hsl(${rawHsl})` : '#ffffff'
 
       // 4. 计算放宽后的渲染宽度
-      // 等效于 Cmd+"-" 缩放两次（80% zoom → 内容获得 1.25x 逻辑空间）
-      const ZOOM_OUT_FACTOR = 1.25
-      const firstNode = selectedNodes[0]!
-      const originalWidth = firstNode.offsetWidth
-      const widerWidth = Math.round(originalWidth * ZOOM_OUT_FACTOR)
+      // 固定值：默认消息区 max-w 72rem(1152px) 在 80% zoom 下的等效宽度
+      // 不依赖用户当前窗口大小，确保截图布局一致
+      const SCREENSHOT_LAYOUT_WIDTH = 1440
 
       // 5. 逐消息截取
       const captures: HTMLImageElement[] = []
@@ -198,7 +217,6 @@ export function ConversationScreenshot({
           // 5b. 使用 modern-screenshot 截取（克隆 DOM 渲染，无需 scrollIntoView）
           const dataUrl = await domToPng(node, {
             scale: dpr,
-            width: widerWidth,
             backgroundColor: bgColor,
             // 过滤外部图片，避免 CORS/超时
             filter: (el: Node) => {
@@ -216,7 +234,7 @@ export function ConversationScreenshot({
               if (cloned instanceof HTMLElement) {
                 injectCssVars(cloned, cssVars)
                 // 放宽克隆节点，让内容在更宽空间中重排
-                cloned.style.width = `${widerWidth}px`
+                cloned.style.width = `${SCREENSHOT_LAYOUT_WIDTH}px`
                 cloned.style.maxWidth = 'none'
                 cloned.style.minWidth = '0'
                 // 确保子元素也不受 max-width 限制
@@ -275,30 +293,30 @@ export function ConversationScreenshot({
 
       const finalDataUrl = canvas.toDataURL('image/png')
 
-      // 7. 构建保存路径
+      // 7. 构建默认文件名
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      const filename = `conversation-screenshot-${timestamp}.png`
-      const savePath = sessionType === 'agent' && sessionPath
-        ? `${sessionPath}/${filename}`
-        : `__attachments__/${sessionId}/${filename}`
+      const defaultFilename = `conversation-screenshot-${timestamp}.png`
 
-      // 8. 保存 + 复制剪贴板
-      const savedPath = await window.electronAPI.saveConversationScreenshot(finalDataUrl, savePath)
-      toast.success('截图已保存并复制到剪贴板', {
-        description: savedPath,
-        duration: 4000,
-      })
-
-      handleClose()
+      // 8. 复制到剪贴板 + 弹出保存对话框
+      const savedPath = await window.electronAPI.saveConversationScreenshot(finalDataUrl, defaultFilename)
+      if (savedPath) {
+        toast.success('截图已保存并复制到剪贴板', {
+          description: savedPath,
+          duration: 4000,
+        })
+      } else {
+        toast.success('截图已复制到剪贴板', { duration: 3000 })
+      }
     } catch (error) {
       console.error('[ConversationScreenshot] 生成截图失败:', error)
       toast.error('生成截图失败', {
         description: error instanceof Error ? error.message : '未知错误',
       })
     } finally {
-      setIsGenerating(false)
+      toast.dismiss(loadingToastId)
+      setScreenshotGenerating(false)
     }
-  }, [scrollRef, selectedIds, items, sessionType, sessionPath, sessionId, handleClose])
+  }, [scrollRef, selectedIds, items, sessionType, sessionPath, sessionId, onClose, setScreenshotGenerating])
 
   if (!open) return null
 
@@ -322,7 +340,7 @@ export function ConversationScreenshot({
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b shrink-0">
           <div className="flex items-center gap-2">
-            <Camera className="size-4 text-primary" />
+            <Share className="size-4 text-primary" />
             <span className="text-xs font-medium">对话截图</span>
           </div>
           <div className="flex items-center gap-1">
@@ -410,7 +428,6 @@ export function ConversationScreenshot({
             size="sm"
             className="h-7 text-xs"
             onClick={handleClose}
-            disabled={isGenerating}
           >
             取消
           </Button>
@@ -418,19 +435,10 @@ export function ConversationScreenshot({
             size="sm"
             className="h-7 text-xs gap-1.5"
             onClick={handleGenerate}
-            disabled={selectedIds.size === 0 || isGenerating}
+            disabled={selectedIds.size === 0}
           >
-            {isGenerating ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" />
-                生成中...
-              </>
-            ) : (
-              <>
-                <Camera className="size-3.5" />
-                生成截图
-              </>
-            )}
+            <Share className="size-3.5" />
+            生成截图
           </Button>
         </div>
       </div>

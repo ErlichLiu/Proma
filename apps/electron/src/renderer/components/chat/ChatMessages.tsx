@@ -157,7 +157,9 @@ interface ChatMessagesProps {
   onLoadMore?: () => Promise<void>
   /** 对话截图面板开关 */
   screenshotOpen?: boolean
+  screenshotTriggerMessageId?: string
   onScreenshotClose?: () => void
+  onScreenshotOpen?: (triggerMessageId: string) => void
 }
 
 /** 空状态引导 — 使用 WelcomeEmptyState */
@@ -186,7 +188,9 @@ export function ChatMessages({
   onDeleteDivider,
   onLoadMore,
   screenshotOpen,
+  screenshotTriggerMessageId,
   onScreenshotClose,
+  onScreenshotOpen,
 }: ChatMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
@@ -363,6 +367,7 @@ export function ChatMessages({
                     onSubmitInlineEdit={onSubmitInlineEdit}
                     onCancelInlineEdit={onCancelInlineEdit}
                     isInlineEditing={msg.id === inlineEditingMessageId}
+                    onScreenshot={onScreenshotOpen}
                   />
                 </div>
                 {/* 分隔线 */}
@@ -424,6 +429,7 @@ export function ChatMessages({
       <ConversationScreenshot
         items={minimapItems}
         open={screenshotOpen ?? false}
+        triggerMessageId={screenshotTriggerMessageId}
         onClose={onScreenshotClose ?? (() => {})}
         sessionId={conversationId}
         sessionType="chat"

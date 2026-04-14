@@ -224,8 +224,8 @@ export interface ElectronAPI {
   /** 另存图片到用户选择的位置（原生 Save As 对话框） */
   saveImageAs: (localPath: string, defaultFilename: string) => Promise<boolean>
 
-  /** 保存对话截图到文件并复制到剪贴板 */
-  saveConversationScreenshot: (base64Data: string, savePath: string) => Promise<string>
+  /** 保存对话截图：复制到剪贴板 + 弹出保存对话框，返回保存路径或 null（用户取消） */
+  saveConversationScreenshot: (base64Data: string, defaultFilename: string) => Promise<string | null>
 
   /** 截取页面指定矩形区域（物理像素坐标，已乘 devicePixelRatio）并返回 base64 PNG data URL */
   capturePageRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>

@@ -11,7 +11,7 @@
 
 import * as React from 'react'
 import { useAtomValue } from 'jotai'
-import { AlertCircle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Pencil, RotateCcw, Trash2, Share } from 'lucide-react'
 import {
   Message,
   MessageHeader,
@@ -93,6 +93,8 @@ interface ChatMessageItemProps {
   isInlineEditing?: boolean
   /** 是否并排模式（用户消息不右对齐） */
   isParallelMode?: boolean
+  /** 截图回调（传入触发截图的消息 ID） */
+  onScreenshot?: (triggerMessageId: string) => void
 }
 
 export const ChatMessageItem = React.memo(function ChatMessageItem({
@@ -107,6 +109,7 @@ export const ChatMessageItem = React.memo(function ChatMessageItem({
   onCancelInlineEdit,
   isInlineEditing = false,
   isParallelMode = false,
+  onScreenshot,
 }: ChatMessageItemProps): React.ReactElement {
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -258,6 +261,14 @@ export const ChatMessageItem = React.memo(function ChatMessageItem({
                 onClick={() => setDeleteDialogOpen(true)}
               >
                 <Trash2 className="size-3.5" />
+              </MessageAction>
+            )}
+            {message.role === 'assistant' && onScreenshot && (
+              <MessageAction
+                tooltip="截图到此处"
+                onClick={() => onScreenshot(message.id)}
+              >
+                <Share className="size-3.5" />
               </MessageAction>
             )}
             {message.role === 'assistant' && message.error && (

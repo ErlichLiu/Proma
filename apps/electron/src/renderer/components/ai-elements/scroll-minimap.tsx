@@ -8,6 +8,7 @@
  */
 
 import * as React from 'react'
+import { useAtomValue } from 'jotai'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { AlertTriangle, Search } from 'lucide-react'
@@ -16,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { getModelLogo } from '@/lib/model-logo'
 import { cn } from '@/lib/utils'
+import { screenshotGeneratingAtom } from '@/atoms/screenshot-atoms'
 
 export interface MinimapItem {
   id: string
@@ -68,6 +70,7 @@ function escapeRegExp(str: string): string {
 // ── 主组件 ──
 
 export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement | null {
+  const screenshotGenerating = useAtomValue(screenshotGeneratingAtom)
   const { scrollRef, stopScroll, state: stickyState } = useStickToBottomContext()
   const [hovered, setHovered] = React.useState(false)
   const [isLeaving, setIsLeaving] = React.useState(false)
@@ -260,7 +263,7 @@ export function ScrollMinimap({ items }: ScrollMinimapProps): React.ReactElement
     el.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
   }, [scrollRef, stopScroll, stickyState])
 
-  if (items.length < MIN_ITEMS || !canScroll) return null
+  if (items.length < MIN_ITEMS || !canScroll || screenshotGenerating) return null
 
   // ── 迷你地图条纹 ──
 

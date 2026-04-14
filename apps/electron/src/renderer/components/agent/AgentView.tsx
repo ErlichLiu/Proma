@@ -16,7 +16,7 @@
 import * as React from 'react'
 import { useAtom, useAtomValue, useSetAtom, useStore } from 'jotai'
 import { toast } from 'sonner'
-import { Bot, CornerDownLeft, Square, Settings, Paperclip, FolderPlus, X, Copy, Check, Brain, Map as MapIcon, Sparkles, Camera } from 'lucide-react'
+import { Bot, CornerDownLeft, Square, Settings, Paperclip, FolderPlus, X, Copy, Check, Brain, Map as MapIcon, Sparkles } from 'lucide-react'
 import { AgentMessages } from './AgentMessages'
 import { AgentHeader } from './AgentHeader'
 import { ContextUsageBadge } from './ContextUsageBadge'
@@ -177,7 +177,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const streaming = streamState?.running ?? false
   const stoppedByUserSessions = useAtomValue(stoppedByUserSessionsAtom)
   const sendWithCmdEnter = useAtomValue(sendWithCmdEnterAtom)
-  const [screenshotOpen, setScreenshotOpen] = useAtom(screenshotOpenAtomFamily(sessionId))
+  const [screenshotState, setScreenshotState] = useAtom(screenshotOpenAtomFamily(sessionId))
   const stoppedByUser = stoppedByUserSessions.has(sessionId)
   const liveMessagesMap = useAtomValue(liveMessagesMapAtom)
   const setLiveMessagesMap = useSetAtom(liveMessagesMapAtom)
@@ -1238,8 +1238,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
           onFork={handleFork}
           onRewind={handleRewindRequest}
           onCompact={handleCompact}
-          screenshotOpen={screenshotOpen}
-          onScreenshotClose={() => setScreenshotOpen(false)}
+          screenshotOpen={screenshotState.open}
+          screenshotTriggerMessageId={screenshotState.triggerMessageId}
+          onScreenshotClose={() => setScreenshotState({ open: false })}
+          onScreenshotOpen={(triggerMessageId) => setScreenshotState({ open: true, triggerMessageId })}
         />
 
         {/* 权限请求横幅 */}
@@ -1405,22 +1407,6 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
                   </TooltipTrigger>
                   <TooltipContent side="top">
                     <p>附加文件夹</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-[36px] rounded-full text-foreground/60 hover:text-foreground"
-                      onClick={() => setScreenshotOpen(true)}
-                    >
-                      <Camera className="size-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>对话截图</p>
                   </TooltipContent>
                 </Tooltip>
                 <ContextUsageBadge

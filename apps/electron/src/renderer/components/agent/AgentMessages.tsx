@@ -70,7 +70,9 @@ interface AgentMessagesProps {
   onCompact?: () => void
   /** 对话截图面板开关 */
   screenshotOpen?: boolean
+  screenshotTriggerMessageId?: string
   onScreenshotClose?: () => void
+  onScreenshotOpen?: (triggerMessageId: string) => void
 }
 
 /** 空状态引导 — 使用 WelcomeEmptyState */
@@ -654,7 +656,7 @@ function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.Rea
   )
 }
 
-export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact, screenshotOpen, onScreenshotClose }: AgentMessagesProps): React.ReactElement {
+export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact, screenshotOpen, screenshotTriggerMessageId, onScreenshotClose, onScreenshotOpen }: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
   const channels = useAtomValue(channelsAtom)
@@ -849,6 +851,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
                     basePath={sessionPath || undefined}
                     onFork={isLive ? undefined : onFork}
                     onRewind={isLive ? undefined : onRewind}
+                    onScreenshot={onScreenshotOpen}
                     isStreaming={isLive || undefined}
                     stoppedByUser={isLastAssistantTurn || undefined}
                     sessionModelId={sessionModelId}
@@ -908,6 +911,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
       <ConversationScreenshot
         items={minimapItems}
         open={screenshotOpen ?? false}
+        triggerMessageId={screenshotTriggerMessageId}
         onClose={onScreenshotClose ?? (() => {})}
         sessionId={sessionId}
         sessionType="agent"

@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react'
-import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2 } from 'lucide-react'
+import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2, Share } from 'lucide-react'
 import { useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
 import { ImageLightbox } from '@/components/ui/image-lightbox'
@@ -325,6 +325,8 @@ export interface AssistantTurnRendererProps {
   onFork?: (upToMessageUuid: string) => void
   /** 回退回调（传入 assistant message uuid） */
   onRewind?: (assistantMessageUuid: string) => void
+  /** 截图回调（传入触发截图的消息 ID） */
+  onScreenshot?: (triggerMessageId: string) => void
   /** 是否正在流式输出中（隐藏操作栏） */
   isStreaming?: boolean
   /** 是否被用户中断 */
@@ -333,7 +335,7 @@ export interface AssistantTurnRendererProps {
   sessionModelId?: string
 }
 
-export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, onRewind, isStreaming, stoppedByUser, sessionModelId }: AssistantTurnRendererProps): React.ReactElement | null {
+export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, onRewind, onScreenshot, isStreaming, stoppedByUser, sessionModelId }: AssistantTurnRendererProps): React.ReactElement | null {
   const channels = useAtomValue(channelsAtom)
   // 收集所有 assistant 消息的内容块，保留 parent_tool_use_id 关联
   interface EnrichedBlock {
@@ -548,7 +550,7 @@ export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, onR
         const lastUuid = turn.assistantMessages.length > 0
           ? turn.assistantMessages[turn.assistantMessages.length - 1]?.uuid
           : undefined
-        const hasActions = !!(textContent || (onFork && lastUuid) || (onRewind && lastUuid))
+        const hasActions = !!(textContent || (onFork && lastUuid) || (onRewind && lastUuid) || onScreenshot)
         const hasDuration = durationMs != null
         if (!hasDuration && !hasActions && !stoppedByUser) return null
         return (
@@ -563,6 +565,14 @@ export function AssistantTurnRenderer({ turn, allMessages, basePath, onFork, onR
             {onRewind && lastUuid && (
               <MessageAction tooltip="回退到此处" onClick={() => onRewind(lastUuid)}>
                 <Undo2 className="size-3.5" />
+              </MessageAction>
+            )}
+            {onScreenshot && (
+              <MessageAction tooltip="截图到此处" onClick={() => {
+                const groupId = turn.assistantMessages[0]?.uuid ?? lastUuid ?? ''
+                onScreenshot(groupId)
+              }}>
+                <Share className="size-3.5" />
               </MessageAction>
             )}
             {stoppedByUser && (
@@ -863,6 +873,7 @@ export interface MessageGroupRendererProps {
   basePath?: string
   onFork?: (upToMessageUuid: string) => void
   onRewind?: (assistantMessageUuid: string) => void
+  onScreenshot?: (triggerMessageId: string) => void
   /** 是否正在流式输出中（隐藏操作栏） */
   isStreaming?: boolean
   /** 是否被用户中断 */
@@ -937,7 +948,7 @@ export function getGroupPreview(group: MessageGroup): string {
   return texts.join(' ').slice(0, 200)
 }
 
-export function MessageGroupRenderer({ group, allMessages, basePath, onFork, onRewind, isStreaming, stoppedByUser, sessionModelId }: MessageGroupRendererProps): React.ReactElement | null {
+export function MessageGroupRenderer({ group, allMessages, basePath, onFork, onRewind, onScreenshot, isStreaming, stoppedByUser, sessionModelId }: MessageGroupRendererProps): React.ReactElement | null {
   const groupId = getGroupId(group)
 
   if (group.type === 'user') {
@@ -964,6 +975,7 @@ export function MessageGroupRenderer({ group, allMessages, basePath, onFork, onR
         basePath={basePath}
         onFork={onFork}
         onRewind={onRewind}
+        onScreenshot={onScreenshot}
         isStreaming={isStreaming}
         stoppedByUser={stoppedByUser}
         sessionModelId={sessionModelId}

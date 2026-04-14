@@ -76,7 +76,7 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
   const [inlineEditingMessageId, setInlineEditingMessageId] = React.useState<string | null>(null)
 
   // ===== 对话截图状态 =====
-  const [screenshotOpen, setScreenshotOpen] = useAtom(screenshotOpenAtomFamily(conversationId))
+  const [screenshotState, setScreenshotState] = useAtom(screenshotOpenAtomFamily(conversationId))
 
   // ===== Per-conversation hooks（分屏独立） =====
   const [selectedModel, setSelectedModel] = useConversationModel()
@@ -586,8 +586,10 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
             inlineEditingMessageId={inlineEditingMessageId}
             onDeleteDivider={handleDeleteDivider}
             onLoadMore={handleLoadMore}
-            screenshotOpen={screenshotOpen}
-            onScreenshotClose={() => setScreenshotOpen(false)}
+            screenshotOpen={screenshotState.open}
+            screenshotTriggerMessageId={screenshotState.triggerMessageId}
+            onScreenshotClose={() => setScreenshotState({ open: false })}
+            onScreenshotOpen={(triggerMessageId) => setScreenshotState({ open: true, triggerMessageId })}
           />
 
           {/* 错误提示 */}
@@ -623,7 +625,6 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
             onSend={handleSend}
             onStop={handleStop}
             onClearContext={handleClearContext}
-            onScreenshot={() => setScreenshotOpen(true)}
           />
         </div>
       </div>

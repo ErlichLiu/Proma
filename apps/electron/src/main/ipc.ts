@@ -554,41 +554,43 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  // 保存对话截图到文件并复制到剪贴板
+  // 保存对话截图：弹出保存对话框让用户选择位置，同时复制到剪贴板
   ipcMain.handle(
     CHAT_IPC_CHANNELS.SAVE_CONVERSATION_SCREENSHOT,
-    async (_, base64Data: string, savePath: string): Promise<string> => {
-      const { writeFileSync, mkdirSync } = await import('node:fs')
-      const { dirname, basename, join } = await import('node:path')
-      const { clipboard, nativeImage } = await import('electron')
-      const { getConversationAttachmentsDir } = await import('./lib/config-paths')
-
-      // 解析实际保存路径
-      let resolvedPath = savePath
-      if (savePath.startsWith('__attachments__/')) {
-        // __attachments__/{conversationId}/{filename} → 实际附件目录
-        const parts = savePath.slice('__attachments__/'.length)
-        const slashIdx = parts.indexOf('/')
-        const convId = parts.slice(0, slashIdx)
-        const filename = parts.slice(slashIdx + 1)
-        resolvedPath = join(getConversationAttachmentsDir(convId), filename)
-      }
-
-      // 确保目录存在
-      mkdirSync(dirname(resolvedPath), { recursive: true })
+    async (event, base64Data: string, defaultFilename: string): Promise<string | null> => {
+      const { writeFileSync } = await import('node:fs')
+      const { join } = await import('node:path')
+      const { clipboard, nativeImage, dialog, BrowserWindow, app } = await import('electron')
 
       // base64 数据可能带 data:image/png;base64, 前缀
       const raw = base64Data.replace(/^data:image\/\w+;base64,/, '')
       const buffer = Buffer.from(raw, 'base64')
 
-      // 写入文件
-      writeFileSync(resolvedPath, buffer)
-
-      // 复制到剪贴板
+      // 复制到剪贴板（无论用户是否保存文件）
       const img = nativeImage.createFromBuffer(buffer)
       clipboard.writeImage(img)
 
-      return resolvedPath
+      // 弹出保存对话框（默认保存到下载目录）
+      const win = BrowserWindow.fromWebContents(event.sender)
+        ?? BrowserWindow.getFocusedWindow()
+        ?? BrowserWindow.getAllWindows()[0]
+      const downloadsPath = app.getPath('downloads')
+      if (!win) {
+        return null
+      }
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: join(downloadsPath, defaultFilename),
+        filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+      })
+
+      if (result.canceled || !result.filePath) {
+        // 用户取消保存，但已复制到剪贴板
+        return null
+      }
+
+      // 写入文件
+      writeFileSync(result.filePath, buffer)
+      return result.filePath
     }
   )
 
