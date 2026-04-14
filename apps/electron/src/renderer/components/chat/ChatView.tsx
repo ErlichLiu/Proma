@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom, useAtom } from 'jotai'
 import { AlertCircle, X } from 'lucide-react'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessages } from './ChatMessages'
@@ -46,6 +46,7 @@ import {
 import { registerPendingTitle } from '@/hooks/useGlobalChatListeners'
 import { draftSessionIdsAtom } from '@/atoms/draft-session-atoms'
 import { cn } from '@/lib/utils'
+import { screenshotOpenAtomFamily } from '@/atoms/screenshot-atoms'
 import type {
   ChatMessage,
   ChatSendInput,
@@ -73,6 +74,9 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
   const [hasMoreMessages, setHasMoreMessages] = React.useState(false)
   const [messagesLoaded, setMessagesLoaded] = React.useState(false)
   const [inlineEditingMessageId, setInlineEditingMessageId] = React.useState<string | null>(null)
+
+  // ===== 对话截图状态 =====
+  const [screenshotOpen, setScreenshotOpen] = useAtom(screenshotOpenAtomFamily(conversationId))
 
   // ===== Per-conversation hooks（分屏独立） =====
   const [selectedModel, setSelectedModel] = useConversationModel()
@@ -582,6 +586,8 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
             inlineEditingMessageId={inlineEditingMessageId}
             onDeleteDivider={handleDeleteDivider}
             onLoadMore={handleLoadMore}
+            screenshotOpen={screenshotOpen}
+            onScreenshotClose={() => setScreenshotOpen(false)}
           />
 
           {/* 错误提示 */}
@@ -617,6 +623,7 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
             onSend={handleSend}
             onStop={handleStop}
             onClearContext={handleClearContext}
+            onScreenshot={() => setScreenshotOpen(true)}
           />
         </div>
       </div>

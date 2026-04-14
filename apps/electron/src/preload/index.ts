@@ -224,6 +224,12 @@ export interface ElectronAPI {
   /** 另存图片到用户选择的位置（原生 Save As 对话框） */
   saveImageAs: (localPath: string, defaultFilename: string) => Promise<boolean>
 
+  /** 保存对话截图到文件并复制到剪贴板 */
+  saveConversationScreenshot: (base64Data: string, savePath: string) => Promise<string>
+
+  /** 截取页面指定矩形区域（物理像素坐标，已乘 devicePixelRatio）并返回 base64 PNG data URL */
+  capturePageRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>
+
   /** 保存应用内置资源文件到用户选择的位置（原生 Save As 对话框） */
   saveResourceFileAs: (resourceRelativePath: string, defaultFilename: string) => Promise<boolean>
 
@@ -881,6 +887,14 @@ const electronAPI: ElectronAPI = {
 
   saveImageAs: (localPath: string, defaultFilename: string) => {
     return ipcRenderer.invoke(CHAT_IPC_CHANNELS.SAVE_IMAGE_AS, localPath, defaultFilename)
+  },
+
+  saveConversationScreenshot: (base64Data: string, savePath: string) => {
+    return ipcRenderer.invoke(CHAT_IPC_CHANNELS.SAVE_CONVERSATION_SCREENSHOT, base64Data, savePath)
+  },
+
+  capturePageRect: (rect: { x: number; y: number; width: number; height: number }) => {
+    return ipcRenderer.invoke(CHAT_IPC_CHANNELS.CAPTURE_PAGE_RECT, rect)
   },
 
   saveResourceFileAs: (resourceRelativePath: string, defaultFilename: string) => {

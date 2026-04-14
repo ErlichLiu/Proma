@@ -25,6 +25,7 @@ import {
 } from '@/components/ai-elements/conversation'
 import { ScrollMinimap } from '@/components/ai-elements/scroll-minimap'
 import type { MinimapItem } from '@/components/ai-elements/scroll-minimap'
+import { ConversationScreenshot } from '@/components/ai-elements/conversation-screenshot'
 import { StickyUserMessage } from '@/components/ai-elements/sticky-user-message'
 import { useSmoothStream } from '@proma/ui'
 import { UserAvatar } from '@/components/chat/UserAvatar'
@@ -67,6 +68,9 @@ interface AgentMessagesProps {
   onFork?: (upToMessageUuid: string) => void
   onRewind?: (assistantMessageUuid: string) => void
   onCompact?: () => void
+  /** 对话截图面板开关 */
+  screenshotOpen?: boolean
+  onScreenshotClose?: () => void
 }
 
 /** 空状态引导 — 使用 WelcomeEmptyState */
@@ -650,7 +654,7 @@ function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.Rea
   )
 }
 
-export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact }: AgentMessagesProps): React.ReactElement {
+export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact, screenshotOpen, onScreenshotClose }: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
   const channels = useAtomValue(channelsAtom)
@@ -901,6 +905,14 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
         )}
       </ConversationContent>
       <ScrollMinimap items={minimapItems} />
+      <ConversationScreenshot
+        items={minimapItems}
+        open={screenshotOpen ?? false}
+        onClose={onScreenshotClose ?? (() => {})}
+        sessionId={sessionId}
+        sessionType="agent"
+        sessionPath={sessionPath}
+      />
       <ConversationScrollButton />
       {allUserMessagesData.length > 0 && (
         <StickyUserMessage userMessages={allUserMessagesData} />

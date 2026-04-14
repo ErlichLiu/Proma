@@ -554,6 +554,67 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 保存对话截图到文件并复制到剪贴板
+  ipcMain.handle(
+    CHAT_IPC_CHANNELS.SAVE_CONVERSATION_SCREENSHOT,
+    async (_, base64Data: string, savePath: string): Promise<string> => {
+      const { writeFileSync, mkdirSync } = await import('node:fs')
+      const { dirname, basename, join } = await import('node:path')
+      const { clipboard, nativeImage } = await import('electron')
+      const { getConversationAttachmentsDir } = await import('./lib/config-paths')
+
+      // 解析实际保存路径
+      let resolvedPath = savePath
+      if (savePath.startsWith('__attachments__/')) {
+        // __attachments__/{conversationId}/{filename} → 实际附件目录
+        const parts = savePath.slice('__attachments__/'.length)
+        const slashIdx = parts.indexOf('/')
+        const convId = parts.slice(0, slashIdx)
+        const filename = parts.slice(slashIdx + 1)
+        resolvedPath = join(getConversationAttachmentsDir(convId), filename)
+      }
+
+      // 确保目录存在
+      mkdirSync(dirname(resolvedPath), { recursive: true })
+
+      // base64 数据可能带 data:image/png;base64, 前缀
+      const raw = base64Data.replace(/^data:image\/\w+;base64,/, '')
+      const buffer = Buffer.from(raw, 'base64')
+
+      // 写入文件
+      writeFileSync(resolvedPath, buffer)
+
+      // 复制到剪贴板
+      const img = nativeImage.createFromBuffer(buffer)
+      clipboard.writeImage(img)
+
+      return resolvedPath
+    }
+  )
+
+  // 截取页面指定矩形区域（用于对话截图的逐消息捕获）
+  ipcMain.handle(
+    CHAT_IPC_CHANNELS.CAPTURE_PAGE_RECT,
+    async (event, rect: { x: number; y: number; width: number; height: number }): Promise<string> => {
+      const { BrowserWindow } = await import('electron')
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) throw new Error('找不到 BrowserWindow')
+
+      const captureRect = {
+        x: Math.max(0, Math.round(rect.x)),
+        y: Math.max(0, Math.round(rect.y)),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      }
+
+      const image = await win.webContents.capturePage(captureRect)
+      if (image.isEmpty()) {
+        throw new Error(`capturePage 返回空图: rect=${JSON.stringify(captureRect)}`)
+      }
+      return image.toDataURL()
+    }
+  )
+
   // 保存应用内置资源文件到用户选择的位置（原生 Save As 对话框）
   ipcMain.handle(
     CHAT_IPC_CHANNELS.SAVE_RESOURCE_FILE_AS,

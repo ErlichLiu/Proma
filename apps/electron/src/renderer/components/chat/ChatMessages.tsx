@@ -35,6 +35,7 @@ import {
 } from '@/components/ai-elements/conversation'
 import { ScrollMinimap } from '@/components/ai-elements/scroll-minimap'
 import type { MinimapItem } from '@/components/ai-elements/scroll-minimap'
+import { ConversationScreenshot } from '@/components/ai-elements/conversation-screenshot'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
 import { ContextDivider } from '@/components/ai-elements/context-divider'
 import {
@@ -154,6 +155,9 @@ interface ChatMessagesProps {
   onDeleteDivider?: (messageId: string) => void
   /** 加载更多历史消息回调 */
   onLoadMore?: () => Promise<void>
+  /** 对话截图面板开关 */
+  screenshotOpen?: boolean
+  onScreenshotClose?: () => void
 }
 
 /** 空状态引导 — 使用 WelcomeEmptyState */
@@ -181,6 +185,8 @@ export function ChatMessages({
   inlineEditingMessageId,
   onDeleteDivider,
   onLoadMore,
+  screenshotOpen,
+  onScreenshotClose,
 }: ChatMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
@@ -415,6 +421,13 @@ export function ChatMessages({
         )}
       </ConversationContent>
       <ScrollMinimap items={minimapItems} />
+      <ConversationScreenshot
+        items={minimapItems}
+        open={screenshotOpen ?? false}
+        onClose={onScreenshotClose ?? (() => {})}
+        sessionId={conversationId}
+        sessionType="chat"
+      />
       <ConversationScrollButton />
     </Conversation>
   )

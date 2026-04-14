@@ -364,6 +364,10 @@ export const CHAT_IPC_CHANNELS = {
   OPEN_FILE_DIALOG: 'chat:open-file-dialog',
   /** 提取附件文档的文本内容 */
   EXTRACT_ATTACHMENT_TEXT: 'chat:extract-attachment-text',
+  /** 保存对话截图到文件并复制到剪贴板 */
+  SAVE_CONVERSATION_SCREENSHOT: 'chat:save-conversation-screenshot',
+  /** 截取页面指定矩形区域（物理像素坐标） */
+  CAPTURE_PAGE_RECT: 'chat:capture-page-rect',
 
   // 置顶管理
   /** 切换对话置顶状态 */
