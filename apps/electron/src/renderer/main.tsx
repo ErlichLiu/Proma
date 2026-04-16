@@ -486,6 +486,28 @@ function DingTalkInitializer(): null {
  * 启动时从 settings.tabState 恢复上次打开的标签页；
  * 运行时监听标签页变化，自动保存到 settings.json。
  */
+
+/**
+ * 旧版（分屏时代）持久化结构——仅用于向后兼容读取迁移。
+ * 新版已扁平化为 { tabs, activeTabId }；旧版是 { tabs, splitLayout }。
+ */
+interface LegacyTabStateWithSplitLayout {
+  splitLayout?: {
+    focusedPanelIndex?: number
+    panels?: Array<{ activeTabId?: string | null }>
+  }
+}
+
+/** 从旧版 splitLayout 结构中提取原焦点面板的 activeTabId */
+function extractLegacyActiveTabId(tabState: unknown): string | null {
+  if (!tabState || typeof tabState !== 'object') return null
+  const legacy = tabState as LegacyTabStateWithSplitLayout
+  const panels = legacy.splitLayout?.panels
+  if (!Array.isArray(panels) || panels.length === 0) return null
+  const focusedIndex = legacy.splitLayout?.focusedPanelIndex ?? 0
+  return panels[focusedIndex]?.activeTabId ?? panels[0]?.activeTabId ?? null
+}
+
 function TabStatePersistenceInitializer(): null {
   const store = useStore()
   const restoredRef = useRef(false)
@@ -532,7 +554,13 @@ function TabStatePersistenceInitializer(): null {
       if (tabState.activeTabId && validTabIds.has(tabState.activeTabId)) {
         restoredActiveTabId = tabState.activeTabId
       } else {
-        restoredActiveTabId = validTabs[0]?.id ?? null
+        // 向后兼容：从旧版 splitLayout 结构中恢复原焦点面板的 activeTabId
+        const legacyId = extractLegacyActiveTabId(tabState)
+        if (legacyId && validTabIds.has(legacyId)) {
+          restoredActiveTabId = legacyId
+        } else {
+          restoredActiveTabId = validTabs[0]?.id ?? null
+        }
       }
 
       store.set(tabsAtom, validTabs)
