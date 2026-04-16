@@ -54,7 +54,8 @@ export const workingSessionGroupsAtom = atom<WorkingSessionGroups>((get) => {
 
   // 从 workingDoneSessionIdsAtom 提取 done
   for (const id of doneIds) {
-    if (indicatorMap.has(id)) continue // 已在 running/blocked 中
+    const indicatorStatus = indicatorMap.get(id)
+    if (indicatorStatus === 'running' || indicatorStatus === 'blocked') continue // 已在 running/blocked 中
     if (!openAgentTabIds.has(id)) continue // Tab 已关闭
     const session = sessionMap.get(id)
     if (!session || draftIds.has(id)) continue
