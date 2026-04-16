@@ -40,6 +40,7 @@ import {
 import { activeViewAtom } from '@/atoms/active-view'
 import { useCreateSession } from '@/hooks/useCreateSession'
 import { useShortcut } from '@/hooks/useShortcut'
+import { useSyncActiveTabSideEffects } from '@/hooks/useSyncActiveTabSideEffects'
 import {
   initShortcutRegistry,
   updateShortcutOverrides,
@@ -64,10 +65,9 @@ export function GlobalShortcuts(): null {
   const [tabs, setTabs] = useAtom(tabsAtom)
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom)
   const setWorkingDone = useSetAtom(workingDoneSessionIdsAtom)
-  const setCurrentConversationId = useSetAtom(currentConversationIdAtom)
-  const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
-  const agentSessions = useAtomValue(agentSessionsAtom)
-  const setCurrentAgentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
+
+  // 关闭活跃标签后同步副作用（与 TabBar.handleClose 共用）
+  const syncActiveTabSideEffects = useSyncActiveTabSideEffects()
 
   // 初始化：挂载注册表 + 加载用户配置
   useEffect(() => {
@@ -100,29 +100,7 @@ export function GlobalShortcuts(): null {
     const newActiveTab = result.activeTabId
       ? result.tabs.find((t) => t.id === result.activeTabId) ?? null
       : null
-
-    if (newActiveTab) {
-      if (newActiveTab.type === 'chat') {
-        setAppMode('chat')
-        setCurrentConversationId(newActiveTab.sessionId)
-        setCurrentAgentSessionId(null)
-      } else {
-        setAppMode('agent')
-        setCurrentAgentSessionId(newActiveTab.sessionId)
-        setCurrentConversationId(null)
-
-        const session = agentSessions.find((s) => s.id === newActiveTab.sessionId)
-        if (session?.workspaceId) {
-          setCurrentAgentWorkspaceId(session.workspaceId)
-          window.electronAPI.updateSettings({
-            agentWorkspaceId: session.workspaceId,
-          }).catch(console.error)
-        }
-      }
-    } else {
-      setCurrentConversationId(null)
-      setCurrentAgentSessionId(null)
-    }
+    syncActiveTabSideEffects(newActiveTab)
 
     // 从 Working Done 集合移除
     setWorkingDone((prev) => {
@@ -131,7 +109,7 @@ export function GlobalShortcuts(): null {
       next.delete(closedTabId)
       return next
     })
-  }, [activeTabId, tabs, setTabs, setActiveTabId, setWorkingDone, setAppMode, setCurrentConversationId, setCurrentAgentSessionId, agentSessions, setCurrentAgentWorkspaceId])
+  }, [activeTabId, tabs, setTabs, setActiveTabId, setWorkingDone, syncActiveTabSideEffects])
 
   // 监听菜单 IPC 事件（Cmd+W 被 Electron 菜单拦截后通过 IPC 转发）
   useEffect(() => {

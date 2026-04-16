@@ -38,6 +38,7 @@ import {
 import { appModeAtom } from '@/atoms/app-mode'
 import { conversationPromptIdAtom } from '@/atoms/system-prompt-atoms'
 import { TabBarItem } from './TabBarItem'
+import { useSyncActiveTabSideEffects } from '@/hooks/useSyncActiveTabSideEffects'
 
 export function TabBar(): React.ReactElement {
   const [tabs, setTabs] = useAtom(tabsAtom)
@@ -52,6 +53,9 @@ export function TabBar(): React.ReactElement {
   const setCurrentAgentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const setUnviewedCompleted = useSetAtom(unviewedCompletedSessionIdsAtom)
   const setWorkingDone = useSetAtom(workingDoneSessionIdsAtom)
+
+  // 关闭活跃标签后同步副作用（与 GlobalShortcuts.handleCloseTab 共用）
+  const syncActiveTabSideEffects = useSyncActiveTabSideEffects()
 
   // per-conversation/session Map atoms（用于关闭标签时清理）
   const setConvModels = useSetAtom(conversationModelsAtom)
@@ -124,45 +128,12 @@ export function TabBar(): React.ReactElement {
     setTabs(result.tabs)
     setActiveTabId(result.activeTabId)
 
-    // 若关闭的是当前活跃标签，需将 appMode/currentXxxId 同步到新激活的标签，
-    // 避免底层会话状态继续指向已关闭的会话。
+    // 若关闭的是当前活跃标签，将 appMode/currentXxxId 等同步到新激活的标签
     if (wasActive) {
       const newActiveTab = result.activeTabId
         ? result.tabs.find((t) => t.id === result.activeTabId) ?? null
         : null
-
-      if (newActiveTab) {
-        if (newActiveTab.type === 'chat') {
-          setAppMode('chat')
-          setCurrentConversationId(newActiveTab.sessionId)
-          setCurrentAgentSessionId(null)
-        } else {
-          setAppMode('agent')
-          setCurrentAgentSessionId(newActiveTab.sessionId)
-          setCurrentConversationId(null)
-
-          // 清除该会话的"已完成未查看"标记
-          setUnviewedCompleted((prev) => {
-            if (!prev.has(newActiveTab.sessionId)) return prev
-            const next = new Set(prev)
-            next.delete(newActiveTab.sessionId)
-            return next
-          })
-
-          // 同步工作区
-          const session = agentSessions.find((s) => s.id === newActiveTab.sessionId)
-          if (session?.workspaceId) {
-            setCurrentAgentWorkspaceId(session.workspaceId)
-            window.electronAPI.updateSettings({
-              agentWorkspaceId: session.workspaceId,
-            }).catch(console.error)
-          }
-        }
-      } else {
-        // 所有标签都已关闭
-        setCurrentConversationId(null)
-        setCurrentAgentSessionId(null)
-      }
+      syncActiveTabSideEffects(newActiveTab)
     }
 
     // 清理 per-conversation/session Map atoms 条目，防止内存泄漏
@@ -174,7 +145,7 @@ export function TabBar(): React.ReactElement {
       next.delete(tabId)
       return next
     })
-  }, [tabs, activeTabId, setTabs, setActiveTabId, cleanupMapAtoms, setWorkingDone, setAppMode, setCurrentConversationId, setCurrentAgentSessionId, setUnviewedCompleted, agentSessions, setCurrentAgentWorkspaceId])
+  }, [tabs, activeTabId, setTabs, setActiveTabId, cleanupMapAtoms, setWorkingDone, syncActiveTabSideEffects])
 
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return // 只处理左键
