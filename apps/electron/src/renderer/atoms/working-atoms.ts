@@ -11,7 +11,6 @@ import {
   agentSessionsAtom,
   agentSessionIndicatorMapAtom,
   workingDoneSessionIdsAtom,
-  currentAgentWorkspaceIdAtom,
 } from './agent-atoms'
 import { tabsAtom } from './tab-atoms'
 import { draftSessionIdsAtom } from './draft-session-atoms'
@@ -24,7 +23,7 @@ export interface WorkingSessionGroups {
 }
 
 /**
- * 派生 atom：计算 Working 区域的三组会话
+ * 派生 atom：计算 Working 区域的三组会话（跨工作区，不按当前工作区过滤）
  * - todo: blocked（orange，等待用户决策）
  * - running: running（blue，Agent 执行中）
  * - done: 完成且 Tab 仍打开（green / idle）
@@ -34,7 +33,6 @@ export const workingSessionGroupsAtom = atom<WorkingSessionGroups>((get) => {
   const indicatorMap = get(agentSessionIndicatorMapAtom)
   const doneIds = get(workingDoneSessionIdsAtom)
   const tabs = get(tabsAtom)
-  const workspaceId = get(currentAgentWorkspaceIdAtom)
   const draftIds = get(draftSessionIdsAtom)
 
   const sessionMap = new Map(sessions.map((s) => [s.id, s]))
@@ -50,7 +48,6 @@ export const workingSessionGroupsAtom = atom<WorkingSessionGroups>((get) => {
   for (const [id, status] of indicatorMap) {
     const session = sessionMap.get(id)
     if (!session || draftIds.has(id)) continue
-    if (workspaceId && session.workspaceId !== workspaceId) continue
     if (status === 'blocked') todo.push(session)
     else if (status === 'running') running.push(session)
   }
@@ -61,7 +58,6 @@ export const workingSessionGroupsAtom = atom<WorkingSessionGroups>((get) => {
     if (!openAgentTabIds.has(id)) continue // Tab 已关闭
     const session = sessionMap.get(id)
     if (!session || draftIds.has(id)) continue
-    if (workspaceId && session.workspaceId !== workspaceId) continue
     done.push(session)
   }
 
