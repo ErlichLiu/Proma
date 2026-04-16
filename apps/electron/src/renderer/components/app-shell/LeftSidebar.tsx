@@ -435,7 +435,10 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const handleConfirmDelete = async (): Promise<void> => {
     if (!pendingDeleteId) return
 
-    // 关闭对应的标签页（setTabs 与 setActiveTabId 紧邻调用，保证视图一致性）
+    // 关闭对应的标签页：setTabs 与 setActiveTabId 成组更新，便于阅读，
+    // 也避免将来在两者之间意外插入 await 导致跨渲染状态不一致。
+    // （React 18 在同一事件回调中会自动批处理多次 setState，所以单次渲染
+    // 的一致性由 React 保证，这里只是保持代码组织清晰。）
     const tabResult = closeTab(tabs, activeTabId, pendingDeleteId)
     setTabs(tabResult.tabs)
     setActiveTabId(tabResult.activeTabId)
