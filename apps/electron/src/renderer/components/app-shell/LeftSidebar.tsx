@@ -35,6 +35,7 @@ import {
   currentAgentSessionIdAtom,
   agentSessionIndicatorMapAtom,
   unviewedCompletedSessionIdsAtom,
+  workingDoneSessionIdsAtom,
   agentChannelIdAtom,
   agentModelIdAtom,
   agentSessionChannelMapAtom,
@@ -58,6 +59,7 @@ import { sidebarViewModeAtom } from '@/atoms/sidebar-atoms'
 import { searchDialogOpenAtom } from '@/atoms/search-atoms'
 import { hasUpdateAtom } from '@/atoms/updater'
 import { draftSessionIdsAtom } from '@/atoms/draft-session-atoms'
+import { workingSessionGroupsAtom, workingSessionIdsSetAtom } from '@/atoms/working-atoms'
 import { hasEnvironmentIssuesAtom } from '@/atoms/environment'
 import { promptConfigAtom, selectedPromptIdAtom, conversationPromptIdAtom } from '@/atoms/system-prompt-atoms'
 import { useOpenSession } from '@/hooks/useOpenSession'
@@ -75,6 +77,17 @@ import {
 } from '@/components/ui/alert-dialog'
 import type { ActiveView } from '@/atoms/active-view'
 import type { ConversationMeta, AgentSessionMeta, WorkspaceCapabilities } from '@proma/shared'
+
+/** Working 区域子分组的横线分割器 ── Label ── */
+function SectionDivider({ label }: { label: string }): React.ReactElement {
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5 select-none">
+      <div className="flex-1 h-px bg-foreground/10" />
+      <span className="text-[10px] font-medium text-foreground/30 tracking-wider">{label}</span>
+      <div className="flex-1 h-px bg-foreground/10" />
+    </div>
+  )
+}
 
 interface SidebarItemProps {
   icon: React.ReactNode
@@ -210,6 +223,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const setConvParallel = useSetAtom(conversationParallelModeAtom)
   const setConvPromptId = useSetAtom(conversationPromptIdAtom)
   const setAgentSidePanelOpen = useSetAtom(agentSidePanelOpenMapAtom)
+  const setWorkingDone = useSetAtom(workingDoneSessionIdsAtom)
 
   /** 清理 per-conversation/session Map atoms 条目 */
   const cleanupMapAtoms = React.useCallback((id: string) => {
@@ -251,10 +265,15 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     [conversations, viewMode, draftSessionIds]
   )
 
-  /** 置顶 Agent 会话列表（仅活跃模式显示，按当前工作区过滤，排除 draft） */
+  /** Working 区域状态 */
+  const workingGroups = useAtomValue(workingSessionGroupsAtom)
+  const workingSessionIds = useAtomValue(workingSessionIdsSetAtom)
+  const hasWorkingSessions = workingGroups.todo.length > 0 || workingGroups.running.length > 0 || workingGroups.done.length > 0
+
+  /** 置顶 Agent 会话列表（仅活跃模式显示，按当前工作区过滤，排除 draft 和 Working） */
   const pinnedAgentSessions = React.useMemo(
-    () => viewMode === 'active' ? agentSessions.filter((s) => s.pinned && !draftSessionIds.has(s.id) && (!currentWorkspaceId || s.workspaceId === currentWorkspaceId)) : [],
-    [agentSessions, viewMode, draftSessionIds, currentWorkspaceId]
+    () => viewMode === 'active' ? agentSessions.filter((s) => s.pinned && !draftSessionIds.has(s.id) && !workingSessionIds.has(s.id) && (!currentWorkspaceId || s.workspaceId === currentWorkspaceId)) : [],
+    [agentSessions, viewMode, draftSessionIds, currentWorkspaceId, workingSessionIds]
   )
 
   /** 对话按日期分组（根据 viewMode 过滤归档状态，排除 draft） */
@@ -434,6 +453,14 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     // 清理 per-conversation/session Map atoms 条目
     cleanupMapAtoms(pendingDeleteId)
 
+    // 从 Working Done 集合移除
+    setWorkingDone((prev) => {
+      if (!prev.has(pendingDeleteId)) return prev
+      const next = new Set(prev)
+      next.delete(pendingDeleteId)
+      return next
+    })
+
     if (mode === 'agent') {
       // Agent 模式：删除 Agent 会话
       try {
@@ -567,6 +594,13 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         const tabResult = closeTab(tabs, layout, id)
         setTabs(tabResult.tabs)
         setLayout(tabResult.layout)
+        // 从 Working Done 集合移除
+        setWorkingDone((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
         // 如果归档的是当前选中的会话，取消选中
         if (currentAgentSessionId === id) {
           setCurrentAgentSessionId(null)
@@ -589,6 +623,13 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       setTabs(tabResult.tabs)
       setLayout(tabResult.layout)
       setCurrentAgentSessionId(null)
+      // 从 Working Done 集合移除
+      setWorkingDone((prev) => {
+        if (!prev.has(updatedSession.id)) return prev
+        const next = new Set(prev)
+        next.delete(updatedSession.id)
+        return next
+      })
     }
     setMoveTargetId(null)
     toast.success('会话已迁移', {
@@ -596,15 +637,15 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     })
   }
 
-  /** Agent 会话按工作区过滤 + 归档过滤 + 排除 draft */
+  /** Agent 会话按工作区过滤 + 归档过滤 + 排除 draft + 排除 Working */
   const filteredAgentSessions = React.useMemo(
     () => {
       const byWorkspace = agentSessions.filter((s) => s.workspaceId === currentWorkspaceId && !draftSessionIds.has(s.id))
       return viewMode === 'archived'
         ? byWorkspace.filter((s) => s.archived)
-        : byWorkspace.filter((s) => !s.archived && !s.pinned)
+        : byWorkspace.filter((s) => !s.archived && !s.pinned && !workingSessionIds.has(s.id))
     },
-    [agentSessions, currentWorkspaceId, viewMode, draftSessionIds]
+    [agentSessions, currentWorkspaceId, viewMode, draftSessionIds, workingSessionIds]
   )
 
   /** Agent 会话按日期分组 */
@@ -824,6 +865,90 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Agent 模式：Working 区域（活跃 Agent 分组：待处理 / 运行中 / 已完成） */}
+      {mode === 'agent' && hasWorkingSessions && viewMode === 'active' && (
+        <div className="px-3 pt-2 pb-1">
+          {/* Todo：需要用户决策的会话 */}
+          {workingGroups.todo.length > 0 && (
+            <>
+              <SectionDivider label="待处理" />
+              <div className="flex flex-col gap-0.5">
+                {workingGroups.todo.map((session) => (
+                  <AgentSessionItem
+                    key={`working-todo-${session.id}`}
+                    session={session}
+                    active={session.id === activeTabId}
+                    hovered={session.id === hoveredId}
+                    indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
+                    showPinIcon={false}
+                    onSelect={() => handleSelectAgentSession(session.id, session.title)}
+                    onRequestDelete={() => handleRequestDelete(session.id)}
+                    onRequestMove={() => setMoveTargetId(session.id)}
+                    onRename={handleAgentRename}
+                    onTogglePin={handleTogglePinAgent}
+                    onToggleArchive={handleToggleArchiveAgent}
+                    onMouseEnter={() => setHoveredId(session.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {/* Running：正在执行的会话 */}
+          {workingGroups.running.length > 0 && (
+            <>
+              <SectionDivider label="运行中" />
+              <div className="flex flex-col gap-0.5">
+                {workingGroups.running.map((session) => (
+                  <AgentSessionItem
+                    key={`working-running-${session.id}`}
+                    session={session}
+                    active={session.id === activeTabId}
+                    hovered={session.id === hoveredId}
+                    indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
+                    showPinIcon={false}
+                    onSelect={() => handleSelectAgentSession(session.id, session.title)}
+                    onRequestDelete={() => handleRequestDelete(session.id)}
+                    onRequestMove={() => setMoveTargetId(session.id)}
+                    onRename={handleAgentRename}
+                    onTogglePin={handleTogglePinAgent}
+                    onToggleArchive={handleToggleArchiveAgent}
+                    onMouseEnter={() => setHoveredId(session.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {/* Done：已完成的会话（关闭 Tab 后移出） */}
+          {workingGroups.done.length > 0 && (
+            <>
+              <SectionDivider label="已完成" />
+              <div className="flex flex-col gap-0.5">
+                {workingGroups.done.map((session) => (
+                  <AgentSessionItem
+                    key={`working-done-${session.id}`}
+                    session={session}
+                    active={session.id === activeTabId}
+                    hovered={session.id === hoveredId}
+                    indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
+                    showPinIcon={false}
+                    onSelect={() => handleSelectAgentSession(session.id, session.title)}
+                    onRequestDelete={() => handleRequestDelete(session.id)}
+                    onRequestMove={() => setMoveTargetId(session.id)}
+                    onRename={handleAgentRename}
+                    onTogglePin={handleTogglePinAgent}
+                    onToggleArchive={handleToggleArchiveAgent}
+                    onMouseEnter={() => setHoveredId(session.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

@@ -32,6 +32,7 @@ import {
   currentAgentSessionIdAtom,
   currentAgentWorkspaceIdAtom,
   unviewedCompletedSessionIdsAtom,
+  workingDoneSessionIdsAtom,
 } from '@/atoms/agent-atoms'
 import {
   notificationsEnabledAtom,
@@ -348,6 +349,19 @@ export function useGlobalAgentListeners(): void {
         const legacyEvents = payloadToLegacyEvents(payload)
 
         for (const event of legacyEvents) {
+          // 会话首次进入 running 时，从 Working Done 集合移除（它会出现在 Running 组）
+          if (event.type !== 'prompt_suggestion') {
+            const prevState = store.get(agentStreamingStatesAtom).get(sessionId)
+            if (!prevState || !prevState.running) {
+              store.set(workingDoneSessionIdsAtom, (prev: Set<string>) => {
+                if (!prev.has(sessionId)) return prev
+                const next = new Set(prev)
+                next.delete(sessionId)
+                return next
+              })
+            }
+          }
+
           // 更新流式状态（prompt_suggestion 不影响流式状态，跳过以避免在 session 结束后用默认值 running:true 重新激活）
           if (event.type !== 'prompt_suggestion') {
             store.set(agentStreamingStatesAtom, (prev) => {
@@ -565,6 +579,13 @@ export function useGlobalAgentListeners(): void {
             return next
           })
         }
+
+        // 添加到 Working Done 集合（保持到 Tab 关闭）
+        store.set(workingDoneSessionIdsAtom, (prev: Set<string>) => {
+          const next = new Set(prev)
+          next.add(data.sessionId)
+          return next
+        })
 
         // 标记用户主动打断状态
         if (data.stoppedByUser) {
