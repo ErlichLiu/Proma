@@ -312,6 +312,14 @@ export function useGlobalAgentListeners(): void {
         unstable_batchedUpdates(() => {
         const { sessionId, payload } = streamEvent
 
+        // 如果收到未知会话的事件（跨工作区场景），立即刷新会话列表
+        const knownSessions = store.get(agentSessionsAtom)
+        if (!knownSessions.some((s) => s.id === sessionId)) {
+          window.electronAPI.listAgentSessions()
+            .then((sessions) => store.set(agentSessionsAtom, sessions))
+            .catch(console.error)
+        }
+
         // Phase 2: 直接累积 SDKMessage 到 liveMessagesMapAtom（跳过 replay 消息，避免与持久化消息重复）
         if (payload.kind === 'sdk_message') {
           const msgRecord = payload.message as Record<string, unknown>
