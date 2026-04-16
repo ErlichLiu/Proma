@@ -18,7 +18,7 @@
  */
 
 import * as React from 'react'
-import Markdown from 'react-markdown'
+import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -356,6 +356,12 @@ interface MessageResponseProps {
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
 
+/** 允许 mention:// 协议通过 URL 清洗（react-markdown 默认只放行 http/https） */
+function mentionUrlTransform(url: string): string {
+  if (url.startsWith('mention://')) return url
+  return defaultUrlTransform(url)
+}
+
 // ===== Memo'd Markdown 子组件（稳定引用，避免 react-markdown 每帧重建组件映射） =====
 
 /** mention:// URL 匹配 */
@@ -487,6 +493,7 @@ export const MessageResponse = React.memo(
         <Markdown
           remarkPlugins={mergedRemarkPlugins}
           rehypePlugins={REHYPE_PLUGINS}
+          urlTransform={mentionUrlTransform}
           components={components}
         >
           {children}
