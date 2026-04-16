@@ -550,13 +550,11 @@ function TabStatePersistenceInitializer(): null {
         return
       }
 
+      const finalPanels = validPanels.length === fixedPanels.length ? fixedPanels : validPanels
       const restoredLayout: SplitLayoutState = {
         ...layout,
-        panels: validPanels.length === fixedPanels.length ? fixedPanels : validPanels,
-        focusedPanelIndex: Math.min(
-          layout.focusedPanelIndex,
-          Math.max((validPanels.length === fixedPanels.length ? fixedPanels : validPanels).length - 1, 0),
-        ),
+        panels: finalPanels,
+        focusedPanelIndex: Math.min(layout.focusedPanelIndex, Math.max(finalPanels.length - 1, 0)),
       }
 
       store.set(tabsAtom, validTabs)
@@ -607,7 +605,11 @@ function TabStatePersistenceInitializer(): null {
       const tabs = store.get(tabsAtom)
       const splitLayout = store.get(splitLayoutAtom)
       if (tabs.length > 0 && window.electronAPI.updateSettingsSync) {
-        window.electronAPI.updateSettingsSync({ tabState: { tabs, splitLayout } })
+        const ok = window.electronAPI.updateSettingsSync({ tabState: { tabs, splitLayout } })
+        if (!ok) {
+          console.warn('[TabPersist] sync IPC failed, falling back to async save')
+          save()
+        }
       } else {
         save()
       }
