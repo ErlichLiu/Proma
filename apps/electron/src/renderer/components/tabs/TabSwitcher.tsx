@@ -205,26 +205,63 @@ export function TabSwitcher(): React.ReactElement | null {
       <div className="absolute inset-0 bg-black/20" />
 
       {/* 切换器面板 */}
-      <div className="relative bg-popover/95 backdrop-blur-md border border-border/50 rounded-xl shadow-2xl min-w-[360px] max-w-[480px] py-2.5 overflow-hidden">
-        {displayTabs.map((tab, index) => (
-          <div
-            key={tab.id}
-            className={cn(
-              'flex items-center gap-3 px-5 py-2.5 text-[15px] cursor-default transition-colors',
-              index === safeIndex
-                ? 'bg-primary/15 text-foreground font-medium'
-                : 'text-muted-foreground',
-            )}
-          >
-            {tab.type === 'agent' ? (
-              <Bot className="w-4 h-4 shrink-0 opacity-60" />
-            ) : (
-              <MessageSquare className="w-4 h-4 shrink-0 opacity-60" />
-            )}
-            <span className="truncate">{tab.title || '新对话'}</span>
+      <div className="relative bg-popover/95 backdrop-blur-md border border-border/50 rounded-xl shadow-2xl min-w-[380px] max-w-[480px] overflow-hidden">
+        {/* Header：明确告知这是标签切换器并标注快捷键 */}
+        <div className="flex items-center justify-between gap-3 px-5 py-2.5 border-b border-border/40 bg-muted/30">
+          <span className="text-[13px] font-medium text-foreground">切换标签</span>
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Kbd>Ctrl</Kbd>
+            <span>+</span>
+            <Kbd>Tab</Kbd>
+            <span className="opacity-60 ml-1">循环</span>
           </div>
-        ))}
+        </div>
+
+        {/* 标签列表 */}
+        <div className="py-1.5">
+          {displayTabs.map((tab, index) => (
+            <div
+              key={tab.id}
+              className={cn(
+                'flex items-center gap-3 px-5 py-2.5 text-[15px] cursor-default transition-colors',
+                index === safeIndex
+                  ? 'bg-primary/15 text-foreground font-medium'
+                  : 'text-muted-foreground',
+              )}
+            >
+              {tab.type === 'agent' ? (
+                <Bot className="w-4 h-4 shrink-0 opacity-60" />
+              ) : (
+                <MessageSquare className="w-4 h-4 shrink-0 opacity-60" />
+              )}
+              <span className="truncate">{tab.title || '新对话'}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer：操作提示 */}
+        <div className="flex items-center justify-between gap-2 px-5 py-2 border-t border-border/40 bg-muted/30 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Kbd>Shift</Kbd>
+            <span>+</span>
+            <Kbd>Tab</Kbd>
+            <span className="opacity-60 ml-1">反向</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="opacity-60">松开</span>
+            <Kbd>Ctrl</Kbd>
+            <span className="opacity-60">确认</span>
+          </div>
+        </div>
       </div>
     </div>
+  )
+}
+
+function Kbd({ children }: { children: React.ReactNode }): React.ReactElement {
+  return (
+    <kbd className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded border border-border/60 bg-background/80 text-[10px] font-medium text-foreground/80 shadow-sm">
+      {children}
+    </kbd>
   )
 }
