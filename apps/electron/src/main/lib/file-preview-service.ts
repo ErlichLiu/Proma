@@ -14,9 +14,18 @@
  * 所有预览窗口自动跟随系统主题（light/dark）。
  */
 
-import { BrowserWindow, shell, nativeTheme } from 'electron'
-import { resolve, basename, extname, join } from 'node:path'
-import { readFileSync, statSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { BrowserWindow, shell, nativeTheme, ipcMain, dialog } from 'electron'
+import { resolve, basename, extname, join, dirname } from 'node:path'
+import {
+  readFileSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  renameSync,
+  watch as fsWatch,
+  type FSWatcher,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 
 /** 文件大小限制：50MB */
@@ -28,11 +37,140 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.sv
 /** 支持预览的视频扩展名 */
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov'])
 
-/** 支持代码高亮预览的扩展名 */
-const CODE_EXTENSIONS = new Set(['.json', '.xml', '.html', '.htm'])
+/** 支持代码/纯文本预览（含编辑）的扩展名 */
+const CODE_EXTENSIONS = new Set([
+  '.json', '.xml', '.html', '.htm',
+  '.txt', '.log', '.csv',
+  '.yaml', '.yml', '.toml', '.ini', '.env',
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.go', '.rs', '.java', '.kt', '.swift',
+  '.c', '.h', '.cpp', '.hpp', '.cs',
+  '.sh', '.bash', '.zsh',
+  '.css', '.scss', '.less',
+  '.sql', '.rb', '.php',
+])
 
 /** 支持 Markdown 渲染预览的扩展名 */
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
+
+/** 扩展名 → Monaco language ID 映射 */
+const MONACO_LANG_MAP: Record<string, string> = {
+  '.md': 'markdown', '.markdown': 'markdown',
+  '.json': 'json', '.xml': 'xml', '.html': 'html', '.htm': 'html',
+  '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'ini', '.ini': 'ini', '.env': 'shell',
+  '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript',
+  '.mjs': 'javascript', '.cjs': 'javascript',
+  '.py': 'python', '.go': 'go', '.rs': 'rust', '.java': 'java', '.kt': 'kotlin', '.swift': 'swift',
+  '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp', '.cs': 'csharp',
+  '.sh': 'shell', '.bash': 'shell', '.zsh': 'shell',
+  '.css': 'css', '.scss': 'scss', '.less': 'less',
+  '.sql': 'sql', '.rb': 'ruby', '.php': 'php',
+  '.txt': 'plaintext', '.log': 'plaintext', '.csv': 'plaintext',
+}
+
+/** 是否为可编辑文本类型 */
+function isEditableType(previewType: string): boolean {
+  return previewType === 'markdown' || previewType === 'code'
+}
+
+/** 获取 Monaco 语言 ID */
+function getMonacoLanguage(ext: string): string {
+  return MONACO_LANG_MAP[ext] || 'plaintext'
+}
+
+/** 预览窗口运行时状态 */
+interface PreviewWindowState {
+  filePath: string
+  filename: string
+  type: 'markdown' | 'code' | 'image' | 'video' | 'pdf' | 'docx'
+  language: string
+  initialContent: string
+  isDirty: boolean
+  watcher?: FSWatcher
+  /** 标记主进程刚刚保存过文件，用于忽略由自身写入触发的 watcher 事件 */
+  selfWriteAt: number
+}
+
+const previewStates = new Map<number, PreviewWindowState>()
+let ipcRegistered = false
+
+const PREVIEW_IPC = {
+  GET_INITIAL: 'preview:get-initial',
+  SAVE: 'preview:save',
+  SET_DIRTY: 'preview:set-dirty',
+  OPEN_EXTERNAL: 'preview:open-external',
+  SHOW_IN_FOLDER: 'preview:show-in-folder',
+  CLOSE: 'preview:close',
+  ON_RELOAD: 'preview:on-reload',
+  ON_EXTERNAL_CHANGED: 'preview:on-external-changed',
+} as const
+
+/** 仅注册一次 IPC 通道 */
+function ensureIpcRegistered(): void {
+  if (ipcRegistered) return
+  ipcRegistered = true
+
+  ipcMain.handle(PREVIEW_IPC.GET_INITIAL, (event) => {
+    const state = previewStates.get(event.sender.id)
+    if (!state) return null
+    return {
+      filePath: state.filePath,
+      filename: state.filename,
+      content: state.initialContent,
+      language: state.language,
+      isDark: nativeTheme.shouldUseDarkColors,
+      type: state.type,
+    }
+  })
+
+  ipcMain.handle(PREVIEW_IPC.SAVE, async (event, content: string) => {
+    const state = previewStates.get(event.sender.id)
+    if (!state) return { success: false, error: '窗口状态丢失' }
+    try {
+      atomicWriteFile(state.filePath, content)
+      state.initialContent = content
+      state.isDirty = false
+      state.selfWriteAt = Date.now()
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) win.setTitle(state.filename)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.on(PREVIEW_IPC.SET_DIRTY, (event, dirty: boolean) => {
+    const state = previewStates.get(event.sender.id)
+    if (!state) return
+    state.isDirty = !!dirty
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && !win.isDestroyed()) {
+      win.setTitle((state.isDirty ? '● ' : '') + state.filename)
+    }
+  })
+
+  ipcMain.on(PREVIEW_IPC.OPEN_EXTERNAL, (event) => {
+    const state = previewStates.get(event.sender.id)
+    if (state) shell.openPath(state.filePath)
+  })
+
+  ipcMain.on(PREVIEW_IPC.SHOW_IN_FOLDER, (event) => {
+    const state = previewStates.get(event.sender.id)
+    if (state) shell.showItemInFolder(state.filePath)
+  })
+
+  ipcMain.on(PREVIEW_IPC.CLOSE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && !win.isDestroyed()) win.close()
+  })
+}
+
+/** 原子写入文件：先写 .tmp 再 rename，避免写入中途崩溃留半截文件 */
+function atomicWriteFile(filePath: string, content: string): void {
+  const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.tmp`)
+  writeFileSync(tmpPath, content, 'utf-8')
+  renameSync(tmpPath, filePath)
+}
 
 /** 支持 PDF 预览的扩展名 */
 const PDF_EXTENSIONS = new Set(['.pdf'])
@@ -171,30 +309,434 @@ function baseStyles(): string {
   `
 }
 
-/** 生成工具栏 HTML */
-function toolbarHtml(filePath: string, filename: string): string {
+/** 生成工具栏 HTML（编辑型文件含编辑/保存/取消按钮） */
+function toolbarHtml(filePath: string, filename: string, editable: boolean, isMarkdown: boolean): string {
+  const editButtons = editable
+    ? `
+    <button class="toolbar-btn" id="btn-edit">编辑</button>
+    <button class="toolbar-btn" id="btn-save" style="display:none">保存</button>
+    <button class="toolbar-btn" id="btn-cancel" style="display:none">取消</button>`
+    : ''
+  const mdToggle = isMarkdown
+    ? `<button class="toolbar-btn" id="btn-md-toggle" style="display:none">预览</button>`
+    : ''
   return `
   <div class="toolbar">
-    <div style="flex:1">
-      <div class="toolbar-title">${escapeHtml(filename)}</div>
+    <div style="flex:1; min-width:0">
+      <div class="toolbar-title" id="tb-title">${escapeHtml(filename)}</div>
       <div class="toolbar-path">${escapeHtml(filePath)}</div>
     </div>
+    ${mdToggle}
+    ${editButtons}
     <button class="toolbar-btn" id="btn-open">用默认应用打开</button>
     <button class="toolbar-btn" id="btn-finder">在 Finder 中显示</button>
   </div>`
 }
 
-/** 生成工具栏按钮脚本 */
-function toolbarScript(filePath: string): string {
+/** 生成工具栏按钮基础脚本（仅外部打开/Finder/Esc 关闭，可编辑模板会附加自己的逻辑） */
+function toolbarScript(): string {
   return `
   <script>
-    const filePath = ${JSON.stringify(filePath)};
-    document.getElementById('btn-open').onclick = () => {
-      document.title = '__preview_action__:open:' + filePath;
-    };
-    document.getElementById('btn-finder').onclick = () => {
-      document.title = '__preview_action__:folder:' + filePath;
-    };
+    if (window.previewAPI) {
+      const btnOpen = document.getElementById('btn-open');
+      const btnFinder = document.getElementById('btn-finder');
+      if (btnOpen) btnOpen.onclick = () => window.previewAPI.openExternal();
+      if (btnFinder) btnFinder.onclick = () => window.previewAPI.showInFolder();
+    }
+  </script>`
+}
+
+/** 编辑器统一样式 */
+function editorStyles(): string {
+  return `
+    .editor-host {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: none;
+      overflow: hidden;
+    }
+    .editor-host.active { display: block; }
+    .preview-host.hidden { display: none !important; }
+    .editor-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .editor-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 16px;
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 13px;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .editor-toast.show { opacity: 1; }
+  `
+}
+
+/**
+ * 编辑器脚本：加载 Monaco、绑定按钮、保存/取消、外部变更感知。
+ * @param previewHostId 预览内容 DOM id（编辑时隐藏）
+ * @param isMarkdown   是否为 Markdown（影响切换按钮显示）
+ * @param renderPreviewFnExpr  JS 表达式：调用即用最新内容刷新预览（仅 markdown 用）
+ */
+function editorScript(previewHostId: string, isMarkdown: boolean, renderPreviewFnExpr: string): string {
+  return `
+  <script>
+  (function () {
+    if (!window.previewAPI) return;
+
+    let editor = null;
+    let initialContent = '';
+    let language = 'plaintext';
+    let isDark = false;
+    let mdMode = 'preview'; // 'preview' | 'source' (仅 markdown)
+    const isMarkdown = ${JSON.stringify(isMarkdown)};
+
+    const previewHost = document.getElementById(${JSON.stringify(previewHostId)});
+    const editorHost = document.getElementById('editor-host');
+    const btnEdit = document.getElementById('btn-edit');
+    const btnSave = document.getElementById('btn-save');
+    const btnCancel = document.getElementById('btn-cancel');
+    const btnMdToggle = document.getElementById('btn-md-toggle');
+    const toastEl = document.getElementById('editor-toast');
+
+    function showToast(msg) {
+      if (!toastEl) return;
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 1500);
+    }
+
+    function setEditMode(on) {
+      if (on) {
+        previewHost.classList.add('hidden');
+        editorHost.classList.add('active');
+        btnEdit.style.display = 'none';
+        btnSave.style.display = '';
+        btnCancel.style.display = '';
+        if (btnMdToggle) btnMdToggle.style.display = 'none';
+        setTimeout(() => editor && editor.layout(), 0);
+      } else {
+        previewHost.classList.remove('hidden');
+        editorHost.classList.remove('active');
+        btnEdit.style.display = '';
+        btnSave.style.display = 'none';
+        btnCancel.style.display = 'none';
+        if (isMarkdown && btnMdToggle) btnMdToggle.style.display = '';
+      }
+    }
+
+    function loadMonaco() {
+      return new Promise((resolve, reject) => {
+        if (window.monaco) return resolve(window.monaco);
+        const loaderScript = document.createElement('script');
+        loaderScript.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js';
+        loaderScript.onload = () => {
+          window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+          window.require(['vs/editor/editor.main'], () => resolve(window.monaco));
+        };
+        loaderScript.onerror = () => reject(new Error('Monaco 加载失败，请检查网络'));
+        document.head.appendChild(loaderScript);
+      });
+    }
+
+    async function initEditor() {
+      editorHost.innerHTML = '<div class="editor-loading">正在加载编辑器...</div>';
+      try {
+        const monaco = await loadMonaco();
+        editorHost.innerHTML = '';
+        editor = monaco.editor.create(editorHost, {
+          value: initialContent,
+          language,
+          theme: isDark ? 'vs-dark' : 'vs',
+          automaticLayout: true,
+          fontSize: 13,
+          minimap: { enabled: false },
+          tabSize: 2,
+          wordWrap: 'on',
+          scrollBeyondLastLine: false,
+        });
+        editor.onDidChangeModelContent(() => {
+          const dirty = editor.getValue() !== initialContent;
+          window.previewAPI.setDirty(dirty);
+        });
+        editor.addCommand(
+          (window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyS),
+          () => doSave()
+        );
+        editor.focus();
+        // 暴露给主进程的关闭确认流程
+        window.__getEditorContent = () => editor ? editor.getValue() : null;
+      } catch (err) {
+        editorHost.innerHTML = '<div class="editor-loading">' + (err.message || err) + '</div>';
+      }
+    }
+
+    async function doSave() {
+      if (!editor) return;
+      const content = editor.getValue();
+      const result = await window.previewAPI.save(content);
+      if (result && result.success) {
+        initialContent = content;
+        window.previewAPI.setDirty(false);
+        // 同步预览内容
+        try { ${renderPreviewFnExpr || ''} } catch (e) { /* ignore */ }
+        showToast('已保存');
+      } else {
+        showToast('保存失败：' + (result && result.error || '未知错误'));
+      }
+    }
+
+    function doCancel() {
+      if (editor && editor.getValue() !== initialContent) {
+        if (!confirm('放弃当前修改？')) return;
+        editor.setValue(initialContent);
+      }
+      window.previewAPI.setDirty(false);
+      setEditMode(false);
+    }
+
+    if (btnEdit) {
+      btnEdit.onclick = async () => {
+        setEditMode(true);
+        if (!editor) await initEditor();
+      };
+    }
+    if (btnSave) btnSave.onclick = doSave;
+    if (btnCancel) btnCancel.onclick = doCancel;
+
+    if (isMarkdown && btnMdToggle) {
+      btnMdToggle.onclick = () => {
+        // 仅在非编辑态切换；编辑态期间按钮被隐藏
+        // 此按钮在只读预览态作为「源码视图」入口
+        if (mdMode === 'preview') {
+          mdMode = 'source';
+          btnMdToggle.textContent = '渲染';
+          // 显示原始 markdown 文本（pre 包裹）
+          previewHost.dataset.savedHtml = previewHost.innerHTML;
+          previewHost.innerHTML = '<pre style="white-space:pre-wrap;font-family:SF Mono,Monaco,Menlo,monospace;font-size:13px;line-height:1.6">' +
+            initialContent.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>';
+        } else {
+          mdMode = 'preview';
+          btnMdToggle.textContent = '源码';
+          if (previewHost.dataset.savedHtml) {
+            previewHost.innerHTML = previewHost.dataset.savedHtml;
+          }
+        }
+      };
+    }
+
+    // 接收主进程的初始数据（语言、主题）
+    window.previewAPI.getInitial().then((info) => {
+      if (!info) return;
+      initialContent = info.content;
+      language = info.language;
+      isDark = info.isDark;
+    });
+
+    // 外部变更
+    window.previewAPI.onExternalChanged((newContent) => {
+      const dirty = editor && editor.getValue() !== initialContent;
+      if (dirty) {
+        const ok = confirm('文件已被外部修改。重新加载将丢失你当前的修改，是否重新加载？');
+        if (!ok) return;
+      }
+      initialContent = newContent;
+      if (editor) editor.setValue(newContent);
+      try { ${renderPreviewFnExpr || ''} } catch (e) { /* ignore */ }
+      window.previewAPI.setDirty(false);
+      showToast('已从磁盘重新加载');
+    });
+  })();
+  </script>`
+}
+
+/**
+ * Markdown WYSIWYG 编辑脚本（基于 Vditor），替代 Monaco 用于 .md 文件。
+ * 在 wysiwyg 模式下用户看到的是渲染后的样式，无需理解 markdown 语法。
+ */
+function vditorEditorScript(previewHostId: string): string {
+  return `
+  <script>
+  (function () {
+    if (!window.previewAPI) return;
+
+    let vditor = null;
+    let initialContent = '';
+    let isDark = false;
+
+    const previewHost = document.getElementById(${JSON.stringify(previewHostId)});
+    const editorHost = document.getElementById('editor-host');
+    const btnEdit = document.getElementById('btn-edit');
+    const btnSave = document.getElementById('btn-save');
+    const btnCancel = document.getElementById('btn-cancel');
+    const btnMdToggle = document.getElementById('btn-md-toggle');
+    const toastEl = document.getElementById('editor-toast');
+
+    function showToast(msg) {
+      if (!toastEl) return;
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 1500);
+    }
+
+    function setEditMode(on) {
+      if (on) {
+        previewHost.classList.add('hidden');
+        editorHost.classList.add('active');
+        btnEdit.style.display = 'none';
+        btnSave.style.display = '';
+        btnCancel.style.display = '';
+        if (btnMdToggle) btnMdToggle.style.display = 'none';
+      } else {
+        previewHost.classList.remove('hidden');
+        editorHost.classList.remove('active');
+        btnEdit.style.display = '';
+        btnSave.style.display = 'none';
+        btnCancel.style.display = 'none';
+        if (btnMdToggle) btnMdToggle.style.display = '';
+      }
+    }
+
+    function loadVditor() {
+      return new Promise((resolve, reject) => {
+        if (window.Vditor) return resolve(window.Vditor);
+        const css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = 'https://cdn.jsdelivr.net/npm/vditor@3/dist/index.css';
+        document.head.appendChild(css);
+        const js = document.createElement('script');
+        js.src = 'https://cdn.jsdelivr.net/npm/vditor@3/dist/index.min.js';
+        js.onload = () => resolve(window.Vditor);
+        js.onerror = () => reject(new Error('Vditor 加载失败，请检查网络'));
+        document.head.appendChild(js);
+      });
+    }
+
+    async function initEditor() {
+      editorHost.innerHTML = '<div class="editor-loading">正在加载编辑器...</div>';
+      try {
+        await loadVditor();
+        editorHost.innerHTML = '<div id="vditor-instance" style="height:100%"></div>';
+        vditor = new window.Vditor('vditor-instance', {
+          mode: 'wysiwyg',
+          value: initialContent,
+          theme: isDark ? 'dark' : 'classic',
+          height: '100%',
+          minHeight: 200,
+          cache: { enable: false },
+          preview: { theme: { current: isDark ? 'dark' : 'light' } },
+          toolbarConfig: { pin: true },
+          counter: { enable: false },
+          input: () => {
+            const v = vditor.getValue();
+            window.previewAPI.setDirty(v !== initialContent);
+          },
+          after: () => {
+            vditor.focus();
+            // Cmd/Ctrl+S 保存
+            const ed = document.getElementById('vditor-instance');
+            ed.addEventListener('keydown', (e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                doSave();
+              }
+            }, true);
+          },
+        });
+        // 暴露给主进程的关闭确认流程
+        window.__getEditorContent = () => vditor ? vditor.getValue() : null;
+      } catch (err) {
+        editorHost.innerHTML = '<div class="editor-loading">' + (err.message || err) + '</div>';
+      }
+    }
+
+    async function doSave() {
+      if (!vditor) return;
+      const content = vditor.getValue();
+      const result = await window.previewAPI.save(content);
+      if (result && result.success) {
+        initialContent = content;
+        window.previewAPI.setDirty(false);
+        // 同步只读预览
+        try { renderMarkdown(content); } catch (e) { /* ignore */ }
+        showToast('已保存');
+      } else {
+        showToast('保存失败：' + (result && result.error || '未知错误'));
+      }
+    }
+
+    function doCancel() {
+      if (vditor && vditor.getValue() !== initialContent) {
+        if (!confirm('放弃当前修改？')) return;
+        vditor.setValue(initialContent, true);
+      }
+      window.previewAPI.setDirty(false);
+      setEditMode(false);
+    }
+
+    if (btnEdit) {
+      btnEdit.onclick = async () => {
+        setEditMode(true);
+        if (!vditor) await initEditor();
+      };
+    }
+    if (btnSave) btnSave.onclick = doSave;
+    if (btnCancel) btnCancel.onclick = doCancel;
+
+    // 只读态的源码/渲染切换（沿用此前逻辑）
+    let mdMode = 'preview';
+    if (btnMdToggle) {
+      btnMdToggle.onclick = () => {
+        if (mdMode === 'preview') {
+          mdMode = 'source';
+          btnMdToggle.textContent = '渲染';
+          previewHost.dataset.savedHtml = previewHost.innerHTML;
+          previewHost.innerHTML = '<pre style="white-space:pre-wrap;font-family:SF Mono,Monaco,Menlo,monospace;font-size:13px;line-height:1.6;padding:0">' +
+            initialContent.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>';
+        } else {
+          mdMode = 'preview';
+          btnMdToggle.textContent = '源码';
+          if (previewHost.dataset.savedHtml) {
+            previewHost.innerHTML = previewHost.dataset.savedHtml;
+          }
+        }
+      };
+    }
+
+    // 接收主进程的初始数据
+    window.previewAPI.getInitial().then((info) => {
+      if (!info) return;
+      initialContent = info.content;
+      isDark = info.isDark;
+    });
+
+    // 外部变更
+    window.previewAPI.onExternalChanged((newContent) => {
+      const dirty = vditor && vditor.getValue() !== initialContent;
+      if (dirty) {
+        const ok = confirm('文件已被外部修改。重新加载将丢失你当前的修改，是否重新加载？');
+        if (!ok) return;
+      }
+      initialContent = newContent;
+      if (vditor) vditor.setValue(newContent, true);
+      try { renderMarkdown(newContent); } catch (e) { /* ignore */ }
+      window.previewAPI.setDirty(false);
+      showToast('已从磁盘重新加载');
+    });
+  })();
   </script>`
 }
 
@@ -213,11 +755,11 @@ function imagePreviewHtml(filePath: string, filename: string): string {
     object-fit: contain;
   }
 </style></head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, false, false)}
   <div class="content">
     <img src="${fileUrl}" alt="${escapeHtml(filename)}" />
   </div>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
 </body></html>`
 }
 
@@ -234,25 +776,32 @@ function videoPreviewHtml(filePath: string, filename: string): string {
     max-height: 100%;
   }
 </style></head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, false, false)}
   <div class="content">
     <video src="${fileUrl}" controls autoplay style="outline:none"></video>
   </div>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
 </body></html>`
 }
 
-/** 生成 Markdown 预览 HTML */
+/** 生成 Markdown 预览 HTML（支持编辑、源码切换） */
 function markdownPreviewHtml(filePath: string, filename: string, textContent: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(filename)}</title>
 <style>
   ${baseStyles()}
+  ${editorStyles()}
   .content {
-    display: block;
-    padding: 24px 32px;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
     align-items: stretch;
+    overflow: hidden;
+  }
+  .preview-host {
+    flex: 1;
     overflow-y: auto;
+    padding: 24px 32px;
   }
   .markdown-body {
     max-width: 800px;
@@ -298,22 +847,29 @@ function markdownPreviewHtml(filePath: string, filename: string, textContent: st
   .markdown-body img { max-width: 100%; border-radius: 8px; }
   .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 </style></head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, true, true)}
   <div class="content">
-    <div class="markdown-body" id="md-content"></div>
+    <div class="preview-host" id="md-preview-host">
+      <div class="markdown-body" id="md-content"></div>
+    </div>
+    <div class="editor-host" id="editor-host"></div>
   </div>
+  <div class="editor-toast" id="editor-toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
   <script>
-    const raw = ${JSON.stringify(textContent)};
-    document.getElementById('md-content').innerHTML = typeof marked !== 'undefined'
-      ? marked.parse(raw)
-      : '<pre>' + raw.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>';
+    function renderMarkdown(raw) {
+      document.getElementById('md-content').innerHTML = typeof marked !== 'undefined'
+        ? marked.parse(raw)
+        : '<pre>' + raw.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>';
+    }
+    renderMarkdown(${JSON.stringify(textContent)});
   </script>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
+  ${vditorEditorScript('md-preview-host')}
 </body></html>`
 }
 
-/** 生成代码/文本预览 HTML */
+/** 生成代码/文本预览 HTML（支持编辑） */
 function codePreviewHtml(filePath: string, filename: string, textContent: string, ext: string): string {
   const langMap: Record<string, string> = {
     '.json': 'json',
@@ -321,17 +877,23 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
     '.html': 'html',
     '.htm': 'html',
   }
-  const lang = langMap[ext] || 'text'
+  const lang = langMap[ext] || 'plaintext'
   const isDark = nativeTheme.shouldUseDarkColors
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(filename)}</title>
 <style>
   ${baseStyles()}
+  ${editorStyles()}
   .content {
-    display: block;
+    display: flex;
+    flex-direction: column;
     padding: 0;
     align-items: stretch;
+    overflow: hidden;
+  }
+  .preview-host {
+    flex: 1;
     overflow: auto;
   }
   pre {
@@ -348,17 +910,22 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/${isDark ? 'github-dark' : 'github'}.min.css">
 </head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, true, false)}
   <div class="content">
-    <pre><code class="language-${lang}" id="code-content">${escapeHtml(textContent)}</code></pre>
+    <div class="preview-host" id="code-preview-host">
+      <pre><code class="language-${lang}" id="code-content">${escapeHtml(textContent)}</code></pre>
+    </div>
+    <div class="editor-host" id="editor-host"></div>
   </div>
+  <div class="editor-toast" id="editor-toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
   <script>
     if (typeof hljs !== 'undefined') {
       hljs.highlightElement(document.getElementById('code-content'));
     }
   </script>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
+  ${editorScript('code-preview-host', false, '')}
 </body></html>`
 }
 
@@ -401,7 +968,7 @@ function pdfPreviewHtml(filePath: string, filename: string): string {
   }
 </style>
 </head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, false, false)}
   <div class="content" id="pdf-container">
     <div class="loading-msg">正在加载 PDF...</div>
   </div>
@@ -449,7 +1016,7 @@ function pdfPreviewHtml(filePath: string, filename: string): string {
 
     renderPDF();
   </script>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
 </body></html>`
 }
 
@@ -488,7 +1055,7 @@ function docxPreviewHtml(filePath: string, filename: string, base64Data: string)
   .loading { text-align: center; color: var(--text-muted); padding: 40px; }
   .error { color: #f87171; padding: 20px; }
 </style></head><body>
-  ${toolbarHtml(filePath, filename)}
+  ${toolbarHtml(filePath, filename, false, false)}
   <div class="content">
     <div class="docx-body" id="docx-content">
       <div class="loading">正在解析文档...</div>
@@ -520,17 +1087,18 @@ function docxPreviewHtml(filePath: string, filename: string, base64Data: string)
       container.innerHTML = '<div class="error">mammoth.js 加载失败，请检查网络连接</div>';
     }
   </script>
-  ${toolbarScript(filePath)}
+  ${toolbarScript()}
 </body></html>`
 }
 
-/** 创建预览窗口并绑定工具栏事件 */
+/** 创建预览窗口并绑定脏状态关闭确认 */
 function createPreviewWindow(filename: string): BrowserWindow {
   const previewWindow = new BrowserWindow({
     width: 1100,
     height: 750,
     title: filename,
     webPreferences: {
+      preload: join(__dirname, 'file-preview-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -538,24 +1106,95 @@ function createPreviewWindow(filename: string): BrowserWindow {
 
   previewWindow.setMenuBarVisibility(false)
 
-  // 监听 title 变化来处理工具栏按钮操作
-  previewWindow.on('page-title-updated', (event, title) => {
-    if (title.startsWith('__preview_action__:')) {
+  // Esc / Cmd+W (macOS) / Ctrl+W (Windows/Linux) 触发关闭（脏状态由 close 事件拦截）
+  previewWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    const isCloseShortcut =
+      input.key === 'Escape' ||
+      (input.key.toLowerCase() === 'w' && (input.meta || input.control))
+    if (isCloseShortcut) {
       event.preventDefault()
-      const [, action] = title.split(':')
-      const fullPath = title.slice(`__preview_action__:${action}:`.length)
-
-      if (action === 'open') {
-        shell.openPath(fullPath)
-      } else if (action === 'folder') {
-        shell.showItemInFolder(fullPath)
-      }
-
-      previewWindow.setTitle(filename)
+      if (!previewWindow.isDestroyed()) previewWindow.close()
     }
   })
 
+  // 关闭前检查脏状态：弹原生确认 保存/放弃/取消
+  previewWindow.on('close', (event) => {
+    const state = previewStates.get(previewWindow.webContents.id)
+    if (!state || !state.isDirty) return
+    const choice = dialog.showMessageBoxSync(previewWindow, {
+      type: 'warning',
+      buttons: ['保存', '放弃修改', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+      title: '未保存的修改',
+      message: `${state.filename} 有未保存的修改`,
+      detail: '关闭窗口将丢失这些修改。',
+    })
+    if (choice === 2) {
+      // 取消关闭
+      event.preventDefault()
+    } else if (choice === 0) {
+      // 保存：请求渲染端把当前内容回传，再走标准关闭
+      event.preventDefault()
+      previewWindow.webContents
+        .executeJavaScript('window.__getEditorContent && window.__getEditorContent()', true)
+        .then((content: unknown) => {
+          if (typeof content === 'string') {
+            try {
+              atomicWriteFile(state.filePath, content)
+              state.initialContent = content
+              state.isDirty = false
+              state.selfWriteAt = Date.now()
+            } catch (err) {
+              dialog.showErrorBox('保存失败', err instanceof Error ? err.message : String(err))
+              return
+            }
+          }
+          if (!previewWindow.isDestroyed()) previewWindow.destroy()
+        })
+        .catch(() => {
+          if (!previewWindow.isDestroyed()) previewWindow.destroy()
+        })
+    }
+    // choice === 1: 放弃修改，让默认关闭流程继续
+  })
+
+  // 窗口关闭后清理状态与 watcher
+  previewWindow.on('closed', () => {
+    const state = previewStates.get(previewWindow.webContents.id)
+    if (state?.watcher) {
+      try { state.watcher.close() } catch { /* ignore */ }
+    }
+    previewStates.delete(previewWindow.webContents.id)
+  })
+
   return previewWindow
+}
+
+/** 监听文件外部变更，通知渲染端 */
+function watchExternalChange(previewWindow: BrowserWindow, state: PreviewWindowState): void {
+  let debounceTimer: NodeJS.Timeout | undefined
+  try {
+    state.watcher = fsWatch(state.filePath, () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        // 忽略 1.5 秒内由保存触发的事件
+        if (Date.now() - state.selfWriteAt < 1500) return
+        try {
+          const newContent = readFileSync(state.filePath, 'utf-8')
+          if (newContent === state.initialContent) return
+          if (!previewWindow.isDestroyed()) {
+            previewWindow.webContents.send(PREVIEW_IPC.ON_EXTERNAL_CHANGED, newContent)
+          }
+        } catch {
+          // 文件可能被删除/重命名，忽略
+        }
+      }, 200)
+    })
+  } catch (err) {
+    console.warn('[文件预览] 文件监听启动失败', err)
+  }
 }
 
 /**
@@ -582,7 +1221,10 @@ export function openFilePreview(filePath: string): void {
     return
   }
 
+  ensureIpcRegistered()
+
   let html: string
+  let initialContent = ''
 
   if (previewType === 'pdf') {
     html = pdfPreviewHtml(safePath, filename)
@@ -595,14 +1237,31 @@ export function openFilePreview(filePath: string): void {
     const base64 = buffer.toString('base64')
     html = docxPreviewHtml(safePath, filename, base64)
   } else {
-    const textContent = readFileSync(safePath, 'utf-8')
+    initialContent = readFileSync(safePath, 'utf-8')
     html = previewType === 'markdown'
-      ? markdownPreviewHtml(safePath, filename, textContent)
-      : codePreviewHtml(safePath, filename, textContent, ext)
+      ? markdownPreviewHtml(safePath, filename, initialContent)
+      : codePreviewHtml(safePath, filename, initialContent, ext)
   }
 
-  // 将 HTML 写入临时文件（避免 data: URL 大小限制）
   const tmpHtmlPath = writeTempHtml(html)
   const previewWindow = createPreviewWindow(filename)
+
+  // 注册窗口状态（必须在 loadFile 前，IPC 才能在 DOMContentLoaded 时拿到 initial）
+  const state: PreviewWindowState = {
+    filePath: safePath,
+    filename,
+    type: previewType,
+    language: getMonacoLanguage(ext),
+    initialContent,
+    isDirty: false,
+    selfWriteAt: 0,
+  }
+  previewStates.set(previewWindow.webContents.id, state)
+
+  // 仅可编辑文本类型才需要监听外部变更
+  if (isEditableType(previewType)) {
+    watchExternalChange(previewWindow, state)
+  }
+
   previewWindow.loadFile(tmpHtmlPath)
 }
