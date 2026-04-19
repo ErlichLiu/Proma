@@ -997,7 +997,7 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
   }
   code.hljs { background: transparent !important; padding: 0 !important; }
 </style>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/${isDark ? 'github-dark' : 'github'}.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/${isDark ? 'github-dark' : 'github'}.min.css">
 </head><body>
   ${toolbarHtml(filePath, filename, true, false)}
   <div class="content">
@@ -1007,7 +1007,7 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
     <div class="editor-host" id="editor-host"></div>
   </div>
   <div class="editor-toast" id="editor-toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
   <script>
     (async function () {
       const codeEl = document.getElementById('code-content');
