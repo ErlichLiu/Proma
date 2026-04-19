@@ -309,6 +309,16 @@ export interface FileBrowserAutoReveal {
 }
 export const fileBrowserAutoRevealAtom = atom<FileBrowserAutoReveal | null>(null)
 
+/**
+ * 最近被 Agent 修改的文件路径（per-session，path → 修改时间戳 ms）。
+ * FileBrowser 据此在文件行左侧渲染竖条标记，60s 后自动消失，
+ * 用于让用户在错过 0.8s 脉冲后仍能看到「最近修改」状态。
+ */
+export const recentlyModifiedPathsAtom = atom<Map<string, Map<string, number>>>(new Map())
+
+/** 最近修改标记的存活时间（毫秒） */
+export const RECENTLY_MODIFIED_TTL_MS = 60_000
+
 // ===== 权限系统 Atoms =====
 
 /** 工作区默认权限模式（初始化和新会话使用） */

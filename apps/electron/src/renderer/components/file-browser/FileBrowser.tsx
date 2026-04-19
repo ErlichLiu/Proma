@@ -42,7 +42,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { workspaceFilesVersionAtom, fileBrowserAutoRevealAtom } from '@/atoms/agent-atoms'
+import { workspaceFilesVersionAtom, fileBrowserAutoRevealAtom, recentlyModifiedPathsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
 import type { FileEntry } from '@proma/shared'
 import { FileTypeIcon } from './FileTypeIcon'
 
@@ -105,6 +105,21 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty }: File
   )
   const revealTarget = revealForThisRoot?.path ?? null
   const revealTs = revealForThisRoot?.ts ?? 0
+
+  // ===== 最近修改的文件路径（60s 内显示左侧竖条） =====
+  const recentlyModifiedMap = useAtomValue(recentlyModifiedPathsAtom)
+  const currentSessionId = useAtomValue(currentAgentSessionIdAtom)
+  const recentlyModifiedSet = React.useMemo<Set<string>>(() => {
+    if (!currentSessionId) return new Set()
+    const inner = recentlyModifiedMap.get(currentSessionId)
+    if (!inner) return new Set()
+    // 仅保留落在本实例 rootPath 下的路径
+    const set = new Set<string>()
+    for (const p of inner.keys()) {
+      if (isPathUnderRoot(rootPath, p)) set.add(p)
+    }
+    return set
+  }, [recentlyModifiedMap, currentSessionId, rootPath])
 
   // 选中状态
   const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(new Set())
@@ -283,6 +298,7 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty }: File
           revealAncestors={revealAncestors}
           revealTarget={revealTarget}
           revealTs={revealTs}
+          recentlyModifiedSet={recentlyModifiedSet}
           onSelect={handleSelect}
           onShowInFolder={handleShowInFolder}
           onStartRename={handleStartRename}
@@ -380,6 +396,8 @@ interface FileTreeItemProps {
   revealTarget: string | null
   /** 自动定位脉冲时间戳，变化时重新触发 */
   revealTs: number
+  /** 最近修改的路径集合（命中则在行左侧显示竖条标记） */
+  recentlyModifiedSet: Set<string>
   onSelect: (entry: FileEntry, event: React.MouseEvent) => void
   onShowInFolder: (entry: FileEntry) => void
   onStartRename: (entry: FileEntry) => void
@@ -401,6 +419,7 @@ function FileTreeItem({
   revealAncestors,
   revealTarget,
   revealTs,
+  recentlyModifiedSet,
   onSelect,
   onShowInFolder,
   onStartRename,
@@ -593,7 +612,7 @@ function FileTreeItem({
       <div
         ref={rowRef}
         className={cn(
-          'flex items-center gap-1 py-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg transition-colors',
+          'relative flex items-center gap-1 py-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg transition-colors',
           isSelected ? 'bg-accent' : 'hover:bg-accent/50',
           flash && 'file-browser-row-flash',
         )}
@@ -601,6 +620,12 @@ function FileTreeItem({
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
       >
+        {recentlyModifiedSet.has(entry.path) && (
+          <span
+            aria-label="最近被 Agent 修改"
+            className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary/70"
+          />
+        )}
         {/* 展开/收起图标 */}
         {entry.isDirectory ? (
           <ChevronRight
@@ -719,6 +744,7 @@ function FileTreeItem({
           revealAncestors={revealAncestors}
           revealTarget={revealTarget}
           revealTs={revealTs}
+          recentlyModifiedSet={recentlyModifiedSet}
           onSelect={onSelect}
           onShowInFolder={onShowInFolder}
           onStartRename={onStartRename}

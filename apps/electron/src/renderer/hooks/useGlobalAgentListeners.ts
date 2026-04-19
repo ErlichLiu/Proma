@@ -22,6 +22,8 @@ import {
   backgroundTasksAtomFamily,
   agentSidePanelOpenMapAtom,
   fileBrowserAutoRevealAtom,
+  recentlyModifiedPathsAtom,
+  RECENTLY_MODIFIED_TTL_MS,
   applyAgentEvent,
   liveMessagesMapAtom,
   agentSessionModelMapAtom,
@@ -448,7 +450,16 @@ export function useGlobalAgentListeners(): void {
               ?? (input?.path as string | undefined)
               ?? (input?.notebook_path as string | undefined)
             if (typeof targetPath === 'string' && targetPath.length > 0) {
-              store.set(fileBrowserAutoRevealAtom, { sessionId, path: targetPath, ts: Date.now() })
+              const now = Date.now()
+              store.set(fileBrowserAutoRevealAtom, { sessionId, path: targetPath, ts: now })
+              // 同时记入「最近修改」状态，用于 60s 内左侧竖条标记
+              store.set(recentlyModifiedPathsAtom, (prev) => {
+                const map = new Map(prev)
+                const inner = new Map(map.get(sessionId) ?? new Map())
+                inner.set(targetPath, now)
+                map.set(sessionId, inner)
+                return map
+              })
             }
           }
 
@@ -768,11 +779,31 @@ export function useGlobalAgentListeners(): void {
         .catch(console.error)
     })
 
+    // 定期清理 60s 前的「最近修改」标记，避免 atom 无限增长
+    const pruneTimer = setInterval(() => {
+      const cutoff = Date.now() - RECENTLY_MODIFIED_TTL_MS
+      store.set(recentlyModifiedPathsAtom, (prev) => {
+        let changed = false
+        const next = new Map<string, Map<string, number>>()
+        for (const [sid, inner] of prev) {
+          const filtered = new Map<string, number>()
+          for (const [p, t] of inner) {
+            if (t > cutoff) filtered.set(p, t)
+            else changed = true
+          }
+          if (filtered.size > 0) next.set(sid, filtered)
+          else changed = true
+        }
+        return changed ? next : prev
+      })
+    }, 15_000)
+
     return () => {
       cleanupEvent()
       cleanupComplete()
       cleanupError()
       cleanupTitleUpdated()
+      clearInterval(pruneTimer)
     }
   }, [store]) // store 引用稳定，effect 只执行一次
 }
