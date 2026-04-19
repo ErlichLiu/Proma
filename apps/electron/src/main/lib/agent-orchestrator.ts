@@ -26,6 +26,7 @@ import { SAFE_TOOLS } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest, ExitPlanModeRequest } from '@proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError, friendlyErrorMessage, mapSDKErrorToTypedError, extractErrorDetails } from './adapters/claude-agent-adapter'
+import { isTransientNetworkError } from './error-patterns'
 import { AgentEventBus } from './agent-event-bus'
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@proma/core'
@@ -139,25 +140,6 @@ const AUTO_RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
 /** 判断 typed_error 事件是否可自动重试 */
 function isAutoRetryableTypedError(error: TypedError): boolean {
   return AUTO_RETRYABLE_ERROR_CODES.has(error.code)
-}
-
-/**
- * 瞬时网络错误模式
- *
- * 覆盖上游 API 偶发断流/抖动：API SSE 流中途 terminated、TCP 连接被重置、
- * DNS 抖动、fetch 层超时等。这些错误无 HTTP 状态码，SDK HTTP 客户端层
- * 内置的 2 次重试无法完全消化时，会穿透到 Orchestrator 应用层兜底。
- */
-const TRANSIENT_NETWORK_PATTERN =
-  /terminated|socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|network error|stream (?:closed|ended|disconnected) prematurely|premature close/i
-
-/** 判断错误消息/stderr 是否为瞬时网络错误 */
-function isTransientNetworkError(message?: string, stderr?: string): boolean {
-  if (!message && !stderr) return false
-  return (
-    (!!message && TRANSIENT_NETWORK_PATTERN.test(message)) ||
-    (!!stderr && TRANSIENT_NETWORK_PATTERN.test(stderr))
-  )
 }
 
 /** 判断 catch 块中的 API 错误是否可自动重试（HTTP 429 / 5xx / 已知可恢复错误模式 / 瞬时网络错误） */
