@@ -21,6 +21,7 @@ import {
   agentPromptSuggestionsAtom,
   backgroundTasksAtomFamily,
   agentSidePanelOpenMapAtom,
+  fileBrowserAutoRevealAtom,
   applyAgentEvent,
   liveMessagesMapAtom,
   agentSessionModelMapAtom,
@@ -46,6 +47,9 @@ import type { AgentStreamState } from '@/atoms/agent-atoms'
 import type { NotificationSoundType } from '@/types/settings'
 import { toast } from 'sonner'
 import type { AgentStreamEvent, AgentStreamCompletePayload, AgentEvent, AgentStreamPayload, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, SDKContentBlock, SDKUserContentBlock } from '@proma/shared'
+
+/** 触发右侧文件浏览器自动定位的写入类工具集合 */
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Update'])
 
 // ============================================================================
 // Phase 1 临时兼容层：将 AgentStreamPayload 转换为旧 AgentEvent
@@ -434,6 +438,18 @@ export function useGlobalAgentListeners(): void {
               map.set(sessionId, true)
               return map
             })
+          }
+
+          // Agent 修改文件时，触发右侧文件浏览器自动定位（展开父目录 + 滚动 + 高亮）
+          if (event.type === 'tool_start' && WRITE_TOOLS.has(event.toolName)) {
+            const input = event.input as Record<string, unknown> | undefined
+            const targetPath =
+              (input?.file_path as string | undefined)
+              ?? (input?.path as string | undefined)
+              ?? (input?.notebook_path as string | undefined)
+            if (typeof targetPath === 'string' && targetPath.length > 0) {
+              store.set(fileBrowserAutoRevealAtom, { sessionId, path: targetPath, ts: Date.now() })
+            }
           }
 
           // 处理后台任务事件
