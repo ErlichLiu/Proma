@@ -1161,6 +1161,9 @@ function createPreviewWindow(filename: string): BrowserWindow {
 
   previewWindow.setMenuBarVisibility(false)
 
+  // 在 'closed' 触发时 webContents 已销毁，提前缓存 id 用于状态查找/清理
+  const wcId = previewWindow.webContents.id
+
   // Esc / Cmd+W (macOS) / Ctrl+W (Windows/Linux) 触发关闭（脏状态由 close 事件拦截）
   previewWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
@@ -1175,7 +1178,7 @@ function createPreviewWindow(filename: string): BrowserWindow {
 
   // 关闭前检查脏状态：弹原生确认 保存/放弃/取消
   previewWindow.on('close', (event) => {
-    const state = previewStates.get(previewWindow.webContents.id)
+    const state = previewStates.get(wcId)
     if (!state || !state.isDirty) return
     const choice = dialog.showMessageBoxSync(previewWindow, {
       type: 'warning',
@@ -1215,13 +1218,13 @@ function createPreviewWindow(filename: string): BrowserWindow {
     // choice === 1: 放弃修改，让默认关闭流程继续
   })
 
-  // 窗口关闭后清理状态与 watcher
+  // 窗口关闭后清理状态与 watcher（webContents 已销毁，必须使用预先缓存的 id）
   previewWindow.on('closed', () => {
-    const state = previewStates.get(previewWindow.webContents.id)
+    const state = previewStates.get(wcId)
     if (state?.watcher) {
       try { state.watcher.close() } catch { /* ignore */ }
     }
-    previewStates.delete(previewWindow.webContents.id)
+    previewStates.delete(wcId)
   })
 
   return previewWindow
