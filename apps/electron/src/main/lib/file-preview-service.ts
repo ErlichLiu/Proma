@@ -215,61 +215,72 @@ function writeTempHtml(html: string): string {
   return tmpFile
 }
 
-/** 生成支持 light/dark 主题的通用页面样式 */
+/** 生成支持 light/dark 主题的通用页面样式（Typora 风格柔和配色） */
 function baseStyles(): string {
   return `
     :root {
       color-scheme: light dark;
-      --bg: #ffffff;
-      --bg-toolbar: #f5f5f5;
-      --border: #e0e0e0;
-      --text: #1a1a1a;
-      --text-secondary: #666;
-      --text-muted: #999;
-      --btn-bg: #eee;
-      --btn-border: #ccc;
-      --btn-hover: #ddd;
-      --code-bg: #f4f4f4;
-      --content-bg: #fafafa;
+      --bg: #fafaf8;
+      --bg-toolbar: rgba(250, 250, 248, 0.72);
+      --border: #ececec;
+      --text: #2c2c2c;
+      --text-secondary: #6a6a6a;
+      --text-muted: #a8a8a8;
+      --btn-bg: transparent;
+      --btn-border: transparent;
+      --btn-hover: rgba(0, 0, 0, 0.06);
+      --code-bg: #f3f1ec;
+      --content-bg: #fafaf8;
+      --accent: #2563eb;
+      --scrollbar: rgba(0, 0, 0, 0.18);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #1a1a1a;
-        --bg-toolbar: #252525;
-        --border: #333;
-        --text: #e0e0e0;
-        --text-secondary: #ccc;
-        --text-muted: #888;
-        --btn-bg: #333;
-        --btn-border: #444;
-        --btn-hover: #444;
-        --code-bg: #2d2d2d;
-        --content-bg: #1a1a1a;
+        --bg: #1e1e1e;
+        --bg-toolbar: rgba(30, 30, 30, 0.72);
+        --border: #2c2c2c;
+        --text: #e6e6e6;
+        --text-secondary: #b8b8b8;
+        --text-muted: #7a7a7a;
+        --btn-bg: transparent;
+        --btn-border: transparent;
+        --btn-hover: rgba(255, 255, 255, 0.08);
+        --code-bg: #2a2a2a;
+        --content-bg: #1e1e1e;
+        --accent: #58a6ff;
+        --scrollbar: rgba(255, 255, 255, 0.18);
       }
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+        'Microsoft YaHei', 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       height: 100vh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
     .toolbar {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
+      gap: 6px;
+      padding: 8px 16px;
       background: var(--bg-toolbar);
-      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
       -webkit-app-region: drag;
       flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      transition: opacity 0.2s;
     }
+    body[data-platform="darwin"] .toolbar { padding-left: 88px; }
     .toolbar-title {
       flex: 1;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-secondary);
       overflow: hidden;
@@ -277,27 +288,31 @@ function baseStyles(): string {
       white-space: nowrap;
     }
     .toolbar-path {
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-muted);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      margin-top: 2px;
+      margin-top: 1px;
+      font-weight: 400;
     }
     .toolbar-btn {
       -webkit-app-region: no-drag;
-      padding: 5px 12px;
+      padding: 4px 10px;
       border: 1px solid var(--btn-border);
       border-radius: 6px;
       background: var(--btn-bg);
-      color: var(--text-secondary);
+      color: var(--text-muted);
       font-size: 12px;
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
-      transition: background 0.15s;
+      transition: background 0.15s, color 0.15s;
     }
-    .toolbar-btn:hover { background: var(--btn-hover); }
+    .toolbar-btn:hover {
+      background: var(--btn-hover);
+      color: var(--text);
+    }
     .content {
       flex: 1;
       overflow: auto;
@@ -306,6 +321,17 @@ function baseStyles(): string {
       justify-content: center;
       background: var(--content-bg);
     }
+    /* 自定义细滚动条：默认透明，hover 容器才显示 */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: transparent;
+      border-radius: 10px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    *:hover::-webkit-scrollbar-thumb { background: var(--scrollbar); background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar) !important; }
   `
 }
 
@@ -337,6 +363,7 @@ function toolbarHtml(filePath: string, filename: string, editable: boolean, isMa
 function toolbarScript(): string {
   return `
   <script>
+    document.body.dataset.platform = ${JSON.stringify(process.platform)};
     if (window.previewAPI) {
       const btnOpen = document.getElementById('btn-open');
       const btnFinder = document.getElementById('btn-finder');
@@ -801,51 +828,71 @@ function markdownPreviewHtml(filePath: string, filename: string, textContent: st
   .preview-host {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 32px;
+    padding: 56px 64px 80px;
   }
   .markdown-body {
-    max-width: 800px;
+    max-width: 760px;
     margin: 0 auto;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.75;
     color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+      'Microsoft YaHei', 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   }
-  .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 1em 0 0.5em; }
-  .markdown-body h1 { font-size: 1.8em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-  .markdown-body h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-  .markdown-body h3 { font-size: 1.15em; }
-  .markdown-body p { margin: 0.8em 0; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3,
+  .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+    margin: 1.6em 0 0.6em;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .markdown-body h1 {
+    font-size: 1.9em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.35em;
+    margin-top: 0;
+  }
+  .markdown-body h2 {
+    font-size: 1.45em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.25em;
+  }
+  .markdown-body h3 { font-size: 1.2em; }
+  .markdown-body h4 { font-size: 1.05em; }
+  .markdown-body p { margin: 0.9em 0; }
   .markdown-body code {
     background: var(--code-bg);
     padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 0.9em;
-    font-family: 'SF Mono', Monaco, Menlo, monospace;
+    border-radius: 5px;
+    font-size: 0.88em;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
   }
   .markdown-body pre {
     background: var(--code-bg);
-    padding: 12px 16px;
-    border-radius: 8px;
+    padding: 16px 20px;
+    border-radius: 10px;
     overflow-x: auto;
-    margin: 1em 0;
+    margin: 1.2em 0;
+    font-size: 13px;
+    line-height: 1.6;
   }
-  .markdown-body pre code { background: none; padding: 0; }
+  .markdown-body pre code { background: none; padding: 0; font-size: inherit; }
   .markdown-body blockquote {
     border-left: 3px solid var(--border);
-    padding-left: 12px;
+    padding: 0.2em 0 0.2em 16px;
     color: var(--text-muted);
-    margin: 1em 0;
+    margin: 1.2em 0;
+    font-style: italic;
   }
-  .markdown-body ul, .markdown-body ol { padding-left: 2em; margin: 0.5em 0; }
-  .markdown-body li { margin: 0.3em 0; }
-  .markdown-body a { color: #2563eb; text-decoration: none; }
-  @media (prefers-color-scheme: dark) { .markdown-body a { color: #58a6ff; } }
+  .markdown-body ul, .markdown-body ol { padding-left: 2em; margin: 0.6em 0; }
+  .markdown-body li { margin: 0.35em 0; }
+  .markdown-body a { color: var(--accent); text-decoration: none; }
   .markdown-body a:hover { text-decoration: underline; }
-  .markdown-body table { border-collapse: collapse; margin: 1em 0; width: 100%; }
-  .markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
-  .markdown-body th { background: var(--code-bg); }
+  .markdown-body table { border-collapse: collapse; margin: 1.2em 0; width: 100%; font-size: 0.95em; }
+  .markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 8px 14px; text-align: left; }
+  .markdown-body th { background: var(--code-bg); font-weight: 600; }
   .markdown-body img { max-width: 100%; border-radius: 8px; }
-  .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+  .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
 </style></head><body>
   ${toolbarHtml(filePath, filename, true, true)}
   <div class="content">
@@ -897,16 +944,18 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
     overflow: auto;
   }
   pre {
-    padding: 16px 20px;
-    font-family: 'SF Mono', Monaco, Menlo, monospace;
+    padding: 28px 40px 60px;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.65;
     color: var(--text);
     white-space: pre-wrap;
     word-break: break-all;
     tab-size: 2;
     width: 100%;
+    background: var(--bg) !important;
   }
+  code.hljs { background: transparent !important; padding: 0 !important; }
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/${isDark ? 'github-dark' : 'github'}.min.css">
 </head><body>
@@ -1093,10 +1142,16 @@ function docxPreviewHtml(filePath: string, filename: string, base64Data: string)
 
 /** 创建预览窗口并绑定脏状态关闭确认 */
 function createPreviewWindow(filename: string): BrowserWindow {
+  const isMac = process.platform === 'darwin'
   const previewWindow = new BrowserWindow({
-    width: 1100,
-    height: 750,
+    width: 880,
+    height: 920,
+    minWidth: 480,
+    minHeight: 360,
     title: filename,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: isMac ? { x: 16, y: 14 } : undefined,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#fafaf8',
     webPreferences: {
       preload: join(__dirname, 'file-preview-preload.cjs'),
       contextIsolation: true,
