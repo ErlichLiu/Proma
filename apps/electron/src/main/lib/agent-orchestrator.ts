@@ -141,10 +141,30 @@ function isAutoRetryableTypedError(error: TypedError): boolean {
   return AUTO_RETRYABLE_ERROR_CODES.has(error.code)
 }
 
-/** 判断 catch 块中的 API 错误是否可自动重试（HTTP 429 / 5xx / 已知可恢复错误模式） */
+/**
+ * 瞬时网络错误模式
+ *
+ * 覆盖上游 API 偶发断流/抖动：API SSE 流中途 terminated、TCP 连接被重置、
+ * DNS 抖动、fetch 层超时等。这些错误无 HTTP 状态码，SDK HTTP 客户端层
+ * 内置的 2 次重试无法完全消化时，会穿透到 Orchestrator 应用层兜底。
+ */
+const TRANSIENT_NETWORK_PATTERN =
+  /terminated|socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|network error|stream (?:closed|ended|disconnected) prematurely|premature close/i
+
+/** 判断错误消息/stderr 是否为瞬时网络错误 */
+function isTransientNetworkError(message?: string, stderr?: string): boolean {
+  if (!message && !stderr) return false
+  return (
+    (!!message && TRANSIENT_NETWORK_PATTERN.test(message)) ||
+    (!!stderr && TRANSIENT_NETWORK_PATTERN.test(stderr))
+  )
+}
+
+/** 判断 catch 块中的 API 错误是否可自动重试（HTTP 429 / 5xx / 已知可恢复错误模式 / 瞬时网络错误） */
 function isAutoRetryableCatchError(
   apiError: { statusCode: number; message: string } | null,
   rawErrorMessage?: string,
+  stderr?: string,
 ): boolean {
   if (apiError) {
     if (apiError.statusCode === 429 || apiError.statusCode >= 500) return true
@@ -153,6 +173,8 @@ function isAutoRetryableCatchError(
   if (rawErrorMessage) {
     if (rawErrorMessage.includes('context_management')) return true
   }
+  // 瞬时网络错误（terminated / ECONNRESET / socket hang up 等）
+  if (isTransientNetworkError(rawErrorMessage, stderr)) return true
   return false
 }
 
@@ -168,11 +190,22 @@ function isSessionNotFoundError(errorMessage: string, stderr?: string): boolean 
 }
 
 /** 最大自动重试次数 */
-const MAX_AUTO_RETRIES = 3
+const MAX_AUTO_RETRIES = 8
 
-/** 计算重试延迟（指数退避：1s, 2s, 4s） */
+/** 重试单次延迟上限（毫秒） */
+const RETRY_MAX_DELAY_MS = 10_000
+
+/**
+ * 计算重试延迟（指数退避 + ±20% jitter）
+ *
+ * 基础序列：1s, 2s, 4s, 8s, 10s, 10s, 10s, 10s（cap = 10s）
+ * 叠加 ±20% 随机抖动，避免大量 session 同时重试造成惊群。
+ * 最坏情况累计等待 ≈ 55s。
+ */
 function getRetryDelayMs(attempt: number): number {
-  return Math.min(1000 * Math.pow(2, attempt - 1), 8000)
+  const base = Math.min(1000 * Math.pow(2, attempt - 1), RETRY_MAX_DELAY_MS)
+  const jitter = base * (Math.random() * 0.4 - 0.2)
+  return Math.max(0, Math.round(base + jitter))
 }
 
 /**
@@ -1799,11 +1832,11 @@ export class AgentOrchestrator {
           }
 
           // 判断是否可重试
-          if (isAutoRetryableCatchError(apiError, rawErrorMessage) && attempt <= MAX_AUTO_RETRIES) {
+          if (isAutoRetryableCatchError(apiError, rawErrorMessage, stderrOutput) && attempt <= MAX_AUTO_RETRIES) {
             lastRetryableError = apiError
               ? `API Error ${apiError.statusCode}: ${apiError.message}`
               : (error instanceof Error ? error.message : '未知错误')
-            console.log(`[Agent 编排] 可重试错误 (catch): ${lastRetryableError}`)
+            console.log(`[Agent 编排] 可重试错误 (catch, attempt ${attempt}/${MAX_AUTO_RETRIES}): ${lastRetryableError}`)
             // 保存部分内容
             this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
             accumulatedMessages.length = 0

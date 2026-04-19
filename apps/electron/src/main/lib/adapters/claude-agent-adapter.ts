@@ -261,6 +261,29 @@ export function mapSDKErrorToTypedError(
     },
   }
 
+  // 瞬时网络错误（terminated / ECONNRESET / socket hang up 等）：
+  // assistant.error 路径下，SDK 常常把这类错误标记为 errorType='unknown'，
+  // 这里从 detailedMessage / originalError 兜底匹配，归类为可重试的 network_error。
+  const NETWORK_PATTERN =
+    /terminated|socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed|network error|stream (?:closed|ended|disconnected) prematurely|premature close/i
+  const looksLikeNetwork =
+    (!errorMap[errorCode]) &&
+    (NETWORK_PATTERN.test(detailedMessage ?? '') || NETWORK_PATTERN.test(originalError ?? ''))
+  if (looksLikeNetwork) {
+    return {
+      code: 'network_error',
+      title: '网络异常',
+      message: detailedMessage || '上游 API 连接中断',
+      actions: [
+        { key: 's', label: '设置', action: 'settings' },
+        { key: 'r', label: '重试', action: 'retry' },
+      ],
+      canRetry: true,
+      retryDelayMs: 1000,
+      originalError,
+    }
+  }
+
   const mapped = errorMap[errorCode] || {
     code: 'unknown_error' as ErrorCode,
     title: '',
