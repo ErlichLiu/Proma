@@ -1009,9 +1009,22 @@ function codePreviewHtml(filePath: string, filename: string, textContent: string
   <div class="editor-toast" id="editor-toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
   <script>
-    if (typeof hljs !== 'undefined') {
-      hljs.highlightElement(document.getElementById('code-content'));
-    }
+    (async function () {
+      if (typeof hljs === 'undefined') return;
+      const lang = ${JSON.stringify(lang)};
+      const codeEl = document.getElementById('code-content');
+      // 主包未带的语言，从 CDN 动态注册子包
+      if (lang !== 'plaintext' && !hljs.getLanguage(lang)) {
+        await new Promise((resolve) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/languages/' + lang + '.min.js';
+          s.onload = resolve;
+          s.onerror = resolve; // 失败也降级到无高亮
+          document.head.appendChild(s);
+        });
+      }
+      hljs.highlightElement(codeEl);
+    })();
   </script>
   ${toolbarScript()}
   ${editorScript('code-preview-host', false, '')}
