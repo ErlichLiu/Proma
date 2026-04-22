@@ -16,7 +16,18 @@ import { useStickToBottomContext } from 'use-stick-to-bottom'
 import { useAtomValue } from 'jotai'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { userProfileAtom } from '@/atoms/user-profile'
+import { stickyUserMessageEnabledAtom } from '@/atoms/ui-preferences'
+import { MessageResponse, remarkMentions } from './message'
+import type { RemarkPluginFn } from './message'
 import { cn } from '@/lib/utils'
+
+/** 悬浮条专用 remark 插件（仅 mention，不保留换行） */
+const STICKY_REMARK_PLUGINS: RemarkPluginFn[] = [remarkMentions]
+
+/** 去除 fenced code block，替换为 [code] 占位符 */
+function stripCodeBlocks(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, ' [code] ')
+}
 
 interface StickyAttachment {
   filename: string
@@ -36,6 +47,7 @@ interface StickyUserMessageProps {
 export function StickyUserMessage({ userMessages }: StickyUserMessageProps): React.ReactElement {
   const { scrollRef, stopScroll, state: stickyState } = useStickToBottomContext()
   const userProfile = useAtomValue(userProfileAtom)
+  const stickyEnabled = useAtomValue(stickyUserMessageEnabledAtom)
 
   // 当前悬浮展示的消息
   const [stickyMessage, setStickyMessage] = React.useState<UserMessageData | null>(null)
@@ -51,7 +63,7 @@ export function StickyUserMessage({ userMessages }: StickyUserMessageProps): Rea
 
   React.useEffect(() => {
     const el = scrollRef.current
-    if (!el || userMessages.length === 0) {
+    if (!el || userMessages.length === 0 || !stickyEnabled) {
       setStickyMessage(null)
       return
     }
@@ -97,7 +109,7 @@ export function StickyUserMessage({ userMessages }: StickyUserMessageProps): Rea
       resizeObserver.disconnect()
       cancelAnimationFrame(rafId)
     }
-  }, [scrollRef, userMessages, messageMap])
+  }, [scrollRef, userMessages, messageMap, stickyEnabled])
 
   // 点击回滚到原始消息
   const scrollToOriginal = React.useCallback(() => {
@@ -121,6 +133,7 @@ export function StickyUserMessage({ userMessages }: StickyUserMessageProps): Rea
   const isSticky = stickyMessage !== null
   const hasContent = stickyMessage && (stickyMessage.text || stickyMessage.attachments.length > 0)
 
+  if (!stickyEnabled) return <></>
   if (!hasContent && !isSticky) return <></>
 
   return (
@@ -146,9 +159,16 @@ export function StickyUserMessage({ userMessages }: StickyUserMessageProps): Rea
               <ChevronUp className="size-3 text-muted-foreground ml-auto" />
             </div>
 
-            {/* 文本内容：最多两行 */}
+            {/* 文本内容：最多两行，支持 Markdown 渲染 */}
             {stickyMessage?.text && (
-              <p className="text-sm text-foreground/80 line-clamp-2 leading-relaxed">{stickyMessage.text}</p>
+              <div className="text-sm text-foreground/80 line-clamp-2 leading-relaxed [&>div]:inline">
+                <MessageResponse
+                  className="prose-p:my-0 prose-p:inline prose-headings:my-0 prose-headings:text-sm prose-pre:hidden prose-ul:my-0 prose-ol:my-0"
+                  remarkPlugins={STICKY_REMARK_PLUGINS}
+                >
+                  {stripCodeBlocks(stickyMessage.text)}
+                </MessageResponse>
+              </div>
             )}
 
             {/* 附件 badges */}

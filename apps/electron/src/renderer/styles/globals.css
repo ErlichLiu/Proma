@@ -112,7 +112,7 @@
 
   /* 苍穹暮色 (ocean-dark) */
   .theme-ocean-dark {
-    --background: 210 35% 11%;            /* #121c26 背景（侧边栏） */
+    --background: 210 35% 13%;            /* #182434 背景（侧边栏） */
     --foreground: 210 20% 92%;            /* #e7ebef 前景文字 */
     --content-area: 210 40% 8%;           /* #0c141d 内容区域 */
     --muted: 210 30% 14%;                 /* #19242e 次要背景 */
@@ -779,4 +779,14 @@
 .prose code::before,
 .prose code::after {
   content: none;
+}
+
+/* ===== FileBrowser 自动定位的高亮脉冲 ===== */
+@keyframes file-browser-flash {
+  0%   { background-color: hsl(var(--primary) / 0.18); }
+  50%  { background-color: hsl(var(--primary) / 0.22); }
+  100% { background-color: transparent; }
+}
+.file-browser-row-flash {
+  animation: file-browser-flash 1.2s ease-out;
 }

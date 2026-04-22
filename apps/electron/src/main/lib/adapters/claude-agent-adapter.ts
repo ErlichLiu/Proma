@@ -19,6 +19,7 @@ import type {
   SDKMessage,
 } from '@proma/shared'
 import type { CanUseToolOptions, PermissionResult } from '../agent-permission-service'
+import { TRANSIENT_NETWORK_PATTERN } from '../error-patterns'
 
 /** SDK Query 对象类型（从动态导入中推断） */
 type SDKQuery = ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').query>
@@ -261,6 +262,27 @@ export function mapSDKErrorToTypedError(
     },
   }
 
+  // 瞬时网络错误（terminated / ECONNRESET / socket hang up 等）：
+  // assistant.error 路径下，SDK 常常把这类错误标记为 errorType='unknown'，
+  // 这里从 detailedMessage / originalError 兜底匹配，归类为可重试的 network_error。
+  const looksLikeNetwork =
+    (!errorMap[errorCode]) &&
+    (TRANSIENT_NETWORK_PATTERN.test(detailedMessage ?? '') || TRANSIENT_NETWORK_PATTERN.test(originalError ?? ''))
+  if (looksLikeNetwork) {
+    return {
+      code: 'network_error',
+      title: '网络异常',
+      message: detailedMessage || '上游 API 连接中断',
+      actions: [
+        { key: 's', label: '设置', action: 'settings' },
+        { key: 'r', label: '重试', action: 'retry' },
+      ],
+      canRetry: true,
+      retryDelayMs: 1000,
+      originalError,
+    }
+  }
+
   const mapped = errorMap[errorCode] || {
     code: 'unknown_error' as ErrorCode,
     title: '',
@@ -358,6 +380,26 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
     if (controller) {
       controller.abort()
       activeControllers.delete(sessionId)
+    }
+  }
+
+  /**
+   * 软中断当前 turn（用户流式追加并要求立即打断时使用）。
+   *
+   * 调用 SDK 的 query.interrupt()：停止当前 turn 但保留子进程与消息通道。
+   * 调用后 SDK 会 yield 一条 result（subtype: 'interrupt'），随后从 channel
+   * 继续读取下一条用户输入——此方法通常紧跟 sendQueuedMessage() 使用。
+   *
+   * 若查询已不存在（如已经 abort 过），静默返回。
+   */
+  async interruptQuery(sessionId: string): Promise<void> {
+    const query = activeQueries.get(sessionId)
+    if (!query) return
+    try {
+      await query.interrupt()
+      console.log(`[Claude 适配器] 已软中断当前 turn: sessionId=${sessionId}`)
+    } catch (error) {
+      console.warn(`[Claude 适配器] 软中断失败: sessionId=${sessionId}`, error)
     }
   }
 
@@ -504,17 +546,27 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
 
         // 捕获 result 中的 contextWindow
         if (msg.type === 'result') {
-          const resultMsg = msg as { modelUsage?: Record<string, { contextWindow?: number }> }
+          const resultMsg = msg as {
+            modelUsage?: Record<string, { contextWindow?: number }>
+            terminal_reason?: string
+          }
           if (resultMsg.modelUsage) {
             const firstEntry = Object.values(resultMsg.modelUsage)[0]
             if (firstEntry?.contextWindow) {
               options.onContextWindow?.(firstEntry.contextWindow)
             }
           }
-          // result 表示当前轮次完成，关闭消息通道让 SDK 自然调用 endInput() 关闭 stdin。
-          // 子进程检测到 stdin EOF 后会退出，readMessages() 结束，iterator 返回 done:true。
-          // 注意：prompt_suggestion 等尾部消息仍会通过 stdout 正常传递，不受影响。
-          channel.close()
+          // 被软中断（query.interrupt()）产生的 result：不关闭通道，
+          // 让 SDK 继续读取通道中已排队的下一条用户消息并开启新一轮 turn。
+          const wasAborted =
+            resultMsg.terminal_reason === 'aborted_streaming' ||
+            resultMsg.terminal_reason === 'aborted_tools'
+          if (!wasAborted) {
+            // result 表示当前轮次完成，关闭消息通道让 SDK 自然调用 endInput() 关闭 stdin。
+            // 子进程检测到 stdin EOF 后会退出，readMessages() 结束，iterator 返回 done:true。
+            // 注意：prompt_suggestion 等尾部消息仍会通过 stdout 正常传递，不受影响。
+            channel.close()
+          }
         }
 
         yield sdkMessage as SDKMessage

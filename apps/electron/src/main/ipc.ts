@@ -667,6 +667,19 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 同步更新应用设置（用于 beforeunload 场景）
+  ipcMain.on(
+    SETTINGS_IPC_CHANNELS.UPDATE_SYNC,
+    (event, updates: Partial<AppSettings>) => {
+      try {
+        updateSettings(updates)
+        event.returnValue = true
+      } catch {
+        event.returnValue = false
+      }
+    }
+  )
+
   // 获取系统主题（是否深色模式）
   ipcMain.handle(
     SETTINGS_IPC_CHANNELS.GET_SYSTEM_THEME,
@@ -1635,12 +1648,12 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  // 在新窗口中预览文件（允许任意绝对路径）
+  // 在新窗口中预览文件（允许任意绝对路径；相对路径按 basePaths 依次解析）
   ipcMain.handle(
     AGENT_IPC_CHANNELS.PREVIEW_FILE,
-    async (_, filePath: string): Promise<void> => {
+    async (_, filePath: string, basePaths?: string[]): Promise<void> => {
       const { openFilePreview } = await import('./lib/file-preview-service')
-      openFilePreview(filePath)
+      openFilePreview(filePath, basePaths)
     }
   )
 
@@ -1717,12 +1730,13 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  // 用系统默认应用打开附加目录文件（无工作区路径限制）
+  // 在 Proma 内置预览窗口打开附加目录文件（无工作区路径限制；
+  // 不支持的格式由 openFilePreview 内部 fallback 到系统默认应用）
   ipcMain.handle(
     AGENT_IPC_CHANNELS.OPEN_ATTACHED_FILE,
     async (_, filePath: string): Promise<void> => {
-      const { resolve } = await import('node:path')
-      await shell.openPath(resolve(filePath))
+      const { openFilePreview } = await import('./lib/file-preview-service')
+      openFilePreview(filePath)
     }
   )
 

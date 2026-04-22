@@ -85,6 +85,16 @@ export function TabBarItem({
   }
 
   const Icon = type === 'chat' ? MessageSquare : Bot
+  const indicatorColor = isStreaming !== 'idle'
+    ? isStreaming === 'completed'
+      ? 'bg-green-500'
+      : isStreaming === 'blocked'
+        ? 'bg-orange-500'
+        : type === 'chat'
+          ? 'bg-emerald-500'
+          : 'bg-blue-500'
+    : undefined
+  const indicatorPulse = isStreaming === 'running' || isStreaming === 'blocked'
   const previewItems = minimapCache.get(id) ?? []
   // 当前 active Tab 不显示预览面板
   const showPreview = isHovered && !isActive
@@ -110,7 +120,7 @@ export function TabBarItem({
         onMouseDown={handleMouseDown}
         onPointerDown={onDragStart}
       >
-        {/* 类型图标（窄状态下放大） */}
+        {/* 类型图标 */}
         <Icon className={cn('shrink-0', isNarrow ? 'size-3.5' : 'size-3')} />
 
         {/* 标题（窄状态下隐藏，用 spacer 撑开让关闭按钮靠右） */}
@@ -118,22 +128,6 @@ export function TabBarItem({
           <span className="flex-1" />
         ) : (
           <span className="flex-1 min-w-0 truncate text-left">{title}</span>
-        )}
-
-        {/* 流式/状态指示器（窄状态下隐藏） */}
-        {isStreaming !== 'idle' && !isNarrow && (
-          <span
-            className={cn(
-              'size-1.5 rounded-full shrink-0',
-              isStreaming === 'completed'
-                ? 'bg-green-500'
-                : isStreaming === 'blocked'
-                  ? 'bg-orange-500 animate-pulse'
-                  : type === 'chat'
-                    ? 'bg-emerald-500 animate-pulse'
-                    : 'bg-blue-500 animate-pulse'
-            )}
-          />
         )}
 
         {/* 关闭按钮 */}
@@ -152,6 +146,18 @@ export function TabBarItem({
         >
           <X className="size-2.5" />
         </span>
+
+        {/* 底部状态横线条 */}
+        {indicatorColor && (
+          <span
+            className={cn(
+              'absolute left-2 right-2 bottom-0 h-[2px] rounded-full pointer-events-none',
+              indicatorColor,
+              indicatorPulse && 'animate-pulse',
+            )}
+            aria-hidden="true"
+          />
+        )}
       </button>
 
       {/* 悬浮预览面板（Portal 渲染到 body） */}

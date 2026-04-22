@@ -253,6 +253,9 @@ export interface ElectronAPI {
   /** 更新应用设置 */
   updateSettings: (updates: Partial<AppSettings>) => Promise<AppSettings>
 
+  /** 同步更新应用设置（用于 beforeunload 场景） */
+  updateSettingsSync: (updates: Partial<AppSettings>) => boolean
+
   /** 获取系统主题（是否深色模式） */
   getSystemTheme: () => Promise<boolean>
 
@@ -540,8 +543,8 @@ export interface ElectronAPI {
   /** 在系统文件管理器中显示文件 */
   showInFolder: (filePath: string) => Promise<void>
 
-  /** 在新窗口中预览文件 */
-  previewFile: (filePath: string) => Promise<void>
+  /** 在新窗口中预览文件（相对路径会按 basePaths 依次解析） */
+  previewFile: (filePath: string, basePaths?: string[]) => Promise<void>
 
   /** 重命名文件/目录 */
   renameFile: (filePath: string, newName: string) => Promise<void>
@@ -940,6 +943,10 @@ const electronAPI: ElectronAPI = {
 
   updateSettings: (updates: Partial<AppSettings>) => {
     return ipcRenderer.invoke(SETTINGS_IPC_CHANNELS.UPDATE, updates)
+  },
+
+  updateSettingsSync: (updates: Partial<AppSettings>) => {
+    return ipcRenderer.sendSync(SETTINGS_IPC_CHANNELS.UPDATE_SYNC, updates)
   },
 
   getSystemTheme: () => {
@@ -1346,8 +1353,8 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.SHOW_IN_FOLDER, filePath)
   },
 
-  previewFile: (filePath: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.PREVIEW_FILE, filePath)
+  previewFile: (filePath: string, basePaths?: string[]) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.PREVIEW_FILE, filePath, basePaths)
   },
 
   renameFile: (filePath: string, newName: string) => {

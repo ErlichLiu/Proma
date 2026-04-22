@@ -17,6 +17,7 @@ import {
   MessageActions,
   MessageResponse,
   UserMessageContent,
+  BasePathsProvider,
 } from '@/components/ai-elements/message'
 import {
   Conversation,
@@ -40,7 +41,7 @@ import { ScrollPositionManager } from '@/hooks/useScrollPositionMemory'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { groupIntoTurns, MessageGroupRenderer, getGroupId, getGroupPreview, extractUserText, parseAttachedFiles as sdkParseAttachedFiles, isImageFile as sdkIsImageFile, type MessageGroup } from './SDKMessageRenderer'
+import { groupIntoTurns, MessageGroupRenderer, getGroupId, getGroupPreview, extractUserText, parseAttachedFiles as sdkParseAttachedFiles, isImageFile as sdkIsImageFile, CompactingIndicator, type MessageGroup } from './SDKMessageRenderer'
 import type { AgentMessage, AgentEventUsage, RetryAttempt, SDKMessage } from '@proma/shared'
 import type { ToolActivity, AgentStreamState } from '@/atoms/agent-atoms'
 
@@ -60,6 +61,8 @@ interface AgentMessagesProps {
   liveMessages?: SDKMessage[]
   /** 当前会话工作目录，用于解析相对文件路径 */
   sessionPath?: string | null
+  /** 附加目录列表（与 sessionPath 一并用作相对路径解析候选） */
+  attachedDirs?: string[]
   /** 最后一轮是否被用户中断 */
   stoppedByUser?: boolean
   onRetry?: () => void
@@ -456,12 +459,13 @@ function RetryAttemptItem({
 interface AgentMessageItemProps {
   message: AgentMessage
   sessionPath?: string | null
+  attachedDirs?: string[]
   onRetry?: () => void
   onRetryInNewSession?: () => void
   onCompact?: () => void
 }
 
-function AgentMessageItem({ message, sessionPath, onRetry, onRetryInNewSession, onCompact }: AgentMessageItemProps): React.ReactElement | null {
+function AgentMessageItem({ message, sessionPath, attachedDirs, onRetry, onRetryInNewSession, onCompact }: AgentMessageItemProps): React.ReactElement | null {
   const userProfile = useAtomValue(userProfileAtom)
   const channels = useAtomValue(channelsAtom)
 
@@ -517,7 +521,7 @@ function AgentMessageItem({ message, sessionPath, onRetry, onRetryInNewSession, 
           )}
           <ToolResultInlineImages activities={toolActivities} />
           {message.content && (
-            <MessageResponse basePath={sessionPath || undefined}>{message.content}</MessageResponse>
+            <MessageResponse basePath={sessionPath || undefined} basePaths={attachedDirs}>{message.content}</MessageResponse>
           )}
         </MessageContent>
         {/* 操作栏：左侧靠左排列 */}
@@ -650,7 +654,7 @@ function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.Rea
   )
 }
 
-export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact }: AgentMessagesProps): React.ReactElement {
+export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, attachedDirs, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact }: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
   const channels = useAtomValue(channelsAtom)
@@ -728,6 +732,12 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
     const liveSet = new Set(live)
     return [...persisted.filter(m => !liveSet.has(m)), ...live]
   }, [persistedSDKMessages, liveMessages])
+
+  // 压缩流程进行中（含收尾窗口：compact_boundary 已到但 result 未到）
+  // → 一律抑制 AgentRunningIndicator，避免压缩分隔符切换期间闪烁。
+  // compactInFlight 从点击压缩 / SDK compacting 事件开始为 true，
+  // 直到整个 stream 结束（stream state 被删除）才消失。
+  const suppressAgentRunning = streamState?.isCompacting || streamState?.compactInFlight
 
   // 统一分组：将持久化 + 实时消息合并后再分组，确保 system 消息（如压缩分割线）出现在正确位置
   const allGroups = React.useMemo(() => {
@@ -823,6 +833,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
   const hasLiveAssistantContent = allGroups.some((g) => g.type === 'assistant-turn' && liveGroupSet.has(g))
 
   return (
+    <BasePathsProvider basePaths={attachedDirs}>
     <Conversation resize={ready && !transitioning ? 'smooth' : 'instant'} className={ready ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'}>
       <ScrollPositionManager id={sessionId} ready={ready} />
       <ConversationContent>
@@ -859,6 +870,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
                   <AgentMessageItem
                     message={msg}
                     sessionPath={sessionPath}
+                    attachedDirs={attachedDirs}
                     onRetry={onRetry}
                     onRetryInNewSession={onRetryInNewSession}
                     onCompact={onCompact}
@@ -868,7 +880,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
             )}
 
             {/* 有实时助手内容时：显示运行指示器或占位（防止 streaming 结束到 Actions Bar 出现之间的高度跳动） */}
-            {hasLiveAssistantContent && (
+            {hasLiveAssistantContent && !suppressAgentRunning && (
               <div className="pl-[56px] mt-0.5 min-h-[28px]">
                 {retrying && <RetryingNotice retrying={retrying} />}
                 {streaming && <AgentRunningIndicator startedAt={startedAt} />}
@@ -877,7 +889,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
 
             {/* 无实时助手内容时：显示完整气泡（含头像/名称/时间） */}
             {/* 注意：工具活动已通过 SDK 渲染路径（liveGroups）展示，此处不再使用 ToolActivityList */}
-            {!hasLiveAssistantContent && (streaming || smoothContent || retrying) && (
+            {!hasLiveAssistantContent && !suppressAgentRunning && (streaming || smoothContent || retrying) && (
               <Message from="assistant">
                 <MessageHeader
                   model={agentStreamingModel}
@@ -888,7 +900,7 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
                   {retrying && <RetryingNotice retrying={retrying} />}
                   {smoothContent ? (
                     <>
-                      <MessageResponse basePath={sessionPath || undefined}>{smoothContent}</MessageResponse>
+                      <MessageResponse basePath={sessionPath || undefined} basePaths={attachedDirs}>{smoothContent}</MessageResponse>
                       {streaming && <AgentRunningIndicator startedAt={startedAt} />}
                     </>
                   ) : (
@@ -897,6 +909,10 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
                 </MessageContent>
               </Message>
             )}
+
+            {/* 压缩中指示器：由 isCompacting flag 驱动的尾部元素，compact_boundary 到达时 flag 翻 false 自然消失，
+                视觉上被流中新出现的"上下文已压缩"分隔符无缝替换 */}
+            {streamState?.isCompacting && <CompactingIndicator />}
 
           </>
         )}
@@ -907,5 +923,6 @@ export function AgentMessages({ sessionId, sessionModelId, messages, messagesLoa
         <StickyUserMessage userMessages={allUserMessagesData} />
       )}
     </Conversation>
+    </BasePathsProvider>
   )
 }

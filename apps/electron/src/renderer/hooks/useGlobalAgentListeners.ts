@@ -21,6 +21,9 @@ import {
   agentPromptSuggestionsAtom,
   backgroundTasksAtomFamily,
   agentSidePanelOpenMapAtom,
+  fileBrowserAutoRevealAtom,
+  recentlyModifiedPathsAtom,
+  RECENTLY_MODIFIED_TTL_MS,
   applyAgentEvent,
   liveMessagesMapAtom,
   agentSessionModelMapAtom,
@@ -32,6 +35,7 @@ import {
   currentAgentSessionIdAtom,
   currentAgentWorkspaceIdAtom,
   unviewedCompletedSessionIdsAtom,
+  workingDoneSessionIdsAtom,
 } from '@/atoms/agent-atoms'
 import {
   notificationsEnabledAtom,
@@ -40,16 +44,34 @@ import {
   sendDesktopNotification,
 } from '@/atoms/notifications'
 import { appModeAtom } from '@/atoms/app-mode'
-import { tabsAtom, splitLayoutAtom, openTab, updateTabTitle } from '@/atoms/tab-atoms'
+import { tabsAtom, activeTabIdAtom, openTab, updateTabTitle } from '@/atoms/tab-atoms'
 import type { AgentStreamState } from '@/atoms/agent-atoms'
 import type { NotificationSoundType } from '@/types/settings'
 import { toast } from 'sonner'
 import type { AgentStreamEvent, AgentStreamCompletePayload, AgentEvent, AgentStreamPayload, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, SDKContentBlock, SDKUserContentBlock } from '@proma/shared'
 
+/** 触发右侧文件浏览器自动定位的写入类工具集合 */
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Update'])
+
 // ============================================================================
 // Phase 1 临时兼容层：将 AgentStreamPayload 转换为旧 AgentEvent
 // Phase 2 将移除此转换，直接使用 SDKMessage 渲染
 // ============================================================================
+
+/**
+ * 按模型名推断 contextWindow。SDK 流式过程中不返回此字段，
+ * 只有 result 消息的 modelUsage 才带（且部分渠道不返回）。
+ * 这里提供一个按模型家族的 fallback，保证进度环永远有分母可用。
+ */
+function inferContextWindow(model?: string): number | undefined {
+  if (!model) return undefined
+  const m = model.toLowerCase()
+  // Claude Haiku 为 200k
+  if (m.includes('claude-haiku')) return 200_000
+  // Claude Sonnet 4.6、Opus 4.6 以及 Opus 4.7 均为 1M 上下文
+  if (m.includes('claude-sonnet-4-6') || m.includes('claude-opus-4-6') || m.includes('claude-opus-4-7')) return 1_000_000
+  return 200_000
+}
 
 function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
   if (payload.kind === 'proma_event') {
@@ -132,6 +154,9 @@ function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
       if (!aMsg.parent_tool_use_id && aMsg.message.usage) {
         const u = aMsg.message.usage
         const inputTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+        // 流式过程中 SDK 不返回 contextWindow，按模型名推断一个默认值作为 fallback
+        const modelName = aMsg.message.model ?? aMsg._channelModelId
+        const fallbackWindow = inferContextWindow(modelName)
         events.push({
           type: 'usage_update',
           usage: {
@@ -139,6 +164,7 @@ function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
             outputTokens: u.output_tokens,
             cacheReadTokens: u.cache_read_input_tokens,
             cacheCreationTokens: u.cache_creation_input_tokens,
+            ...(fallbackWindow ? { contextWindow: fallbackWindow } : {}),
           },
         })
       }
@@ -257,10 +283,9 @@ export function useGlobalAgentListeners(): void {
     /** 构建导航到指定会话的回调 */
     const makeNavigateToSession = (sessionId: string, sessionTitle: string) => () => {
       const tabs = store.get(tabsAtom)
-      const layout = store.get(splitLayoutAtom)
-      const result = openTab(tabs, layout, { type: 'agent', sessionId, title: sessionTitle })
+      const result = openTab(tabs, { type: 'agent', sessionId, title: sessionTitle })
       store.set(tabsAtom, result.tabs)
-      store.set(splitLayoutAtom, result.layout)
+      store.set(activeTabIdAtom, result.activeTabId)
       store.set(appModeAtom, 'agent')
       store.set(currentAgentSessionIdAtom, sessionId)
       const sessions = store.get(agentSessionsAtom)
@@ -306,15 +331,39 @@ export function useGlobalAgentListeners(): void {
     }).catch(console.error)
 
     // ===== 1. 流式事件 =====
+    // [FLASH-DEBUG] 事件频率计数器
+    let eventCount = 0
+    let lastLogTime = Date.now()
     const cleanupEvent = window.electronAPI.onAgentStreamEvent(
       (streamEvent: AgentStreamEvent) => {
+        // [FLASH-DEBUG] 每 2 秒输出一次事件频率
+        eventCount++
+        const now = Date.now()
+        if (now - lastLogTime >= 2000) {
+          console.log(`[FLASH-DEBUG] GlobalListener: ${eventCount} events in ${((now - lastLogTime) / 1000).toFixed(1)}s (${(eventCount / ((now - lastLogTime) / 1000)).toFixed(1)} evt/s)`)
+          eventCount = 0
+          lastLogTime = now
+        }
+
         unstable_batchedUpdates(() => {
         const { sessionId, payload } = streamEvent
+
+        // 如果收到未知会话的事件（跨工作区场景），立即刷新会话列表
+        const knownSessions = store.get(agentSessionsAtom)
+        if (!knownSessions.some((s) => s.id === sessionId)) {
+          window.electronAPI.listAgentSessions()
+            .then((sessions) => store.set(agentSessionsAtom, sessions))
+            .catch(console.error)
+        }
 
         // Phase 2: 直接累积 SDKMessage 到 liveMessagesMapAtom（跳过 replay 消息，避免与持久化消息重复）
         if (payload.kind === 'sdk_message') {
           const msgRecord = payload.message as Record<string, unknown>
-          if (!msgRecord.isReplay) {
+          // prompt_suggestion 不是对话转录消息，不能进入 liveMessages（会被错误渲染到最后一条助手消息中）
+          // 它通过下方 legacyEvents 分支写入 agentPromptSuggestionsAtom，显示在输入框上方
+          if (msgRecord.type === 'prompt_suggestion') {
+            // 跳过写入 liveMessages
+          } else if (!msgRecord.isReplay) {
             // 为实时消息补充 _createdAt 时间戳（与持久化时的逻辑一致），
             // 避免 AssistantTurnRenderer 因缺少时间戳导致 header 时间消失
             if (typeof msgRecord._createdAt !== 'number') {
@@ -348,6 +397,19 @@ export function useGlobalAgentListeners(): void {
         const legacyEvents = payloadToLegacyEvents(payload)
 
         for (const event of legacyEvents) {
+          // 会话首次进入 running 时，从 Working Done 集合移除（它会出现在 Running 组）
+          if (event.type !== 'prompt_suggestion') {
+            const prevState = store.get(agentStreamingStatesAtom).get(sessionId)
+            if (!prevState || !prevState.running) {
+              store.set(workingDoneSessionIdsAtom, (prev: Set<string>) => {
+                if (!prev.has(sessionId)) return prev
+                const next = new Set(prev)
+                next.delete(sessionId)
+                return next
+              })
+            }
+          }
+
           // 更新流式状态（prompt_suggestion 不影响流式状态，跳过以避免在 session 结束后用默认值 running:true 重新激活）
           if (event.type !== 'prompt_suggestion') {
             store.set(agentStreamingStatesAtom, (prev) => {
@@ -378,6 +440,27 @@ export function useGlobalAgentListeners(): void {
               map.set(sessionId, true)
               return map
             })
+          }
+
+          // Agent 修改文件时，触发右侧文件浏览器自动定位（展开父目录 + 滚动 + 高亮）
+          if (event.type === 'tool_start' && WRITE_TOOLS.has(event.toolName)) {
+            const input = event.input as Record<string, unknown> | undefined
+            const targetPath =
+              (input?.file_path as string | undefined)
+              ?? (input?.path as string | undefined)
+              ?? (input?.notebook_path as string | undefined)
+            if (typeof targetPath === 'string' && targetPath.length > 0) {
+              const now = Date.now()
+              store.set(fileBrowserAutoRevealAtom, { sessionId, path: targetPath, ts: now })
+              // 同时记入「最近修改」状态，用于 60s 内左侧竖条标记
+              store.set(recentlyModifiedPathsAtom, (prev) => {
+                const map = new Map(prev)
+                const inner = new Map(map.get(sessionId) ?? new Map())
+                inner.set(targetPath, now)
+                map.set(sessionId, inner)
+                return map
+              })
+            }
           }
 
           // 处理后台任务事件
@@ -517,6 +600,7 @@ export function useGlobalAgentListeners(): void {
     // ===== 2. 流式完成 =====
     const cleanupComplete = window.electronAPI.onAgentStreamComplete(
       (data: AgentStreamCompletePayload) => {
+        console.log(`[FLASH-DEBUG] STREAM_COMPLETE for session=${data.sessionId.slice(0, 8)}, stoppedByUser=${data.stoppedByUser}, resultSubtype=${data.resultSubtype}`)
         unstable_batchedUpdates(() => {
         // 发送桌面通知（任务完成，始终播放提示音）
         const enabled = store.get(notificationsEnabledAtom)
@@ -565,6 +649,13 @@ export function useGlobalAgentListeners(): void {
             return next
           })
         }
+
+        // 添加到 Working Done 集合（保持到 Tab 关闭）
+        store.set(workingDoneSessionIdsAtom, (prev: Set<string>) => {
+          const next = new Set(prev)
+          next.add(data.sessionId)
+          return next
+        })
 
         // 标记用户主动打断状态
         if (data.stoppedByUser) {
@@ -688,11 +779,31 @@ export function useGlobalAgentListeners(): void {
         .catch(console.error)
     })
 
+    // 定期清理 60s 前的「最近修改」标记，避免 atom 无限增长
+    const pruneTimer = setInterval(() => {
+      const cutoff = Date.now() - RECENTLY_MODIFIED_TTL_MS
+      store.set(recentlyModifiedPathsAtom, (prev) => {
+        let changed = false
+        const next = new Map<string, Map<string, number>>()
+        for (const [sid, inner] of prev) {
+          const filtered = new Map<string, number>()
+          for (const [p, t] of inner) {
+            if (t > cutoff) filtered.set(p, t)
+            else changed = true
+          }
+          if (filtered.size > 0) next.set(sid, filtered)
+          else changed = true
+        }
+        return changed ? next : prev
+      })
+    }, 15_000)
+
     return () => {
       cleanupEvent()
       cleanupComplete()
       cleanupError()
       cleanupTitleUpdated()
+      clearInterval(pruneTimer)
     }
   }, [store]) // store 引用稳定，effect 只执行一次
 }
