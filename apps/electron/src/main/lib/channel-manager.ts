@@ -240,6 +240,7 @@ export async function testChannel(channelId: string): Promise<ChannelTestResult>
       case 'anthropic':
         return await testAnthropic(channel.baseUrl, apiKey, proxyUrl)
       case 'openai':
+      case 'openai-responses':
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
@@ -359,6 +360,7 @@ export async function testChannelDirect(input: FetchModelsInput): Promise<Channe
       case 'anthropic':
         return await testAnthropic(input.baseUrl, input.apiKey, proxyUrl)
       case 'openai':
+      case 'openai-responses':
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
@@ -394,6 +396,7 @@ export async function fetchModels(input: FetchModelsInput): Promise<FetchModelsR
       case 'anthropic':
         return await fetchAnthropicModels(input.baseUrl, input.apiKey, proxyUrl)
       case 'openai':
+      case 'openai-responses':
       case 'deepseek':
       case 'moonshot':
       case 'zhipu':
