@@ -1,0 +1,32 @@
+{
+  "name": "@proma/core",
+  "version": "0.2.9",
+  "license": "Apache-2.0",
+  "description": "proma core types,storage and core logic with agents",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts",
+    "./utils": "./src/utils/index.ts",
+    "./providers": "./src/providers/index.ts",
+    "./highlight": "./src/highlight/index.ts"
+  },
+  "dependencies": {
+    "@proma/shared": "workspace:*",
+    "shiki": "^3.22.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": ">=0.2.123",
+    "@anthropic-ai/sdk": ">=0.70.0",
+    "@modelcontextprotocol/sdk": ">=1.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/uuid": "^11.0.0"
+  }
+}
