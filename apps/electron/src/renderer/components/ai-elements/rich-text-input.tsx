@@ -391,6 +391,22 @@ export function RichTextInput({
           return true
         },
       },
+      transformPastedHTML: (html: string) => {
+        // 去除粘贴 HTML 中的链接标签，防止链接 mark 粘性扩散到后续输入
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        const links = doc.querySelectorAll('a')
+        if (links.length === 0) return html
+        links.forEach((a) => {
+          const parent = a.parentNode
+          if (parent) {
+            while (a.firstChild) {
+              parent.insertBefore(a.firstChild, a)
+            }
+            parent.removeChild(a)
+          }
+        })
+        return doc.body.innerHTML
+      },
       handlePaste: (view, event) => {
         // 拦截粘贴的文件（图片等）
         const clipboardItems = event.clipboardData?.files
