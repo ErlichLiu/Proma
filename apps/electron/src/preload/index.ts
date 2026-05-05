@@ -115,8 +115,10 @@ import type {
   VoiceDictationStopInput,
   VoiceDictationTestResult,
   VoiceDictationTranscriptEvent,
+  TrayCreateSessionData,
+  TrayOpenAgentSessionData,
 } from '../types'
-import { QUICK_TASK_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS } from '../types'
+import { QUICK_TASK_IPC_CHANNELS, TRAY_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS } from '../types'
 
 /**
  * 暴露给渲染进程的 API 接口定义
@@ -827,6 +829,13 @@ export interface ElectronAPI {
   onVoiceDictationState: (callback: (event: VoiceDictationStateEvent) => void) => () => void
   /** 订阅主窗口插入语音文本事件 */
   onVoiceDictationInsertText: (callback: (data: { text: string }) => void) => () => void
+
+  // ===== 菜单栏 =====
+
+  /** 订阅菜单栏打开 Agent 会话事件 */
+  onTrayOpenAgentSession: (callback: (data: TrayOpenAgentSessionData) => void) => () => void
+  /** 订阅菜单栏创建会话事件 */
+  onTrayCreateSession: (callback: (data: TrayCreateSessionData) => void) => () => void
 }
 
 /**
@@ -1853,6 +1862,18 @@ const electronAPI: ElectronAPI = {
     const listener = (_: unknown, data: { text: string }): void => callback(data)
     ipcRenderer.on(VOICE_DICTATION_IPC_CHANNELS.INSERT_TEXT, listener)
     return () => { ipcRenderer.removeListener(VOICE_DICTATION_IPC_CHANNELS.INSERT_TEXT, listener) }
+  },
+
+  onTrayOpenAgentSession: (callback: (data: TrayOpenAgentSessionData) => void) => {
+    const listener = (_: unknown, data: TrayOpenAgentSessionData): void => callback(data)
+    ipcRenderer.on(TRAY_IPC_CHANNELS.OPEN_AGENT_SESSION, listener)
+    return () => { ipcRenderer.removeListener(TRAY_IPC_CHANNELS.OPEN_AGENT_SESSION, listener) }
+  },
+
+  onTrayCreateSession: (callback: (data: TrayCreateSessionData) => void) => {
+    const listener = (_: unknown, data: TrayCreateSessionData): void => callback(data)
+    ipcRenderer.on(TRAY_IPC_CHANNELS.CREATE_SESSION, listener)
+    return () => { ipcRenderer.removeListener(TRAY_IPC_CHANNELS.CREATE_SESSION, listener) }
   },
 }
 

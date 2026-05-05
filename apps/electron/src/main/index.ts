@@ -64,6 +64,7 @@ import {
   shouldSuppressVoiceDictationActivate,
 } from './lib/voice-dictation-window'
 import { registerGlobalShortcut, unregisterAllGlobalShortcuts } from './lib/global-shortcut-service'
+import { TRAY_IPC_CHANNELS } from '../types'
 
 // ===== Bridge 注册（新增 Bridge 只需在此添加一个 registerBridge 调用） =====
 
@@ -134,6 +135,10 @@ function ensureWindowOnScreen(win: BrowserWindow): void {
 
 /** 显示并聚焦主窗口，确保窗口在可见区域；若窗口已销毁则重新创建 */
 function showAndFocusMainWindow(): void {
+  if (process.platform === 'darwin') {
+    app.show()
+  }
+
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow()
     return
@@ -259,6 +264,25 @@ function createWindow(): void {
   })
 }
 
+function sendToMainWindow(channel: string, data?: unknown): void {
+  showAndFocusMainWindow()
+
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+
+  const send = (): void => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, data)
+    }
+  }
+
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
+}
+
 app.whenReady().then(async () => {
   // 初始化运行时环境（Shell 环境 + Bun + Git 检测）
   // 必须在其他初始化之前执行，确保环境变量正确加载
@@ -291,11 +315,22 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Create system tray icon
-  createTray()
-
   // Create main window (will be shown when ready)
   createWindow()
+
+  // Create system tray icon
+  createTray({
+    showMainWindow: showAndFocusMainWindow,
+    openAgentSession: (sessionId, title) => {
+      sendToMainWindow(TRAY_IPC_CHANNELS.OPEN_AGENT_SESSION, { sessionId, title })
+    },
+    createChatSession: () => {
+      sendToMainWindow(TRAY_IPC_CHANNELS.CREATE_SESSION, { mode: 'chat' })
+    },
+    createAgentSession: () => {
+      sendToMainWindow(TRAY_IPC_CHANNELS.CREATE_SESSION, { mode: 'agent' })
+    },
+  })
 
   // 启动工作区文件监听（Agent MCP/Skills + 文件浏览器自动刷新）
   if (mainWindow) {
