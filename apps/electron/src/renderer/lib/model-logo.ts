@@ -91,6 +91,9 @@ import YiDarkLogo from '@/assets/models/yi_dark.png'
 import HunyuanLogo from '@/assets/models/hunyuan.png'
 import HunyuanDarkLogo from '@/assets/models/hunyuan_dark.png'
 
+// Qiniu / 七牛云
+import QiniuLogo from '@/assets/models/qiniu.png'
+
 // Wenxin / 文心 / ERNIE
 import WenxinLogo from '@/assets/models/wenxin.png'
 import WenxinDarkLogo from '@/assets/models/wenxin_dark.png'
@@ -233,6 +236,7 @@ const PROVIDER_LOGO_MAP: Record<ProviderType, string> = {
   anthropic: ClaudeLogo,
   openai: OpenAILogo,
   deepseek: DeepSeekLogo,
+  qiniu: QiniuLogo,
   google: GeminiLogo,
   moonshot: MoonshotLogo,
   'kimi-api': MoonshotLogo,
@@ -257,6 +261,7 @@ const URL_LOGO_MAP: Array<[RegExp, string]> = [
   [/minimax/i, MiniMaxLogo],
   [/volces\.com|volcengine/i, DoubaoLogo],
   [/dashscope|aliyuncs/i, QwenLogo],
+  [/qnaigc\.com/i, QiniuLogo],
   [/deepseek/i, DeepSeekLogo],
   [/anthropic/i, ClaudeLogo],
   [/openai\.com/i, OpenAILogo],

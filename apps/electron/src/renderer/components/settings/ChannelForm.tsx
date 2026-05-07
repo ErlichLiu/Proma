@@ -68,7 +68,7 @@ interface ChannelFormProps {
 }
 
 /** 所有可选供应商 */
-const PROVIDER_OPTIONS: ProviderType[] = ['anthropic', 'openai', 'deepseek', 'google', 'moonshot', 'kimi-api', 'kimi-coding', 'zhipu', 'minimax', 'doubao', 'qwen', 'custom']
+const PROVIDER_OPTIONS: ProviderType[] = ['anthropic', 'openai', 'deepseek', 'qiniu', 'google', 'moonshot', 'kimi-api', 'kimi-coding', 'zhipu', 'minimax', 'doubao', 'qwen', 'custom']
 
 /** 供应商选项（用于 SettingsSelect） */
 const PROVIDER_SELECT_OPTIONS = PROVIDER_OPTIONS.map((p) => ({
@@ -81,6 +81,7 @@ const PROVIDER_CHAT_PATHS: Record<ProviderType, string> = {
   anthropic: '/v1/messages',
   openai: '/chat/completions',
   deepseek: '/messages',
+  qiniu: '/chat/completions',
   google: '/v1beta/models/{model}:generateContent',
   moonshot: '/chat/completions',
   'kimi-api': '/messages',
@@ -246,6 +247,10 @@ export function ChannelForm({ channel, onSaved, onCancel }: ChannelFormProps): R
         setModels([
           { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', enabled: true },
           { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', enabled: true },
+        ])
+      } else if (p === 'qiniu') {
+        setModels([
+          { id: 'deepseek-v3', name: 'deepseek-v3', enabled: true },
         ])
       } else if (p === 'kimi-api') {
         setModels([

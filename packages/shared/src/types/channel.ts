@@ -12,6 +12,7 @@ export type ProviderType =
   | 'anthropic'
   | 'openai'
   | 'deepseek'
+  | 'qiniu'
   | 'google'
   | 'moonshot'
   | 'kimi-api'
@@ -29,6 +30,7 @@ export const PROVIDER_DEFAULT_URLS: Record<ProviderType, string> = {
   anthropic: 'https://api.anthropic.com',
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com/anthropic',
+  qiniu: 'https://api.qnaigc.com/v1',
   google: 'https://generativelanguage.googleapis.com',
   moonshot: 'https://api.moonshot.cn/v1',
   'kimi-api': 'https://api.moonshot.cn/anthropic',
@@ -47,6 +49,7 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   deepseek: 'DeepSeek',
+  qiniu: 'Qiniu',
   google: 'Google',
   moonshot: 'Moonshot / Kimi (OpenAI 协议)',
   'kimi-api': 'Kimi API (Anthropic 协议)',

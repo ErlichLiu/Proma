@@ -277,6 +277,7 @@ export async function testChannel(channelId: string): Promise<ChannelTestResult>
       case 'minimax':
       case 'doubao':
       case 'qwen':
+      case 'qiniu':
       case 'custom':
         return await testOpenAICompatible(channel.baseUrl, apiKey, proxyUrl)
       case 'google':
@@ -430,6 +431,7 @@ export async function testChannelDirect(input: FetchModelsInput): Promise<Channe
       case 'minimax':
       case 'doubao':
       case 'qwen':
+      case 'qiniu':
       case 'custom':
         return await testOpenAICompatible(input.baseUrl, input.apiKey, proxyUrl)
       case 'google':
@@ -469,6 +471,8 @@ export async function fetchModels(input: FetchModelsInput): Promise<FetchModelsR
       case 'qwen':
       case 'custom':
         return await fetchOpenAICompatibleModels(input.baseUrl, input.apiKey, proxyUrl)
+      case 'qiniu':
+        return await fetchQiniuModels(input.baseUrl, input.apiKey, proxyUrl)
       case 'google':
         return await fetchGoogleModels(input.baseUrl, input.apiKey, proxyUrl)
       default:
@@ -600,6 +604,24 @@ async function fetchOpenAICompatibleModels(baseUrl: string, apiKey: string, prox
     success: true,
     message: `成功获取 ${models.length} 个模型`,
     models,
+  }
+}
+
+/**
+ * 从七牛云 OpenAI 兼容接口拉取模型列表
+ *
+ * 若 API Key 未验证或网络不可用，返回最小兜底模型，保持创建流程可继续。
+ */
+async function fetchQiniuModels(baseUrl: string, apiKey: string, proxyUrl?: string): Promise<FetchModelsResult> {
+  const result = await fetchOpenAICompatibleModels(baseUrl, apiKey, proxyUrl)
+  if (result.success && result.models.length > 0) {
+    return result
+  }
+
+  return {
+    success: true,
+    message: '未能在线拉取模型，已使用默认模型 deepseek-v3',
+    models: [{ id: 'deepseek-v3', name: 'deepseek-v3', enabled: true }],
   }
 }
 

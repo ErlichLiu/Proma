@@ -27,6 +27,7 @@ const adapterRegistry = new Map<ProviderType, ProviderAdapter>([
   ['anthropic', new AnthropicAdapter()],
   ['openai', new OpenAIAdapter()],
   ['deepseek', new AnthropicAdapter('deepseek')],   // DeepSeek 使用 Anthropic 兼容协议
+  ['qiniu', new OpenAIAdapter()],        // 七牛云网关使用 OpenAI 兼容协议
   ['moonshot', new OpenAIAdapter()],      // Moonshot/Kimi 使用 OpenAI 兼容协议
   ['kimi-api', new AnthropicAdapter('kimi-api')],       // Kimi API 的 Anthropic 协议端点
   ['kimi-coding', new AnthropicAdapter('kimi-coding')], // Kimi Coding Plan 订阅制（强制 User-Agent）
