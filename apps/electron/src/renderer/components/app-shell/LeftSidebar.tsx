@@ -11,7 +11,7 @@
 import * as React from 'react'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
 import { toast } from 'sonner'
-import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Hammer } from 'lucide-react'
+import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Hammer, GitFork, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { ModeSwitcher } from './ModeSwitcher'
@@ -174,6 +174,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   /** 待迁移会话 ID，非空时显示迁移对话框 */
   const [moveTargetId, setMoveTargetId] = React.useState<string | null>(null)
+  /** 内联搜索文本 */
+  const [searchQuery, setSearchQuery] = React.useState('')
   /** 置顶区域展开/收起 */
   const [pinnedExpanded, setPinnedExpanded] = React.useState(true)
   /** Agent 上区子 Tab：'working' | 'pinned'，默认 working 在前 */
@@ -198,8 +200,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const agentModelId = useAtomValue(agentModelIdAtom)
   const setSessionChannelMap = useSetAtom(agentSessionChannelMapAtom)
   const setSessionModelMap = useSetAtom(agentSessionModelMapAtom)
-  const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
-  const workspaces = useAtomValue(agentWorkspacesAtom)
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useAtom(currentAgentWorkspaceIdAtom)
+  const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
 
   // 工作区能力（MCP + Skill 计数）
   const [capabilities, setCapabilities] = React.useState<WorkspaceCapabilities | null>(null)
@@ -360,15 +362,20 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     }
   }, [activeTabId, mode, viewMode, pinnedAgentSessions, workingSessionIds])
 
-  /** 对话按日期分组（根据 viewMode 过滤归档状态，排除 draft） */
+  /** 对话按日期分组（根据 viewMode 过滤归档状态，排除 draft，搜索过滤） */
   const conversationGroups = React.useMemo(
     () => {
-      const filtered = viewMode === 'archived'
+      let filtered = viewMode === 'archived'
         ? conversations.filter((c) => c.archived && !draftSessionIds.has(c.id))
         : conversations.filter((c) => !c.archived && !c.pinned && !draftSessionIds.has(c.id))
+      // 搜索过滤
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        filtered = filtered.filter((c) => c.title.toLowerCase().includes(q))
+      }
       return groupByDate(filtered)
     },
-    [conversations, viewMode, draftSessionIds]
+    [conversations, viewMode, draftSessionIds, searchQuery]
   )
 
   /** 已归档对话数量 */
@@ -750,6 +757,21 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     }
   }
 
+  /** Fork（分叉）Agent 会话 — 创建新会话包含历史，从当前位置继续 */
+  const handleForkSession = async (id: string): Promise<void> => {
+    try {
+      const forked = await window.electronAPI.forkAgentSession({ sessionId: id })
+      setAgentSessions((prev) => [forked, ...prev])
+      openSession('agent', forked.id, forked.title)
+      setActiveView('conversations')
+      setActiveItem('all-chats')
+      toast.success('已分叉会话', { description: `新会话：${forked.title}` })
+    } catch (error) {
+      console.error('[侧边栏] Fork 会话失败:', error)
+      toast.error('Fork 会话失败')
+    }
+  }
+
   /** 迁移会话到另一个工作区后的回调 */
   const handleSessionMoved = (updatedSession: AgentSessionMeta, targetWorkspaceName: string): void => {
     setAgentSessions((prev) =>
@@ -775,18 +797,29 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     })
   }
 
-  /** Agent 会话按工作区过滤 + 归档过滤 + 排除 draft + 排除 Working */
+  /** Agent 会话按工作区过滤 + 归档过滤 + 排除 draft + 排除 Working + 搜索过滤 */
+  /** 1code 风格：扁平列表 — 所有会话按 updatedAt 排序，pinned 优先 */
   const filteredAgentSessions = React.useMemo(
     () => {
-      const byWorkspace = agentSessions.filter((s) => s.workspaceId === currentWorkspaceId && !draftSessionIds.has(s.id))
-      return viewMode === 'archived'
+      let byWorkspace = agentSessions.filter((s) => s.workspaceId === currentWorkspaceId && !draftSessionIds.has(s.id))
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        byWorkspace = byWorkspace.filter((s) => s.title.toLowerCase().includes(q))
+      }
+      byWorkspace = viewMode === 'archived'
         ? byWorkspace.filter((s) => s.archived)
-        : byWorkspace.filter((s) => !s.archived && !s.pinned && !workingSessionIds.has(s.id))
+        : byWorkspace.filter((s) => !s.archived)
+      // Sort: pinned first, then by updatedAt desc
+      byWorkspace.sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+        return (b.updatedAt || 0) - (a.updatedAt || 0)
+      })
+      return byWorkspace
     },
-    [agentSessions, currentWorkspaceId, viewMode, draftSessionIds, workingSessionIds]
+    [agentSessions, currentWorkspaceId, viewMode, draftSessionIds, searchQuery]
   )
 
-  /** Agent 会话按日期分组 */
+  /** Agent 会话按日期分组（Chat 模式保留） */
   const agentSessionGroups = React.useMemo(
     () => groupByDate(filteredAgentSessions),
     [filteredAgentSessions]
@@ -867,14 +900,14 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={mode === 'agent' ? handleNewAgentSession : handleNewConversation}
+                onClick={handleNewAgentSession}
                 className="p-2 rounded-[10px] text-foreground/70 bg-primary/5 hover:bg-primary/10 transition-colors titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
               >
                 <Plus size={16} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {mode === 'agent' ? '新会话' : '新对话'}
+              新会话
             </TooltipContent>
           </Tooltip>
         </div>
@@ -913,395 +946,123 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       className="h-full flex flex-col bg-background rounded-2xl shadow-xl transition-[width] duration-300"
       style={{ width: width ?? 280, minWidth: 180, flexShrink: 1 }}
     >
-      {/* macOS 需要避开左上角红绿灯，其他平台不占用这块空间。 */}
-      <div className={cn(isMac ? 'pt-[30px]' : 'pt-1')}>
-        {/* 模式切换器 + 折叠按钮 */}
-        <div className="flex items-start gap-1.5 px-3">
-          <div className="flex-1 min-w-0">
-            <ModeSwitcher />
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setSidebarCollapsed(true)}
-                className="mt-2 size-[36px] flex-shrink-0 flex items-center justify-center rounded-[10px] bg-muted text-foreground/40 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors titlebar-no-drag"
-              >
-                <PanelLeftClose size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">收起侧边栏</TooltipContent>
-          </Tooltip>
+      {/* 1code-style top bar */}
+      <div className={cn('flex items-center justify-between px-3 py-2 border-b border-border/40 flex-shrink-0', isMac && 'pt-[30px]')}>
+        <div className="flex items-center gap-2.5">
+          <span className="w-[6px] h-[6px] rounded-full bg-primary shadow-[0_0_6px_rgba(59,130,246,.4)]" />
+          <span className="text-[13px] font-bold text-foreground/80 tracking-tight">Proma</span>
         </div>
-      </div>
-
-      {/* Agent 模式：工作区选择器 */}
-      {mode === 'agent' && (
-        <div className="px-3 pt-2">
-          <WorkspaceSelector />
-        </div>
-      )}
-
-      {/* 新对话/新会话按钮 + 搜索按钮 */}
-      <div className="px-3 pt-2 flex items-center gap-1.5">
-        <button
-          onClick={mode === 'agent' ? handleNewAgentSession : handleNewConversation}
-          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-medium text-foreground/70 bg-primary/5 hover:bg-primary/10 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
-        >
-          <Plus size={14} />
-          <span>{mode === 'agent' ? '新会话' : '新对话'}</span>
-        </button>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={() => setSearchDialogOpen(true)}
-              className="flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] text-foreground/40 bg-primary/5 hover:bg-primary/10 hover:text-foreground/60 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
+              onClick={() => setSidebarCollapsed(true)}
+              className="size-[28px] flex-shrink-0 flex items-center justify-center rounded-md text-foreground/30 hover:text-foreground/60 hover:bg-foreground/5 transition-colors titlebar-no-drag"
             >
-              <Search size={14} />
+              <PanelLeftClose size={14} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">搜索 (⌘F)</TooltipContent>
+          <TooltipContent side="right">收起侧边栏</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Chat 模式：导航菜单（置顶区域） */}
-      {mode === 'chat' && (
-        <div className="flex flex-col gap-1 pt-3 px-3">
-          <SidebarItem
-            icon={<Pin size={16} />}
-            label="置顶对话"
-            suffix={
-              pinnedConversations.length > 0 ? (
-                pinnedExpanded
-                  ? <ChevronDown size={14} className="text-foreground/40" />
-                  : <ChevronRight size={14} className="text-foreground/40" />
-              ) : undefined
-            }
-            onClick={() => handleItemClick('pinned')}
-          />
-        </div>
-      )}
+      {/* 双列布局 — 左 workspace / 右 sessions */}
+        <div className="flex-1 flex min-h-0">
+          {/* LEFT COLUMN: Resizable workspace panel */}
+          <ResizableWorkspacePanel>
+            <WorkspaceSelector />
+          </ResizableWorkspacePanel>
 
-      {/* Chat 模式：置顶对话区域 */}
-      {mode === 'chat' && pinnedExpanded && pinnedConversations.length > 0 && (
-        <div className="px-3 pt-1 pb-1">
-          <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-primary/20 ml-2">
-            {pinnedConversations.map((conv) => (
-              <ConversationItem
-                key={`pinned-${conv.id}`}
-                conversation={conv}
-                active={conv.id === activeTabId}
-                hovered={conv.id === hoveredId}
-                streaming={streamingIds.has(conv.id)}
-                showPinIcon={false}
-                onSelect={() => handleSelectConversation(conv.id, conv.title)}
-                onRequestDelete={() => handleRequestDelete(conv.id)}
-                onRename={handleRename}
-                onTogglePin={handleTogglePin}
-                onToggleArchive={handleToggleArchive}
-                onMouseEnter={() => setHoveredId(conv.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Agent 模式 active 视图：可拖拽双区（上 置顶+Working + 下 最近会话） */}
-      {mode === 'agent' && viewMode === 'active' ? (
-        <div ref={agentSplitContainerRef} className="flex-1 flex flex-col min-h-0">
-          {(pinnedAgentSessions.length > 0 || hasWorkingSessions) && (
-            <>
-              {/* 上区：工作中 / 置顶 Tab 切换（高度可拖拽） */}
-              <div
-                style={{ height: agentTopHeight > 0 ? agentTopHeight : undefined }}
-                className="flex flex-col min-h-0 flex-shrink-0 overflow-hidden"
-              >
-                {/* Tab 切换按钮 */}
-                <div className="pt-2 px-3 flex-shrink-0">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <button
-                      onClick={() => setAgentSubTab('working')}
-                      className={cn(
-                        'flex-1 justify-center px-2.5 py-0.5 rounded-md text-[12px] font-medium transition-colors titlebar-no-drag inline-flex items-center',
-                        agentSubTab === 'working'
-                          ? 'tab-item-selected bg-foreground/[0.08] text-foreground/80'
-                          : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/[0.04]'
-                      )}
-                    >
-                      工作中
-                      {hasWorkingSessions && (
-                        <span className={cn(
-                          'ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px]',
-                          agentSubTab === 'working'
-                            ? 'bg-foreground/10 text-foreground/60'
-                            : 'bg-foreground/10 text-foreground/50'
-                        )}>
-                          {workingGroups.todo.length + workingGroups.running.length + workingGroups.done.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setAgentSubTab('pinned')}
-                      className={cn(
-                        'flex-1 justify-center px-2.5 py-0.5 rounded-md text-[12px] font-medium transition-colors titlebar-no-drag inline-flex items-center',
-                        agentSubTab === 'pinned'
-                          ? 'tab-item-selected bg-foreground/[0.08] text-foreground/80'
-                          : 'text-foreground/40 hover:text-foreground/60 hover:bg-foreground/[0.04]'
-                      )}
-                    >
-                      置顶
-                      {pinnedAgentSessions.length > 0 && (
-                        <span className={cn(
-                          'ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px]',
-                          agentSubTab === 'pinned'
-                            ? 'bg-foreground/10 text-foreground/60'
-                            : 'bg-foreground/10 text-foreground/50'
-                        )}>
-                          {pinnedAgentSessions.length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Tab 内容（自己滚动） */}
-                <div className="flex-1 overflow-y-auto scrollbar-none px-3 pb-1 min-h-0">
-                  {agentSubTab === 'working' && (
-                    <div className="pt-0.5 pb-0.5">
-                      {hasWorkingSessions ? (() => {
-                        const workingItems: Array<{ session: AgentSessionMeta; accent?: SessionLeftAccent; keyPrefix: string }> = [
-                          ...workingGroups.todo.map((s) => ({ session: s, accent: 'orange' as const, keyPrefix: 'working-todo' })),
-                          ...workingGroups.running.map((s) => ({ session: s, accent: 'blue' as const, keyPrefix: 'working-running' })),
-                          ...workingGroups.done.map((s) => ({ session: s, accent: unviewedCompletedSessionIds.has(s.id) ? 'green' as const : undefined, keyPrefix: 'working-done' })),
-                        ]
-                        return (
-                          <div className="flex flex-col gap-0.5">
-                            {workingItems.map(({ session, accent, keyPrefix }) => (
-                              <AgentSessionItem
-                                key={`${keyPrefix}-${session.id}`}
-                                session={session}
-                                active={session.id === activeTabId}
-                                hovered={session.id === hoveredId}
-                                indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
-                                isInWorkingSection={workingSessionIds.has(session.id)}
-                                showPinIcon={false}
-                                leftAccent={accent}
-                                workspaceName={session.workspaceId ? workspaceNameMap.get(session.workspaceId) : undefined}
-                                onSelect={() => handleSelectAgentSession(session.id, session.title)}
-                                onRequestDelete={() => handleRequestDelete(session.id)}
-                                onRequestMove={() => setMoveTargetId(session.id)}
-                                onRename={handleAgentRename}
-                                onTogglePin={handleTogglePinAgent}
-                                onToggleManualWorking={handleToggleManualWorkingAgent}
-                                onToggleArchive={handleToggleArchiveAgent}
-                                onMouseEnter={() => setHoveredId(session.id)}
-                                onMouseLeave={() => setHoveredId(null)}
-                              />
-                            ))}
-                          </div>
-                        )
-                      })() : (
-                        <div className="px-2 py-3 text-[11px] text-foreground/30 text-center select-none">
-                          暂无进行中的会话
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {agentSubTab === 'pinned' && (
-                    <div className="pt-0.5 pb-0.5">
-                      {pinnedAgentSessions.length > 0 ? (
-                        <div className="flex flex-col gap-0.5">
-                          {pinnedAgentSessions.map((session) => (
-                            <AgentSessionItem
-                              key={`pinned-${session.id}`}
-                              session={session}
-                              active={session.id === activeTabId}
-                              hovered={session.id === hoveredId}
-                              indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
-                              isInWorkingSection={workingSessionIds.has(session.id)}
-                              showPinIcon={false}
-                              onSelect={() => handleSelectAgentSession(session.id, session.title)}
-                              onRequestDelete={() => handleRequestDelete(session.id)}
-                              onRequestMove={() => setMoveTargetId(session.id)}
-                              onRename={handleAgentRename}
-                              onTogglePin={handleTogglePinAgent}
-                              onToggleManualWorking={handleToggleManualWorkingAgent}
-                              onToggleArchive={handleToggleArchiveAgent}
-                              onMouseEnter={() => setHoveredId(session.id)}
-                              onMouseLeave={() => setHoveredId(null)}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="px-2 py-3 text-[11px] text-foreground/30 text-center select-none">
-                          暂无置顶会话
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 拖拽分割条：默认 1px 细线，hover 扩为 4px 热区 */}
-              <div
-                onMouseDown={handleAgentTopResizeStart}
-                className="h-px bg-border/60 hover:h-1 hover:bg-foreground/[0.08] cursor-row-resize titlebar-no-drag flex-shrink-0 transition-[height,background-color] duration-75"
-              />
-            </>
-          )}
-
-          {/* 下区标题：最近会话 */}
-          <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none flex-shrink-0">
-            最近会话
-          </div>
-
-          {/* 下区：历史会话列表 */}
-          <div className="flex-1 overflow-y-auto px-3 pb-3 scrollbar-none min-h-0">
-            {agentSessionGroups.map((group) => (
-              <div key={group.label} className="mb-1">
-                <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none">
-                  {group.label}
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  {group.items.map((session) => (
-                    <AgentSessionItem
-                      key={session.id}
-                      session={session}
-                      active={session.id === activeTabId}
-                      hovered={session.id === hoveredId}
-                      indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
-                      isInWorkingSection={workingSessionIds.has(session.id)}
-                      showPinIcon={!!session.pinned}
-                      onSelect={() => handleSelectAgentSession(session.id, session.title)}
-                      onRequestDelete={() => handleRequestDelete(session.id)}
-                      onRequestMove={() => setMoveTargetId(session.id)}
-                      onRename={handleAgentRename}
-                      onTogglePin={handleTogglePinAgent}
-                      onToggleManualWorking={handleToggleManualWorkingAgent}
-                      onToggleArchive={handleToggleArchiveAgent}
-                      onMouseEnter={() => setHoveredId(session.id)}
-                      onMouseLeave={() => setHoveredId(null)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* 归档视图标题栏 */}
-          {viewMode === 'archived' && (
-            <div className="px-6 pt-3 pb-1">
-              <div className="text-[12px] font-medium text-foreground/40">
-                已归档{mode === 'agent' ? '会话' : '对话'}
+          {/* RIGHT COLUMN: Session list (flex-1) */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {/* Search */}
+            <div className="px-2.5 pt-2 pb-1 flex-shrink-0">
+              <div className="relative">
+                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/25" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索会话…"
+                  className="w-full h-7 pl-7 pr-5 rounded-md bg-foreground/[0.04] text-[11px] text-foreground/60 placeholder:text-foreground/25 border border-transparent focus:border-primary/30 focus:bg-foreground/[0.06] outline-none transition-colors"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-foreground/25 hover:text-foreground/50">
+                    <X size={10} />
+                  </button>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Chat 模式 / 归档视图：单列表布局 */}
-          <div className="flex-1 overflow-y-auto px-3 pt-2 pb-3 scrollbar-none">
-            {mode === 'chat' ? (
-              /* Chat 模式：对话按日期分组 */
-              conversationGroups.map((group) => (
-                <div key={group.label} className="mb-1">
-                  <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none">
-                    {group.label}
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    {group.items.map((conv) => (
-                      <ConversationItem
-                        key={conv.id}
-                        conversation={conv}
-                        active={conv.id === activeTabId}
-                        hovered={conv.id === hoveredId}
-                        streaming={streamingIds.has(conv.id)}
-                        showPinIcon={!!conv.pinned}
-                        onSelect={() => handleSelectConversation(conv.id, conv.title)}
-                        onRequestDelete={() => handleRequestDelete(conv.id)}
-                        onRename={handleRename}
-                        onTogglePin={handleTogglePin}
-                        onToggleArchive={handleToggleArchive}
-                        onMouseEnter={() => setHoveredId(conv.id)}
-                        onMouseLeave={() => setHoveredId(null)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))
-            ) : (
-              /* Agent 模式归档：Agent 会话按日期分组 */
-              agentSessionGroups.map((group) => (
-                <div key={group.label} className="mb-1">
-                  <div className="px-3 pt-2 pb-1 text-[11px] font-medium text-foreground/40 select-none">
-                    {group.label}
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    {group.items.map((session) => (
-                      <AgentSessionItem
-                        key={session.id}
-                        session={session}
-                        active={session.id === activeTabId}
-                        hovered={session.id === hoveredId}
-                        indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
-                        isInWorkingSection={workingSessionIds.has(session.id)}
-                        showPinIcon={!!session.pinned}
-                        onSelect={() => handleSelectAgentSession(session.id, session.title)}
-                        onRequestDelete={() => handleRequestDelete(session.id)}
-                        onRequestMove={() => setMoveTargetId(session.id)}
-                        onRename={handleAgentRename}
-                        onTogglePin={handleTogglePinAgent}
-                        onToggleManualWorking={handleToggleManualWorkingAgent}
-                        onToggleArchive={handleToggleArchiveAgent}
-                        onMouseEnter={() => setHoveredId(session.id)}
-                        onMouseLeave={() => setHoveredId(null)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
+            {/* New session button */}
+            <div className="px-2.5 pb-1.5 flex-shrink-0">
+              <button
+                onClick={handleNewAgentSession}
+                className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-dashed border-border/60 bg-primary/5 hover:bg-primary/10 text-[12px] font-medium text-foreground/60 hover:text-foreground/80 transition-colors titlebar-no-drag"
+              >
+                <Plus size={12} />
+                <span>新会话</span>
+              </button>
+            </div>
+
+            {/* 1code-style flat session list — all sessions together, sorted by updatedAt */}
+            <div className="flex-1 overflow-y-auto px-2.5 pb-2 scrollbar-none min-h-0">
+              {/* Working indicator: dot accents for running/completed sessions */}
+              {filteredAgentSessions.length > 0 ? (
+                filteredAgentSessions.map((session) => (
+                  <AgentSessionItem
+                    key={session.id}
+                    session={session}
+                    active={session.id === activeTabId}
+                    hovered={session.id === hoveredId}
+                    indicatorStatus={agentIndicatorMap.get(session.id) ?? 'idle'}
+                    isInWorkingSection={workingSessionIds.has(session.id)}
+                    leftAccent={
+                      agentIndicatorMap.get(session.id) === 'running' ? 'blue'
+                      : unviewedCompletedSessionIds.has(session.id) ? 'green'
+                      : workingSessionIds.has(session.id) && agentIndicatorMap.get(session.id) !== 'completed' ? 'orange'
+                      : undefined
+                    }
+                    showPinIcon={!!session.pinned}
+                    onSelect={() => handleSelectAgentSession(session.id, session.title)}
+                    onRequestDelete={() => handleRequestDelete(session.id)}
+                    onRequestMove={() => setMoveTargetId(session.id)}
+                    onFork={() => handleForkSession(session.id)}
+                    onRename={handleAgentRename}
+                    onTogglePin={handleTogglePinAgent}
+                    onToggleManualWorking={handleToggleManualWorkingAgent}
+                    onToggleArchive={handleToggleArchiveAgent}
+                    onMouseEnter={() => setHoveredId(session.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  />
+                ))
+              ) : (
+                <div className="px-2 py-4 text-[11px] text-foreground/30 text-center">暂无会话</div>
+              )}
+            </div>
           </div>
-        </>
-      )}
+        </div>
 
-      {/* 已归档入口 / 返回活跃对话 */}
+      {/* 已归档入口 */}
       <div className="px-3 pb-1">
         {viewMode === 'active' ? (
           <>
-            {mode === 'chat' && archivedConversationCount > 0 && (
-              <button
-                onClick={() => setViewMode('archived')}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
-              >
-                <Archive size={13} className="text-foreground/30" />
-                <span>已归档 ({archivedConversationCount})</span>
-              </button>
-            )}
-            {mode === 'agent' && archivedAgentSessionCount > 0 && (
-              <button
-                onClick={() => setViewMode('archived')}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
-              >
+            {archivedAgentSessionCount > 0 && (
+              <button onClick={() => setViewMode('archived')} className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag">
                 <Archive size={13} className="text-foreground/30" />
                 <span>已归档 ({archivedAgentSessionCount})</span>
               </button>
             )}
           </>
         ) : (
-          <button
-            onClick={() => setViewMode('active')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/60 bg-foreground/[0.04] hover:bg-foreground/[0.07] hover:text-foreground/80 transition-colors titlebar-no-drag"
-          >
+          <button onClick={() => setViewMode('active')} className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/60 bg-foreground/[0.04] hover:bg-foreground/[0.07] hover:text-foreground/80 transition-colors titlebar-no-drag">
             <ArrowLeft size={13} className="text-foreground/50" />
-            <span>返回活跃{mode === 'agent' ? '会话' : '对话'}</span>
+            <span>返回活跃会话</span>
           </button>
         )}
       </div>
 
-      {/* Agent 模式：工作区能力指示器 */}
-      {mode === 'agent' && capabilities && (
+      {/* 工作区能力指示器 */}
+      {capabilities && (
         <div className="px-3 pb-1">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1390,12 +1151,10 @@ function ConversationItem({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
 
-  /** 进入编辑模式 */
   const startEdit = (): void => {
     setEditTitle(conversation.title)
     setEditing(true)
     justStartedEditing.current = true
-    // 延迟聚焦，等待 ContextMenu 完全关闭后再 focus
     setTimeout(() => {
       justStartedEditing.current = false
       inputRef.current?.focus()
@@ -1403,9 +1162,7 @@ function ConversationItem({
     }, 300)
   }
 
-  /** 保存标题 */
   const saveTitle = async (): Promise<void> => {
-    // ContextMenu 关闭导致的 blur，忽略
     if (justStartedEditing.current) return
     const trimmed = editTitle.trim()
     if (!trimmed || trimmed === conversation.title) {
@@ -1416,130 +1173,94 @@ function ConversationItem({
     setEditing(false)
   }
 
-  /** 键盘事件 */
   const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      saveTitle()
-    } else if (e.key === 'Escape') {
-      setEditing(false)
-    }
+    if (e.key === 'Enter') { e.preventDefault(); saveTitle() }
+    else if (e.key === 'Escape') { setEditing(false) }
   }
 
   const isPinned = !!conversation.pinned
+
+  // 相对时间
+  const timeAgo = React.useMemo(() => {
+    const now = Date.now()
+    const diff = now - conversation.updatedAt
+    if (diff < 60_000) return 'now'
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
+    if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d`
+    return new Date(conversation.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  }, [conversation.updatedAt])
 
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onSelect}
-      onDoubleClick={(e) => {
-        e.stopPropagation()
-        startEdit()
-      }}
+      onDoubleClick={(e) => { e.stopPropagation(); startEdit() }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        'relative w-full flex items-center gap-2 px-3 py-[7px] rounded-[10px] transition-colors duration-100 titlebar-no-drag text-left',
+        'relative w-full text-left py-1.5 cursor-pointer group transition-colors duration-75 rounded-md',
         active
-          ? 'session-item-selected bg-primary/10 shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-          : 'hover:bg-primary/5'
+          ? 'session-item-selected bg-foreground/5 text-foreground'
+          : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
       )}
     >
-      {/* 流式状态左侧竖线条（与 Agent 保持一致） */}
+      {/* 流式状态左侧竖条 */}
       {streaming && (
-        <span
-          className="absolute left-1 top-1.5 bottom-1.5 w-[2px] rounded-full bg-emerald-500 animate-pulse pointer-events-none"
-          aria-hidden="true"
-        />
+        <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full bg-emerald-500 animate-pulse pointer-events-none" />
       )}
-      <div className="flex-1 min-w-0">
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={saveTitle}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full bg-transparent text-[13px] leading-5 text-foreground border-b border-primary/50 outline-none px-0 py-0"
-            maxLength={100}
-          />
-        ) : (
-          <div className={cn(
-            'truncate text-[13px] leading-5 flex items-center gap-1.5',
-            active ? 'text-foreground' : 'text-foreground/80'
-          )}>
-            {/* 置顶标记 */}
-            {showPinIcon && (
-              <Pin size={11} className="flex-shrink-0 text-primary/60" />
-            )}
-            <span className="truncate">{conversation.title}</span>
-          </div>
-        )}
-      </div>
 
-      {/* 操作按钮组（hover 时可见） */}
-      <div className={cn(
-        'flex items-center gap-0.5 flex-shrink-0 transition-all duration-100 overflow-hidden',
-        hovered && !editing ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'
-      )}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onTogglePin(conversation.id)
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
-            >
-              {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{isPinned ? '取消置顶' : '置顶对话'}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                startEdit()
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
-            >
-              <Pencil size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">重命名</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleArchive(conversation.id)
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
-            >
-              {conversation.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{conversation.archived ? '取消归档' : '归档'}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onRequestDelete()
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-colors"
-            >
-              <Trash2 size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">删除对话</TooltipContent>
-        </Tooltip>
+      <div className="flex items-start gap-2.5 pl-2">
+        {/* Icon — 对话气泡 + 流式脉冲 */}
+        <div className="pt-0.5 flex-shrink-0">
+          <div className={cn(
+            'h-2.5 w-2.5 rounded-full',
+            streaming ? 'bg-emerald-500 animate-pulse' : 'bg-sky-400',
+          )} />
+        </div>
+
+        {/* 文本区域 */}
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5 pr-2">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={saveTitle}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-transparent text-[13px] leading-tight text-foreground border-b border-primary/50 outline-none px-0 py-0"
+              maxLength={100}
+            />
+          ) : (
+            <>
+              <span className="truncate text-[13px] leading-tight block">
+                {showPinIcon && <Pin size={10} className="inline-block mr-1 text-primary/60 -mt-0.5" />}
+                {conversation.title || 'Untitled'}
+              </span>
+              <span className="text-[11px] text-muted-foreground/60 truncate block leading-tight">
+                {timeAgo}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Hover — Archive */}
+        <div
+          className={cn(
+            'flex-shrink-0 flex items-center transition-opacity duration-150',
+            hovered && !editing ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleArchive(conversation.id) }}
+            className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title={conversation.archived ? '取消归档' : '归档'}
+          >
+            {conversation.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1570,6 +1291,7 @@ interface AgentSessionItemProps {
   onSelect: () => void
   onRequestDelete: () => void
   onRequestMove: () => void
+  onFork?: () => void
   onRename: (id: string, newTitle: string) => Promise<void>
   onTogglePin: (id: string) => Promise<void>
   onToggleManualWorking: (id: string) => Promise<void>
@@ -1590,6 +1312,7 @@ function AgentSessionItem({
   onSelect,
   onRequestDelete,
   onRequestMove,
+  onFork,
   onRename,
   onTogglePin,
   onToggleManualWorking,
@@ -1633,167 +1356,326 @@ function AgentSessionItem({
     }
   }
 
+  // 相对时间
+  const timeAgo = React.useMemo(() => {
+    const now = Date.now()
+    const diff = now - session.updatedAt
+    if (diff < 60_000) return 'now'
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
+    if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d`
+    return new Date(session.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  }, [session.updatedAt])
+
+  // 状态色
+  const statusColor = indicatorStatus === 'running' ? 'bg-emerald-500 animate-pulse'
+    : indicatorStatus === 'completed' ? 'bg-green-500'
+    : indicatorStatus === 'blocked' ? 'bg-amber-500'
+    : 'bg-muted-foreground/30'
+
+  const isPinned = !!session.pinned
+  const canExport = indicatorStatus === 'idle' || indicatorStatus === 'completed'
+
+  /** Copy session content to clipboard */
+  const handleCopy = async (format: 'markdown' | 'json' | 'text') => {
+    try {
+      const msgs = await window.electronAPI.getAgentSessionSDKMessages(session.id)
+      const output = formatContent(msgs, format)
+      await navigator.clipboard.writeText(output)
+      toast.success(`已复制为 ${format.toUpperCase()}`)
+    } catch { toast.error('复制失败') }
+  }
+
+  /** Shared content formatter */
+  const formatContent = (msgs: any[], format: 'markdown' | 'json' | 'text'): string => {
+    if (format === 'json') return JSON.stringify(msgs, null, 2)
+    let output = ''
+    const isMD = format === 'markdown'
+    for (const m of msgs) {
+      const roleLabel = (m as any).type === 'user' ? (isMD ? '**User**' : 'User')
+        : (m as any).type === 'assistant' ? (isMD ? '**Assistant**' : 'Assistant')
+        : isMD ? '**System**' : 'System'
+      const text = (m as any).message?.content?.map((c: any) => c.text ?? c.thinking ?? '').join('\n') ?? ''
+      output += isMD ? `### ${roleLabel}\n${text}\n\n` : `[${roleLabel}]\n${text}\n\n`
+    }
+    return output
+  }
+
+  /** Export/download session as a file */
+  const handleExport = async (format: 'markdown' | 'json' | 'text') => {
+    try {
+      const msgs = await window.electronAPI.getAgentSessionSDKMessages(session.id)
+      const output = formatContent(msgs, format)
+      const ext = format === 'markdown' ? 'md' : format === 'json' ? 'json' : 'txt'
+      const mime = format === 'json' ? 'application/json' : format === 'markdown' ? 'text/markdown' : 'text/plain'
+      const blob = new Blob([output], { type: mime })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const safeTitle = (session.title || 'untitled').replace(/[^a-zA-Z0-9一-龥_-]/g, '_').slice(0, 40)
+      a.download = `${safeTitle}.${ext}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(`已导出为 ${format.toUpperCase()}`)
+    } catch { toast.error('导出失败') }
+  }
+
+  // Context menu open state
+  const [cmOpen, setCmOpen] = React.useState(false)
+  const [cmPos, setCmPos] = React.useState({ x: 0, y: 0 })
+
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onDoubleClick={(e) => {
-        e.stopPropagation()
-        startEdit()
-      }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className={cn(
-        'relative w-full flex items-center gap-2 px-3 py-[7px] rounded-[10px] transition-colors duration-100 titlebar-no-drag text-left',
-        active
-          ? 'session-item-selected bg-primary/10 shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-          : 'hover:bg-primary/5'
-      )}
-    >
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          startEdit()
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setCmPos({ x: e.clientX, y: e.clientY })
+          setCmOpen(true)
+        }}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        className={cn(
+          'relative w-full text-left py-1.5 cursor-pointer group transition-colors duration-75 rounded-md',
+          active
+            ? 'session-item-selected bg-foreground/5 text-foreground'
+            : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
+        )}
+      >
+      {/* 左侧状态色条 */}
       {leftAccent && (
         <span
           className={cn(
-            'absolute left-1 top-1.5 bottom-1.5 w-[2px] rounded-full pointer-events-none',
+            'absolute left-0 top-1 bottom-1 w-[2px] rounded-full pointer-events-none',
             SESSION_LEFT_ACCENT_CLASS[leftAccent]
           )}
         />
       )}
-      <div className="flex-1 min-w-0">
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={saveTitle}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full bg-transparent text-[13px] leading-5 text-foreground border-b border-primary/50 outline-none px-0 py-0"
-            maxLength={100}
-          />
-        ) : (
-          <div className={cn(
-            'truncate text-[13px] leading-5 flex items-center gap-1.5',
-            active ? 'text-foreground' : 'text-foreground/80'
-          )}>
-            {showPinIcon && (
-              <Pin size={11} className="flex-shrink-0 text-primary/60" />
-            )}
-            <span className="truncate">{session.title}</span>
-            {workspaceName && (
-              <span className="flex-shrink-0 px-1.5 py-0 rounded-full bg-primary/10 text-[10px] leading-4 workspace-badge font-medium truncate max-w-[80px]">
-                {workspaceName}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
 
-      {/* 操作按钮组（hover 时可见） */}
-      <div className={cn(
-        'flex items-center gap-0.5 flex-shrink-0 transition-all duration-100 overflow-hidden',
-        hovered && !editing ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'
-      )}>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      <div className={cn('flex items-start gap-2.5', leftAccent ? 'pl-2.5' : 'pl-2')}>
+        {/* Icon — 状态圆点 + pin 标记 */}
+        <div className="pt-0.5 flex-shrink-0 relative">
+          <div className={cn('h-2.5 w-2.5 rounded-full', statusColor)} />
+          {showPinIcon && (
+            <Pin size={9} className="absolute -bottom-0.5 -right-0.5 text-primary/60" />
+          )}
+        </div>
+
+        {/* 文本区域 */}
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5 pr-2">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={saveTitle}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-transparent text-[13px] leading-tight text-foreground border-b border-primary/50 outline-none px-0 py-0"
+              maxLength={100}
+            />
+          ) : (
+            <>
+              {/* 标题行 */}
+              <span className="truncate text-[13px] leading-tight block">
+                {isPinned && (
+                  <Pin size={10} className="inline-block mr-1 text-primary/60 -mt-0.5" />
+                )}
+                {session.title || 'Untitled'}
+                {workspaceName && (
+                  <span className="ml-1.5 px-1 py-0 rounded-full bg-foreground/[0.06] text-[10px] text-foreground/40 font-medium">
+                    {workspaceName}
+                  </span>
+                )}
+              </span>
+              {/* 副标题行：时间 */}
+              <span className="text-[11px] text-muted-foreground/60 truncate block leading-tight">
+                {timeAgo}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Hover 操作按钮 — Rename + Fork + Archive (1code 风格) */}
+        <div
+          className={cn(
+            'flex-shrink-0 flex items-center gap-0.5 transition-opacity duration-150',
+            hovered && !editing ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); startEdit() }}
+            className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+            title="重命名"
+          >
+            <Pencil size={13} />
+          </button>
+          {onFork && (indicatorStatus === 'idle' || indicatorStatus === 'completed') && (
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onTogglePin(session.id)
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
+              onClick={(e) => { e.stopPropagation(); onFork() }}
+              className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+              title="Fork"
             >
-              {session.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+              <GitFork size={13} />
             </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{session.pinned ? '取消置顶' : '置顶会话'}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                if (indicatorStatus !== 'running') {
-                  onToggleManualWorking(session.id)
-                }
-              }}
-              disabled={indicatorStatus === 'running'}
-              className={cn(
-                'p-1 rounded-md transition-colors',
-                indicatorStatus === 'running'
-                  ? 'text-primary/40 cursor-not-allowed'
-                  : (isInWorkingSection || session.manualWorking)
-                    ? 'text-primary hover:bg-foreground/[0.08]'
-                    : 'text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60'
-              )}
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleArchive(session.id) }}
+            className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title={session.archived ? '取消归档' : '归档'}
+          >
+            {session.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+          </button>
+        </div>
+      </div>
+    </div>
+
+      {/* Native context menu positioned at click point */}
+      {cmOpen && (
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setCmOpen(false)} onContextMenu={(e) => { e.preventDefault(); setCmOpen(false) }} />
+          <div
+            className="fixed z-[9999] min-w-[160px] rounded-lg border border-border bg-popover p-1.5 shadow-lg animate-in fade-in-0 zoom-in-95 origin-top-left"
+            style={{ left: Math.min(cmPos.x, window.innerWidth - 180), top: Math.min(cmPos.y, window.innerHeight - 350) }}
+          >
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); startEdit() }}
             >
-              <Hammer size={13} className={(isInWorkingSection || session.manualWorking) ? 'fill-current' : ''} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {indicatorStatus === 'running'
-              ? '运行中无法移出'
-              : (isInWorkingSection || session.manualWorking) ? '取消工作中' : '标记为工作中'}
-          </TooltipContent>
-        </Tooltip>
-        {(indicatorStatus === 'idle' || indicatorStatus === 'completed') && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRequestMove()
-                }}
-                className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
+              <Pencil size={13} className="opacity-50" />
+              <span>重命名</span>
+            </div>
+            {onFork && canExport && (
+              <div
+                className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+                onClick={() => { setCmOpen(false); onFork() }}
               >
-                <ArrowRightLeft size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">迁移到其他工作区</TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                startEdit()
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
+                <GitFork size={13} className="opacity-50" />
+                <span>分叉会话</span>
+              </div>
+            )}
+            <div className="h-px bg-border -mx-1 my-1" />
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleCopy('markdown') }}
             >
-              <Pencil size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">重命名</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleArchive(session.id)
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors"
+              <span className="w-[13px] text-center opacity-50 text-[10px]">MD</span>
+              <span>复制为 Markdown</span>
+            </div>
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleCopy('json') }}
             >
-              {session.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{session.archived ? '取消归档' : '归档'}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onRequestDelete()
-              }}
-              className="p-1 rounded-md text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-colors"
+              <span className="w-[13px] text-center opacity-50 text-[10px]">{'{ }'}</span>
+              <span>复制为 JSON</span>
+            </div>
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleCopy('text') }}
             >
-              <Trash2 size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">删除会话</TooltipContent>
-        </Tooltip>
+              <span className="w-[13px] text-center opacity-50 text-[10px]">T</span>
+              <span>复制为 Text</span>
+            </div>
+            <div className="h-px bg-border -mx-1 my-1" />
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleExport('markdown') }}
+            >
+              <span className="w-[13px] text-center opacity-50 text-[10px]">⬇</span>
+              <span>导出为 Markdown</span>
+            </div>
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleExport('json') }}
+            >
+              <span className="w-[13px] text-center opacity-50 text-[10px]">⬇</span>
+              <span>导出为 JSON</span>
+            </div>
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); handleExport('text') }}
+            >
+              <span className="w-[13px] text-center opacity-50 text-[10px]">⬇</span>
+              <span>导出为 Text</span>
+            </div>
+            <div className="h-px bg-border -mx-1 my-1" />
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { setCmOpen(false); onToggleArchive(session.id) }}
+            >
+              <Archive size={13} className="opacity-50" />
+              <span>{session.archived ? '取消归档' : '归档'}</span>
+            </div>
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => { setCmOpen(false); onRequestDelete() }}
+            >
+              <Trash2 size={13} className="opacity-50" />
+              <span>删除</span>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+/** 可拖拽调整宽度的 Workspace 列 */
+function ResizableWorkspacePanel({ children }: { children: React.ReactNode }): React.ReactElement {
+  const [colWidth, setColWidth] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem('proma-ws-col-width')
+      if (saved) { const n = parseInt(saved, 10); if (n >= 100 && n <= 280) return n }
+    } catch {}
+    return 150
+  })
+  const resizingRef = React.useRef(false)
+
+  React.useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return
+      setColWidth((w) => {
+        const next = Math.min(280, Math.max(100, w + e.movementX))
+        try { localStorage.setItem('proma-ws-col-width', String(next)) } catch {}
+        return next
+      })
+    }
+    const handleUp = () => {
+      resizingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [])
+
+  return (
+    <div className="flex-shrink-0 flex flex-col border-r border-border/40 bg-muted/30 overflow-hidden relative" style={{ width: colWidth }}>
+      {children}
+      {/* Drag handle */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-10 opacity-0 hover:opacity-100 transition-opacity group"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          resizingRef.current = true
+          document.body.style.cursor = 'col-resize'
+          document.body.style.userSelect = 'none'
+        }}
+      >
+        <div className="absolute right-0 top-[20%] bottom-[20%] w-[2px] rounded-full bg-primary/60 opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     </div>
   )

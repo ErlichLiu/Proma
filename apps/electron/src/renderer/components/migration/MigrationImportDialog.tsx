@@ -217,16 +217,16 @@ export function MigrationImportDialog(): React.ReactElement {
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-foreground">导入成功</p>
-                <p className="text-xs text-muted-foreground mt-1">请重启应用使所有更改生效</p>
+                <p className="text-xs text-muted-foreground mt-1">应用将自动刷新使更改生效</p>
               </div>
               <button
-                onClick={() => handleOpenChange(false)}
+                onClick={() => { handleOpenChange(false); setTimeout(() => window.location.reload(), 300) }}
                 className={cn(
                   'px-5 py-2.5 rounded-lg text-sm font-medium transition-colors',
                   'bg-primary text-primary-foreground hover:bg-primary/90'
                 )}
               >
-                关闭
+                关闭并刷新
               </button>
             </div>
           )}
