@@ -57,9 +57,12 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   }
 
   return (
-    <div className="flex h-screen flex-col items-center justify-center bg-gradient-to-br from-background via-background to-muted/20 p-8">
+    <div className="relative flex h-screen flex-col items-center justify-center bg-gradient-to-br from-background via-background to-muted/20 p-8">
+      {/* Windows hidden title bar 模式下，Onboarding 不经过 AppShell，需要单独提供拖拽区。 */}
+      <div className="titlebar-drag-region fixed left-0 right-0 top-0 z-50 h-[50px]" />
+
       {step === 'welcome' && (
-        <>
+        <div className="relative z-[60] flex w-full flex-col items-center">
           <div className="mb-12 text-center">
             <h1 className="text-4xl font-bold mb-4">欢迎使用 Proma</h1>
             <p className="text-lg text-muted-foreground">
@@ -142,11 +145,11 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               这些内容之后也能在设置中找到，不用担心错过
             </p>
           </div>
-        </>
+        </div>
       )}
 
       {step === 'environment' && isWindows && (
-        <div className="w-full max-w-2xl">
+        <div className="relative z-[60] w-full max-w-2xl">
           <div className="mb-6 text-center">
             <h2 className="text-2xl font-semibold mb-2">先检查一下环境</h2>
             <p className="text-sm text-muted-foreground">
