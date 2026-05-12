@@ -211,8 +211,23 @@ function positionAndShow(): void {
   setVoiceDictationBoundsWithoutSaving(getInitialVoiceDictationBounds())
 
   // 语音浮窗只是系统级提示层，不应抢焦点或改变 Proma 主窗口前后台状态。
-  voiceDictationWindow.showInactive()
+  showVoiceDictationWindowWithoutFocus()
   voiceDictationWindow.webContents.send(VOICE_DICTATION_IPC_CHANNELS.SHOWN)
+}
+
+function showVoiceDictationWindowWithoutFocus(): void {
+  if (!voiceDictationWindow || voiceDictationWindow.isDestroyed()) return
+
+  if (process.platform === 'win32') {
+    // Windows 对非激活窗口的 z-order 更保守，showInactive() 后需要显式抬到顶部。
+    voiceDictationWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  }
+
+  voiceDictationWindow.showInactive()
+
+  if (process.platform === 'win32') {
+    voiceDictationWindow.moveTop()
+  }
 }
 
 export function resizeVoiceDictationWindow(height: number): void {
