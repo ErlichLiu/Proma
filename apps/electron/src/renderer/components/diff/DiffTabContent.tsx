@@ -1,7 +1,7 @@
 /**
  * DiffTabContent — 单文件 Diff 或纯文件预览内容
  *
- * previewOnly=true 时：代码高亮预览（Shiki）或 Markdown 渲染
+ * previewOnly=true 时：代码高亮预览（@pierre/diffs File）或 Markdown 渲染
  * previewOnly=false（默认）：显示 git diff（旧版本 vs 磁盘）
  */
 
@@ -9,29 +9,13 @@ import * as React from 'react'
 import { Code2, Copy, Check, Eye, Pencil, Save, X } from 'lucide-react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import DOMPurify from 'dompurify'
+import { File as PierreFile } from '@pierre/diffs/react'
 import { cn } from '@/lib/utils'
 import { agentDiffViewModeAtom, agentDiffRefreshVersionAtom } from '@/atoms/agent-atoms'
 import { resolvedThemeAtom } from '@/atoms/theme'
-import { highlightCode } from '@proma/core'
 import { DiffView } from './DiffView'
 import { MarkdownRichEditor } from './MarkdownRichEditor'
-
-/** 扩展名 → Shiki 语言 ID */
-const EXT_LANG: Record<string, string> = {
-  '.md': 'markdown', '.markdown': 'markdown',
-  '.json': 'json', '.jsonc': 'json', '.json5': 'json',
-  '.xml': 'xml', '.html': 'html', '.htm': 'html', '.svg': 'xml',
-  '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'toml', '.ini': 'ini', '.env': 'bash',
-  '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'jsx',
-  '.mjs': 'javascript', '.cjs': 'javascript',
-  '.py': 'python', '.go': 'go', '.rs': 'rust', '.java': 'java', '.kt': 'kotlin', '.swift': 'swift',
-  '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp', '.cs': 'csharp',
-  '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash', '.fish': 'fish',
-  '.css': 'css', '.scss': 'scss', '.less': 'less',
-  '.sql': 'sql', '.rb': 'ruby', '.php': 'php',
-  '.diff': 'diff', '.patch': 'diff',
-  '.txt': 'text', '.log': 'text', '.csv': 'text',
-}
+import { PIERRE_FILE_CSS } from '@/components/agent/tool-result-renderers/pierre-styles'
 
 const MD_EXTS = new Set(['.md', '.markdown'])
 const PDF_EXTS = new Set(['.pdf'])
@@ -51,12 +35,8 @@ const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.
 type CacheEntry = {
   oldContent: string
   newContent: string
-  highlightedHtml?: string
-  highlightedLanguage?: string
-  highlightedTheme?: string
 }
 const CACHE_MAX = 50
-const MAX_HIGHLIGHT_CHARS = 200_000
 const contentCache = new Map<string, CacheEntry>()
 function cacheGet(key: string): CacheEntry | undefined {
   const v = contentCache.get(key)
@@ -94,7 +74,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const [viewMode, setViewMode] = useAtom(agentDiffViewModeAtom)
   const [oldContent, setOldContent] = React.useState('')
   const [newContent, setNewContent] = React.useState('')
-  const [highlightedHtml, setHighlightedHtml] = React.useState('')
   const [markdownEditing, setMarkdownEditing] = React.useState(false)
   const [markdownSourceMode, setMarkdownSourceMode] = React.useState(false)
   const [markdownDraft, setMarkdownDraft] = React.useState('')
@@ -174,8 +153,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     return () => window.removeEventListener('message', handler)
   }, [isPdf])
 
-  const shikiTheme = theme === 'dark' ? 'one-dark-pro' : 'one-light'
-
   // 上次加载的内容（refreshVersion 触发时用来对比是否变化）
   const lastNewContentRef = React.useRef('')
   const lastOldContentRef = React.useRef('')
@@ -185,7 +162,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   // 命中缓存时跳过 loading 闪烁直接渲染；未命中走 IPC 拉取
   React.useEffect(() => {
     let cancelled = false
-    const lang = EXT_LANG[ext] || 'text'
 
     // PDF / DOCX / Office 不走文本缓存（HTML 体积大、解析过程也不轻）
     const cacheable = !isPdf && !isDocx && !isOfficePreview && !isLegacyOffice && !isImage
@@ -200,13 +176,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       lastOldContentRef.current = cached.oldContent
       setOldContent(cached.oldContent)
       setNewContent(cached.newContent)
-      setHighlightedHtml(
-        cached.highlightedHtml &&
-          cached.highlightedLanguage === lang &&
-          cached.highlightedTheme === shikiTheme
-          ? cached.highlightedHtml
-          : ''
-      )
       setDocxHtml('')
       setOfficeHtml('')
       setOfficeText('')
@@ -221,7 +190,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       setLoading(true)
       setOldContent('')
       setNewContent('')
-      setHighlightedHtml('')
       setDocxHtml('')
       setOfficeHtml('')
       setOfficeText('')
@@ -296,38 +264,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
 
         if (previewOnly && !MD_EXTS.has(ext) && content) {
           if (!cancelled) setLoading(false)
-
-          if (
-            cached?.highlightedHtml &&
-            cached.highlightedLanguage === lang &&
-            cached.highlightedTheme === shikiTheme
-          ) {
-            if (!cancelled) setHighlightedHtml(cached.highlightedHtml)
-            return
-          }
-
-          if (content.length > MAX_HIGHLIGHT_CHARS) {
-            if (!cancelled) setHighlightedHtml('')
-            return
-          }
-
-          try {
-            const hl = await highlightCode({ code: content, language: lang, theme: shikiTheme })
-            if (cancelled) return
-            const sanitizedHtml = DOMPurify.sanitize(hl.html)
-            setHighlightedHtml(sanitizedHtml)
-            if (cacheKey) {
-              cacheSet(cacheKey, {
-                oldContent: old,
-                newContent: content,
-                highlightedHtml: sanitizedHtml,
-                highlightedLanguage: lang,
-                highlightedTheme: shikiTheme,
-              })
-            }
-          } catch (err) {
-            console.error('[DiffTabContent] Shiki highlight failed:', err)
-          }
         }
       } catch {
         // 加载失败静默处理
@@ -339,7 +275,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, dirPath, gitRoot, previewOnly, previewContentVersion, shikiTheme, fileAccess, isPdf, isDocx, isOfficePreview, isLegacyOffice, isImage, sessionId, ext])
+  }, [filePath, dirPath, gitRoot, previewOnly, previewContentVersion, fileAccess, isPdf, isDocx, isOfficePreview, isLegacyOffice, isImage, sessionId, ext])
 
   // refreshVersion 触发的静默刷新：仅 diff 模式、内容有变化时才更新 state
   const prevRefreshRef = React.useRef(-1)
@@ -655,17 +591,25 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 onRequestEdit={startMarkdownEdit}
                 disabled={markdownSaving}
                 fileAccess={markdownFileAccess}
-                shikiTheme={shikiTheme}
+                shikiTheme={theme === 'dark' ? 'one-dark-pro' : 'one-light'}
               />
             )
-          ) : highlightedHtml ? (
-            <div
-              className="p-3 text-[13px] leading-relaxed [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!text-[13px]"
-              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-            />
+          ) : newContent ? (
+            <div className="h-full">
+              <PierreFile
+                file={{ name: filePath, contents: newContent }}
+                options={{
+                  theme: { dark: 'one-dark-pro' as const, light: 'one-light' as const },
+                  disableFileHeader: true,
+                  overflow: 'scroll' as const,
+                  themeType: theme as 'light' | 'dark' | 'system',
+                  unsafeCSS: PIERRE_FILE_CSS,
+                }}
+              />
+            </div>
           ) : (
             <pre className="p-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap break-words">
-              {newContent || <span className="text-muted-foreground">（文件为空）</span>}
+              <span className="text-muted-foreground">（文件为空）</span>
             </pre>
           )
         ) : (
