@@ -953,21 +953,13 @@ export function useGlobalAgentListeners(): void {
     )
 
     // ===== 4. 标题更新 =====
-    const cleanupTitleUpdated = window.electronAPI.onAgentTitleUpdated(() => {
-      window.electronAPI
-        .listAgentSessions()
-        .then((sessions) => {
-          const prevSessions = store.get(agentSessionsAtom)
-          store.set(agentSessionsAtom, sessions)
-          // 同步更新标签页标题（比较新旧标题，有变化才更新）
-          for (const session of sessions) {
-            const prev = prevSessions.find((s) => s.id === session.id)
-            if (prev && prev.title !== session.title) {
-              store.set(tabsAtom, (tabs) => updateTabTitle(tabs, session.id, session.title))
-            }
-          }
-        })
-        .catch(console.error)
+    const cleanupTitleUpdated = window.electronAPI.onAgentTitleUpdated(({ sessionId, title }) => {
+      // 同步更新标签页标题
+      store.set(tabsAtom, (tabs) => updateTabTitle(tabs, sessionId, title))
+      // 同步更新侧边栏会话列表中的标题
+      store.set(agentSessionsAtom, (prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, title } : s))
+      )
     })
 
     // 定期清理 60s 前的「最近修改」标记，避免 atom 无限增长
