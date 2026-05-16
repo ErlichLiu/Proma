@@ -97,7 +97,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps): React.ReactElemen
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-1.5 flex-1 min-w-0 pointer-events-auto">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <span className="truncate text-sm font-medium text-foreground">
             {conversation.title}
           </span>
@@ -114,7 +114,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps): React.ReactElemen
       )}
 
       {/* 右侧按钮组 */}
-      <div className="flex items-center gap-1 titlebar-no-drag ml-auto pointer-events-auto">
+      <div className="flex items-center gap-1 titlebar-no-drag ml-auto">
         <SystemPromptSelector />
         <Tooltip>
           <TooltipTrigger asChild>
