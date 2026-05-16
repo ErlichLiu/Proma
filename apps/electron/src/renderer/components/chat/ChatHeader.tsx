@@ -65,7 +65,9 @@ export function ChatHeader({ conversation }: ChatHeaderProps): React.ReactElemen
   }
 
   return (
-    <div className="relative z-[51] flex items-center gap-2 px-4 h-[48px] titlebar-drag-region">
+    <div className="relative z-[51] flex items-center gap-2 px-4 h-[48px]">
+      {/* 左侧拖拽区域 - 不覆盖右侧窗口控制按钮 */}
+      <div className="absolute inset-0 left-0 right-[112px] titlebar-drag-region" />
       {editing ? (
         <div className="flex items-center gap-1.5 flex-1 min-w-0 titlebar-no-drag">
           <input
@@ -95,7 +97,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps): React.ReactElemen
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 pointer-events-auto">
           <span className="truncate text-sm font-medium text-foreground">
             {conversation.title}
           </span>
@@ -112,7 +114,7 @@ export function ChatHeader({ conversation }: ChatHeaderProps): React.ReactElemen
       )}
 
       {/* 右侧按钮组 */}
-      <div className="flex items-center gap-1 titlebar-no-drag ml-auto">
+      <div className="flex items-center gap-1 titlebar-no-drag ml-auto pointer-events-auto">
         <SystemPromptSelector />
         <Tooltip>
           <TooltipTrigger asChild>

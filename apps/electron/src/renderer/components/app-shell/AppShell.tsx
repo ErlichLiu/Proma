@@ -16,6 +16,7 @@ import { appModeAtom } from '@/atoms/app-mode'
 import { agentSidePanelWidthAtom, currentAgentSessionIdAtom, currentSessionSidePanelOpenAtom } from '@/atoms/agent-atoms'
 import { WindowControls } from '@/components/WindowControls'
 import { cn } from '@/lib/utils'
+import { detectIsWindows } from '@/lib/platform'
 
 const MIN_RIGHT_PANEL_WIDTH = 220
 const MAX_RIGHT_PANEL_WIDTH = 420
@@ -30,6 +31,7 @@ export interface AppShellProps {
 }
 
 export function AppShell({ contextValue }: AppShellProps): React.ReactElement {
+  const isWindows = React.useMemo(() => detectIsWindows(), [])
   const appMode = useAtomValue(appModeAtom)
   const currentSessionId = useAtomValue(currentAgentSessionIdAtom)
   const isPanelOpen = useAtomValue(currentSessionSidePanelOpenAtom)
@@ -78,7 +80,7 @@ export function AppShell({ contextValue }: AppShellProps): React.ReactElement {
   return (
     <AppShellProvider value={contextValue}>
       {/* 可拖动标题栏区域，用于窗口拖动 */}
-      <div className="titlebar-drag-region fixed top-0 left-0 right-0 h-[50px] z-50" />
+      <div className={cn("titlebar-drag-region fixed top-0 left-0 right-0 h-[50px] z-50", isWindows && "right-[112px]")} />
 
       {/* Windows 自定义窗口控制按钮（最小化/最大化/关闭） */}
       <WindowControls />
