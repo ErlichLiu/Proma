@@ -3,11 +3,9 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { Markdown } from 'tiptap-markdown'
 import type { MarkdownStorage } from 'tiptap-markdown'
 import { TextSelection } from '@tiptap/pm/state'
-import { common, createLowlight } from 'lowlight'
 import type { FileAccessOptions } from '@proma/shared'
 import { cn } from '@/lib/utils'
 import { MARKDOWN_RENDERER_VERSION, markdownToHtml } from '@/lib/markdown-rich-text'
@@ -20,6 +18,7 @@ import {
   TaskList,
   tableExtensions,
   createMarkdownImage,
+  createShikiCodeBlock,
   createMarkdownVideo,
 } from './markdown-preview-extensions'
 import { MarkdownEditorToolbar } from './MarkdownEditorToolbar'
@@ -38,8 +37,6 @@ interface MarkdownRichEditorProps {
   shikiTheme?: string
 }
 
-const lowlight = createLowlight(common)
-
 export function MarkdownRichEditor({
   value,
   editing,
@@ -49,6 +46,7 @@ export function MarkdownRichEditor({
   onRequestEdit,
   disabled,
   fileAccess,
+  shikiTheme = 'github-dark',
 }: MarkdownRichEditorProps): React.ReactElement {
   const isEditable = editing && !disabled
   const markdownRendererVersion = MARKDOWN_RENDERER_VERSION
@@ -59,6 +57,7 @@ export function MarkdownRichEditor({
   const fileAccessRef = React.useRef(fileAccess)
   const isEditableRef = React.useRef(isEditable)
   const disabledRef = React.useRef(disabled)
+  const shikiThemeRef = React.useRef(shikiTheme)
   const localMarkdownRef = React.useRef(value)
   const rendererVersionRef = React.useRef(markdownRendererVersion)
   const pendingFocusPosRef = React.useRef<number | null>(null)
@@ -69,6 +68,7 @@ export function MarkdownRichEditor({
   fileAccessRef.current = fileAccess
   isEditableRef.current = isEditable
   disabledRef.current = disabled
+  shikiThemeRef.current = shikiTheme
 
   const extensions = React.useMemo(() => [
     createMarkdownImage(fileAccessRef),
@@ -80,12 +80,7 @@ export function MarkdownRichEditor({
     TaskList,
     TaskItem,
     ...tableExtensions,
-    CodeBlockLowlight.configure({
-      lowlight,
-      HTMLAttributes: {
-        class: 'markdown-code-block',
-      },
-    }),
+    createShikiCodeBlock(shikiThemeRef),
     StarterKit.configure({
       codeBlock: false,
       link: false,
@@ -158,6 +153,11 @@ export function MarkdownRichEditor({
   React.useEffect(() => {
     editor?.setEditable(isEditable)
   }, [editor, isEditable])
+
+  React.useEffect(() => {
+    if (!editor) return
+    editor.view.dispatch(editor.state.tr.setMeta('markdownShikiCodeBlockRefresh', true))
+  }, [editor, shikiTheme])
 
   React.useEffect(() => {
     if (!editor) return

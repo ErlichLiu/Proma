@@ -66,6 +66,21 @@ function BubbleButton({
 }
 
 export function MarkdownBubbleMenu({ editor }: MarkdownBubbleMenuProps): React.ReactElement {
+  const [hiddenInTable, setHiddenInTable] = React.useState(() => selectionTouchesTable(editor))
+
+  React.useEffect(() => {
+    const updateVisibility = () => setHiddenInTable(selectionTouchesTable(editor))
+    updateVisibility()
+    editor.on('selectionUpdate', updateVisibility)
+    editor.on('transaction', updateVisibility)
+    return () => {
+      editor.off('selectionUpdate', updateVisibility)
+      editor.off('transaction', updateVisibility)
+    }
+  }, [editor])
+
+  if (hiddenInTable) return <></>
+
   return (
     <BubbleMenu
       editor={editor}

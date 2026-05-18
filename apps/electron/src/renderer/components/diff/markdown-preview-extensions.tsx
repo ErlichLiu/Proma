@@ -1,6 +1,8 @@
 import { Node, mergeAttributes, nodeInputRule } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import type { ViewMutationRecord } from '@tiptap/pm/view'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { EditorView, ViewMutationRecord } from '@tiptap/pm/view'
 import TaskListExt from '@tiptap/extension-task-list'
 import TaskItemExt from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -9,12 +11,129 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
+import { highlightCode, highlightToTokens } from '@proma/core'
 import type { FileAccessOptions } from '@proma/shared'
 
 type FileAccessRef = { current: FileAccessOptions | undefined }
 /** 传 null 表示当前编辑器无会话/文件上下文（如 ScratchPad），跳过路径解析。 */
 type FileAccessRefOrNull = FileAccessRef | null
 type ThemeRef = { current: string }
+
+interface ShikiDecorationState {
+  decorations: DecorationSet
+}
+
+const shikiCodeBlockPluginKey = new PluginKey<ShikiDecorationState>('markdownShikiCodeBlock')
+const SHIKI_REFRESH_META = 'markdownShikiCodeBlockRefresh'
+
+function normalizeCodeLanguage(language: unknown): string {
+  const value = typeof language === 'string' ? language.trim() : ''
+  return value || 'text'
+}
+
+function shouldLoadShikiLanguage(requestedLanguage: string, actualLanguage: string): boolean {
+  return requestedLanguage !== 'text' && actualLanguage === 'text'
+}
+
+function buildShikiDecorations(doc: ProseMirrorNode, theme: string): DecorationSet {
+  const decorations: Decoration[] = []
+
+  doc.descendants((node, pos) => {
+    if (node.type.name !== 'codeBlock') return true
+
+    const code = node.textContent
+    if (!code) return false
+
+    const language = normalizeCodeLanguage(node.attrs.language)
+    const result = highlightToTokens({ code, language, theme })
+    if (!result) return false
+
+    let offset = 0
+    result.lines.forEach((line, lineIndex) => {
+      line.forEach((token) => {
+        const from = pos + 1 + offset
+        const to = from + token.content.length
+        if (token.color && from < to) {
+          decorations.push(Decoration.inline(from, to, { style: `color: ${token.color}` }))
+        }
+        offset += token.content.length
+      })
+
+      if (lineIndex < result.lines.length - 1) offset += 1
+    })
+
+    return false
+  })
+
+  return DecorationSet.create(doc, decorations)
+}
+
+function requestMissingShikiLanguages(view: EditorView, theme: string, pending: Set<string>): void {
+  const requests: Array<Promise<void>> = []
+
+  view.state.doc.descendants((node) => {
+    if (node.type.name !== 'codeBlock') return true
+
+    const language = normalizeCodeLanguage(node.attrs.language)
+    const code = node.textContent || ' '
+    const syncResult = highlightToTokens({ code, language, theme })
+    if (syncResult && !shouldLoadShikiLanguage(language, syncResult.language)) return false
+
+    const key = `${theme}:${language}`
+    if (pending.has(key)) return false
+
+    pending.add(key)
+    requests.push(
+      highlightCode({ code, language, theme })
+        .then(() => {})
+        .catch((error) => console.error('[MarkdownRichEditor] Shiki 高亮失败:', error))
+        .finally(() => pending.delete(key)),
+    )
+
+    return false
+  })
+
+  if (requests.length === 0) return
+
+  Promise.all(requests)
+    .then(() => {
+      if (!view.isDestroyed) {
+        view.dispatch(view.state.tr.setMeta(SHIKI_REFRESH_META, true))
+      }
+    })
+    .catch(() => {})
+}
+
+function createShikiDecorationsPlugin(themeRef: ThemeRef): Plugin<ShikiDecorationState> {
+  return new Plugin<ShikiDecorationState>({
+    key: shikiCodeBlockPluginKey,
+    state: {
+      init: (_, state) => ({
+        decorations: buildShikiDecorations(state.doc, themeRef.current),
+      }),
+      apply: (tr, previous, _oldState, newState) => {
+        if (tr.docChanged || tr.getMeta(SHIKI_REFRESH_META)) {
+          return { decorations: buildShikiDecorations(newState.doc, themeRef.current) }
+        }
+        return { decorations: previous.decorations.map(tr.mapping, tr.doc) }
+      },
+    },
+    props: {
+      decorations: (state) => shikiCodeBlockPluginKey.getState(state)?.decorations ?? DecorationSet.empty,
+    },
+    view: (view) => {
+      const pending = new Set<string>()
+      requestMissingShikiLanguages(view, themeRef.current, pending)
+
+      return {
+        update: (nextView, previousState) => {
+          if (previousState.doc === nextView.state.doc && previousState.selection === nextView.state.selection) return
+          requestMissingShikiLanguages(nextView, themeRef.current, pending)
+        },
+      }
+    },
+  })
+}
 
 function isExternalUrl(src: string): boolean {
   return /^(?:https?:|data:|blob:|file:|proma-file:)/i.test(src)
@@ -555,6 +674,10 @@ export function createShikiCodeBlock(themeRef: ThemeRef): Node {
 
     addNodeView() {
       return ({ node }) => createShikiCodeBlockView(node, themeRef)
+    },
+
+    addProseMirrorPlugins() {
+      return [createShikiDecorationsPlugin(themeRef)]
     },
   })
 }
