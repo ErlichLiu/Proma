@@ -1,12 +1,12 @@
 import * as React from 'react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/react'
+import { CellSelection, isInTable } from '@tiptap/pm/tables'
 import {
   ArrowUpFromLine,
   ArrowDownFromLine,
   ArrowLeftFromLine,
   ArrowRightFromLine,
-  RemoveFormatting,
   Columns,
   Rows,
   Trash2,
@@ -18,6 +18,23 @@ import { cn } from '@/lib/utils'
 
 interface TableBubbleMenuProps {
   editor: Editor
+}
+
+function selectionInsideNode(editor: Editor, nodeName: string): boolean {
+  const { $from, $to } = editor.state.selection
+  const contains = (pos: typeof $from) => {
+    for (let depth = pos.depth; depth > 0; depth -= 1) {
+      if (pos.node(depth).type.name === nodeName) return true
+    }
+    return false
+  }
+  return contains($from) || contains($to)
+}
+
+function shouldShowTableMenu(editor: Editor, from: number, to: number): boolean {
+  if (from !== to) return false
+  if (editor.state.selection instanceof CellSelection) return false
+  return isInTable(editor.state) || selectionInsideNode(editor, 'table')
 }
 
 function TableButton({
@@ -59,7 +76,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps): React.ReactEl
     <BubbleMenu
       editor={editor}
       pluginKey="tableBubbleMenu"
-      shouldShow={({ editor: ed }) => ed.isActive('table')}
+      shouldShow={({ editor: ed, from, to }) => shouldShowTableMenu(ed, from, to)}
     >
       <div className="flex items-center gap-0.5 rounded-lg border bg-popover px-1 py-0.5 shadow-md">
         <TableButton icon={ArrowUpFromLine} label="上方插入行" onClick={() => editor.chain().focus().addRowBefore().run()} />

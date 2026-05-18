@@ -1,5 +1,6 @@
 import { Node, mergeAttributes, nodeInputRule } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import type { ViewMutationRecord } from '@tiptap/pm/view'
 import TaskListExt from '@tiptap/extension-task-list'
 import TaskItemExt from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -8,7 +9,6 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
-import { getDisplayName, highlightCode, highlightCodeSync } from '@proma/core'
 import type { FileAccessOptions } from '@proma/shared'
 
 type FileAccessRef = { current: FileAccessOptions | undefined }
@@ -224,14 +224,14 @@ function createMathView(initialNode: ProseMirrorNode, displayMode: boolean) {
   })
 }
 
-function createShikiCodeBlockView(initialNode: ProseMirrorNode, themeRef: ThemeRef) {
+function createShikiCodeBlockView(initialNode: ProseMirrorNode, _themeRef: ThemeRef) {
   const dom = document.createElement('div')
-  dom.contentEditable = 'false'
-  setClass(dom, 'not-prose my-3 overflow-hidden rounded-md border border-border/40')
+  setClass(dom, 'not-prose my-3 overflow-hidden rounded-md border border-border/40 bg-muted/30')
 
   // 头部栏：语言标签 + 复制按钮
   const header = document.createElement('div')
-  setClass(header, 'flex h-8 items-center justify-between border-b border-border/30 px-3 text-xs text-muted-foreground bg-muted/30')
+  header.contentEditable = 'false'
+  setClass(header, 'flex h-8 items-center justify-between border-b border-border/30 px-3 text-xs text-muted-foreground')
   const label = document.createElement('span')
   label.className = 'font-medium select-none'
   header.appendChild(label)
@@ -241,9 +241,9 @@ function createShikiCodeBlockView(initialNode: ProseMirrorNode, themeRef: ThemeR
   copyBtn.className = 'flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-foreground/10 transition-colors text-muted-foreground hover:text-foreground'
   copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>复制</span>'
   let copyTimeout: ReturnType<typeof setTimeout> | null = null
+  let currentCode = initialNode.textContent
   copyBtn.addEventListener('click', () => {
-    const code = (dom as any).__currentCode ?? ''
-    navigator.clipboard.writeText(code).then(() => {
+    navigator.clipboard.writeText(currentCode).then(() => {
       copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>已复制</span>'
       if (copyTimeout) clearTimeout(copyTimeout)
       copyTimeout = setTimeout(() => {
@@ -254,45 +254,23 @@ function createShikiCodeBlockView(initialNode: ProseMirrorNode, themeRef: ThemeR
   header.appendChild(copyBtn)
 
   const body = document.createElement('div')
-  setClass(body, '[&_.shiki]:!m-0 [&_.shiki]:!rounded-none [&_.shiki]:!bg-transparent [&_.shiki]:overflow-x-auto [&_.shiki]:p-4 [&_.shiki_code]:text-[13px] [&_.shiki_code]:leading-[1.6] [&_.shiki_code]:font-mono')
-  body.style.backgroundColor = 'hsl(var(--code-bg))'
+  setClass(body, 'markdown-code-block-body overflow-x-auto')
+
+  const editPre = document.createElement('pre')
+  setClass(editPre, 'markdown-code-edit-layer m-0 min-h-[3.2em] overflow-x-auto bg-transparent p-4 font-mono text-[13px] leading-[1.6]')
+
+  const contentDOM = document.createElement('code')
+  setClass(contentDOM, 'block min-h-[1.6em] whitespace-pre bg-transparent p-0 font-mono text-[13px] leading-[1.6]')
+  editPre.appendChild(contentDOM)
+  body.appendChild(editPre)
 
   dom.appendChild(header)
   dom.appendChild(body)
 
-  let generation = 0
-
-  const renderFallback = (code: string) => {
-    const pre = document.createElement('pre')
-    pre.className = 'm-0 overflow-x-auto p-4 text-[13px] leading-[1.6] font-mono'
-    pre.style.backgroundColor = 'hsl(var(--code-bg))'
-    const codeEl = document.createElement('code')
-    codeEl.textContent = code
-    pre.appendChild(codeEl)
-    body.replaceChildren(pre)
-  }
-
   const render = (node: ProseMirrorNode) => {
-    const currentGeneration = ++generation
-    const code = node.textContent
     const language = String(node.attrs.language ?? 'text') || 'text'
-    label.textContent = getDisplayName(language)
-    ;(dom as any).__currentCode = code
-
-    const sync = highlightCodeSync({ code, language, theme: themeRef.current })
-    if (sync) {
-      body.innerHTML = sanitizeHtml(sync.html)
-      return
-    }
-
-    renderFallback(code)
-    highlightCode({ code, language, theme: themeRef.current })
-      .then((result) => {
-        if (currentGeneration === generation) body.innerHTML = sanitizeHtml(result.html)
-      })
-      .catch(() => {
-        if (currentGeneration === generation) renderFallback(code)
-      })
+    currentCode = node.textContent
+    label.textContent = language === 'text' ? 'Code' : language
   }
 
   render(initialNode)
@@ -305,11 +283,11 @@ function createShikiCodeBlockView(initialNode: ProseMirrorNode, themeRef: ThemeR
       return true
     },
     destroy() {
-      generation += 1
       if (copyTimeout) clearTimeout(copyTimeout)
     },
-    ignoreMutation() {
-      return true
+    contentDOM,
+    ignoreMutation(mutation: ViewMutationRecord) {
+      return !contentDOM.contains(mutation.target)
     },
   }
 }

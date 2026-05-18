@@ -13,7 +13,7 @@ import { tmpdir, homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { PNG } from 'pngjs'
 
-const SCREENSHOT_SCALE = 3
+const SCREENSHOT_SCALE = 4
 const SCREENSHOT_MAX_SEGMENT = 4000
 const SCREENSHOT_SEGMENT_MARGIN = 96
 

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/react'
+import { CellSelection, isInTable } from '@tiptap/pm/tables'
 import {
   Bold,
   Italic,
@@ -15,6 +16,22 @@ import { cn } from '@/lib/utils'
 
 interface MarkdownBubbleMenuProps {
   editor: Editor
+}
+
+function selectionInsideNode(editor: Editor, nodeName: string): boolean {
+  const { $from, $to } = editor.state.selection
+  const contains = (pos: typeof $from) => {
+    for (let depth = pos.depth; depth > 0; depth -= 1) {
+      if (pos.node(depth).type.name === nodeName) return true
+    }
+    return false
+  }
+  return contains($from) || contains($to)
+}
+
+function selectionTouchesTable(editor: Editor): boolean {
+  const { selection } = editor.state
+  return selection instanceof CellSelection || isInTable(editor.state) || selectionInsideNode(editor, 'table')
 }
 
 function BubbleButton({
@@ -55,8 +72,8 @@ export function MarkdownBubbleMenu({ editor }: MarkdownBubbleMenuProps): React.R
       pluginKey="markdownBubbleMenu"
       shouldShow={({ editor: ed, from, to }) => {
         if (from === to) return false
-        if (ed.isActive('table')) return false
-        if (ed.isActive('codeBlock')) return false
+        if (selectionTouchesTable(ed)) return false
+        if (selectionInsideNode(ed, 'codeBlock')) return false
         return true
       }}
     >

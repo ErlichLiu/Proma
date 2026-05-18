@@ -20,6 +20,7 @@ import {
   Unlink,
   Camera,
   Copy,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
@@ -246,11 +247,14 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
   const isMac = navigator.platform.includes('Mac')
   const mod = isMac ? '⌘' : 'Ctrl+'
   const [screenshotting, setScreenshotting] = React.useState(false)
+  const [screenshotMode, setScreenshotMode] = React.useState<'clipboard' | 'file' | null>(null)
 
   const handleScreenshot = React.useCallback(async (mode: 'clipboard' | 'file') => {
     if (screenshotting) return
     setScreenshotting(true)
+    setScreenshotMode(mode)
     try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       const { html, width } = buildScreenshotHtml(editor)
       const isDark = document.documentElement.classList.contains('dark')
       const result = await window.electronAPI.screenshotCapture({ html, isDark, width, mode })
@@ -261,6 +265,7 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
       console.error('[截图] 失败:', err)
     } finally {
       setScreenshotting(false)
+      setScreenshotMode(null)
     }
   }, [editor, screenshotting])
 
@@ -303,6 +308,12 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
       <div className="flex-1" />
 
       {/* 截图导出 */}
+      {screenshotting && (
+        <div className="mr-1 flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>{screenshotMode === 'file' ? '正在生成截图...' : '正在复制截图...'}</span>
+        </div>
+      )}
       <ToolbarButton
         icon={Copy}
         label="截图到剪贴板"
