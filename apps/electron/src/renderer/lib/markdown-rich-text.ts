@@ -1,10 +1,10 @@
 import MarkdownIt from 'markdown-it'
 
 const VIDEO_EXT_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:[?#].*)?$/i
-const PREVIEW_BLOCK_RE = /^<div\s+[^>]*data-type=(["'])(?:markdown-table|raw-html-block|math-block)\1/i
+const PREVIEW_BLOCK_RE = /^<div\s+[^>]*data-type=(["'])(?:raw-html-block|math-block)\1/i
 const DETAILS_BLOCK_RE = /<details(\s[^>]*)?>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi
 
-export const MARKDOWN_RENDERER_VERSION = 2
+export const MARKDOWN_RENDERER_VERSION = 3
 
 const EMOJI_SHORTCODES: Record<string, string> = {
   '+1': '👍',
@@ -152,52 +152,6 @@ markdownIt.renderer.rules.image = (tokens, idx) => {
   return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"${titleAttr}>`
 }
 
-function isMarkdownTableDelimiter(line: string): boolean {
-  const trimmed = line.trim()
-  if (!trimmed.includes('|')) return false
-
-  const cells = trimmed
-    .replace(/^\|/, '')
-    .replace(/\|$/, '')
-    .split('|')
-    .map((cell) => cell.trim())
-
-  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
-}
-
-function isMarkdownTableHeader(line: string, nextLine?: string): boolean {
-  return Boolean(nextLine && line.includes('|') && isMarkdownTableDelimiter(nextLine))
-}
-
-function wrapMarkdownTables(markdown: string): string {
-  const lines = markdown.split('\n')
-  const nextLines: string[] = []
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? ''
-    if (!isMarkdownTableHeader(line, lines[i + 1])) {
-      nextLines.push(line)
-      continue
-    }
-
-    const tableLines = [line, lines[i + 1] ?? '']
-    i += 2
-    while (i < lines.length && (lines[i] ?? '').trim() && (lines[i] ?? '').includes('|')) {
-      tableLines.push(lines[i] ?? '')
-      i += 1
-    }
-    i -= 1
-
-    const tableMarkdown = tableLines.join('\n')
-    const tableHtml = markdownIt.render(tableMarkdown).trim()
-    nextLines.push(
-      `<div data-type="markdown-table" data-markdown="${escapeAttr(tableMarkdown)}" data-html="${escapeAttr(tableHtml)}"></div>`,
-    )
-  }
-
-  return nextLines.join('\n')
-}
-
 function wrapMarkdownDetailsBlocks(markdown: string): string {
   return markdown.replace(DETAILS_BLOCK_RE, (raw: string, attrs = '', summary: string, body: string) => {
     const bodyMarkdown = body.trim()
@@ -208,7 +162,7 @@ function wrapMarkdownDetailsBlocks(markdown: string): string {
 }
 
 function preprocessMarkdown(markdown: string): string {
-  return wrapMarkdownTables(wrapMarkdownDetailsBlocks(markdown))
+  return wrapMarkdownDetailsBlocks(markdown)
 }
 
 function enhanceMarkdownHtml(html: string): string {
@@ -232,13 +186,6 @@ function enhanceMarkdownHtml(html: string): string {
     li.setAttribute('data-type', 'taskItem')
     li.setAttribute('data-checked', (match[1] ?? '').toLowerCase() === 'x' ? 'true' : 'false')
     li.parentElement?.setAttribute('data-type', 'taskList')
-  }
-
-  for (const table of Array.from(root.querySelectorAll('table'))) {
-    const wrapper = document.createElement('div')
-    wrapper.setAttribute('data-type', 'markdown-table')
-    wrapper.dataset.html = table.outerHTML
-    table.replaceWith(wrapper)
   }
 
   return root.innerHTML
@@ -271,16 +218,6 @@ export function htmlToMarkdown(html: string): string {
 
     switch (tagName) {
       case 'div':
-        if (el.getAttribute('data-type') === 'markdown-table') {
-          const tableMarkdown = el.getAttribute('data-markdown')
-          if (tableMarkdown !== null) return `${tableMarkdown}\n`
-
-          const tableHtml = el.getAttribute('data-html') || ''
-          const holder = document.createElement('div')
-          holder.innerHTML = tableHtml
-          const table = holder.querySelector('table')
-          return table ? processNode(table) : ''
-        }
         if (el.getAttribute('data-type') === 'raw-html-block') {
           const htmlMarkdown = el.getAttribute('data-markdown')
           if (htmlMarkdown !== null) return `${htmlMarkdown}\n`

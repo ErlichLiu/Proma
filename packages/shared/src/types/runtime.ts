@@ -342,6 +342,8 @@ export const IPC_CHANNELS = {
   WINDOW_CLOSE: 'window:close',
   /** 窗口是否最大化 */
   WINDOW_IS_MAXIMIZED: 'window:is-maximized',
+  /** 截图导出：将 HTML 渲染为 PNG 图片 */
+  SCREENSHOT_CAPTURE: 'screenshot:capture',
 } as const
 
 /**

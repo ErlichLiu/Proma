@@ -2,6 +2,10 @@ import { Node, mergeAttributes, nodeInputRule } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import TaskListExt from '@tiptap/extension-task-list'
 import TaskItemExt from '@tiptap/extension-task-item'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableCell } from '@tiptap/extension-table-cell'
+import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import { getDisplayName, highlightCode, highlightCodeSync } from '@proma/core'
@@ -596,48 +600,16 @@ export const TaskItem = TaskItemExt.configure({
   HTMLAttributes: { class: 'flex items-start gap-2' },
 })
 
-export const MarkdownTableBlock = Node.create({
-  name: 'markdownTableBlock',
-  group: 'block',
-  atom: true,
-
-  addAttributes() {
-    return {
-      html: { default: '' },
-      markdown: { default: '' },
-    }
-  },
-
-  parseHTML() {
-    return [{
-      tag: 'div[data-type="markdown-table"]',
-      getAttrs: (node) => node instanceof HTMLElement
-        ? { html: node.dataset.html || '', markdown: node.dataset.markdown || '' }
-        : false,
-    }]
-  },
-
-  renderHTML({ node }) {
-    return [
-      'div',
-      {
-        'data-type': 'markdown-table',
-        'data-html': node.attrs.html,
-        'data-markdown': node.attrs.markdown || undefined,
-      },
-    ]
-  },
-
-  addNodeView() {
-    return ({ node }) => createStaticHtmlView(node, {
-      className: [
-        'not-prose my-3 overflow-x-auto',
-        '[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm',
-        '[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:align-top',
-        '[&_td]:border [&_td]:border-border/50 [&_td]:px-2 [&_td]:py-1 [&_td]:align-top',
-        '[&_tr:nth-child(even)_td]:bg-muted/20',
-      ].join(' '),
-      getHtml: (nextNode) => String(nextNode.attrs.html ?? ''),
-    })
-  },
-})
+export const tableExtensions = [
+  Table.configure({
+    resizable: false,
+    HTMLAttributes: { class: 'markdown-table' },
+  }),
+  TableRow,
+  TableCell.configure({
+    HTMLAttributes: { class: 'md-td' },
+  }),
+  TableHeader.configure({
+    HTMLAttributes: { class: 'md-th' },
+  }),
+]

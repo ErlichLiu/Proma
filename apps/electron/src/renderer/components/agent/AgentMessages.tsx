@@ -486,8 +486,8 @@ export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persi
   const allSDKMessages = React.useMemo(() => {
     const persisted = persistedSDKMessages ?? []
     const live = liveMessages ?? []
-    const stampStableKey = (message: SDKMessage): SDKMessage => {
-      const key = getSDKMessageStableKey(message)
+    const stampStableKey = (message: SDKMessage, index: number): SDKMessage => {
+      const key = `${getSDKMessageStableKey(message)}:#${index}`
       ;(message as Record<string, unknown>)._promaStableKey = key
       return message
     }
@@ -495,7 +495,7 @@ export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persi
       (message as Record<string, unknown>)._promaStableKey as string
 
     const persistedWithKeys = persisted.map(stampStableKey)
-    const liveWithKeys = live.map(stampStableKey)
+    const liveWithKeys = live.map((msg, i) => stampStableKey(msg, persisted.length + i))
     if (streaming || liveWithKeys.length === 0 || persistedWithKeys.length === 0) {
       return [...persistedWithKeys, ...liveWithKeys]
     }

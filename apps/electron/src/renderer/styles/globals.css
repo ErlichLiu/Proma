@@ -1029,3 +1029,43 @@
 .voice-dictation-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* ===== Tiptap 可编辑表格样式 ===== */
+.ProseMirror table.markdown-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75em 0;
+  table-layout: auto;
+}
+
+.ProseMirror table.markdown-table td,
+.ProseMirror table.markdown-table th {
+  border: 1px solid hsl(var(--border));
+  padding: 4px 8px;
+  min-width: 48px;
+  vertical-align: top;
+  position: relative;
+}
+
+.ProseMirror table.markdown-table th {
+  background-color: hsl(var(--muted) / 0.5);
+  font-weight: 600;
+  text-align: left;
+}
+
+.ProseMirror table.markdown-table tr:nth-child(even) td {
+  background-color: hsl(var(--muted) / 0.15);
+}
+
+.ProseMirror .selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: '';
+  inset: 0;
+  background: hsl(var(--primary) / 0.12);
+  pointer-events: none;
+}
+
+.ProseMirror:not([contenteditable='true']) .selectedCell::after {
+  display: none;
+}

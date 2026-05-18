@@ -3,22 +3,27 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
+import { Markdown } from 'tiptap-markdown'
+import type { MarkdownStorage } from 'tiptap-markdown'
 import { TextSelection } from '@tiptap/pm/state'
 import type { FileAccessOptions } from '@proma/shared'
 import { cn } from '@/lib/utils'
-import { MARKDOWN_RENDERER_VERSION, htmlToMarkdown, markdownToHtml } from '@/lib/markdown-rich-text'
+import { MARKDOWN_RENDERER_VERSION, markdownToHtml } from '@/lib/markdown-rich-text'
 import {
-  MarkdownTableBlock,
   MathBlock,
   MathInline,
   RawHtmlBlock,
   RawHtmlInline,
   TaskItem,
   TaskList,
+  tableExtensions,
   createMarkdownImage,
   createMarkdownVideo,
   createShikiCodeBlock,
 } from './markdown-preview-extensions'
+import { MarkdownEditorToolbar } from './MarkdownEditorToolbar'
+import { MarkdownBubbleMenu } from './MarkdownBubbleMenu'
+import { TableBubbleMenu } from './TableBubbleMenu'
 
 interface MarkdownRichEditorProps {
   value: string
@@ -74,7 +79,7 @@ export function MarkdownRichEditor({
     MathInline,
     TaskList,
     TaskItem,
-    MarkdownTableBlock,
+    ...tableExtensions,
     createShikiCodeBlock(shikiThemeRef),
     StarterKit.configure({
       codeBlock: false,
@@ -89,6 +94,11 @@ export function MarkdownRichEditor({
       HTMLAttributes: {
         class: 'text-primary underline',
       },
+    }),
+    Markdown.configure({
+      html: true,
+      tightLists: true,
+      bulletListMarker: '-',
     }),
   ], [])
 
@@ -133,7 +143,8 @@ export function MarkdownRichEditor({
     },
     onUpdate: ({ editor: ed }) => {
       if (!isEditableRef.current) return
-      const markdown = htmlToMarkdown(ed.getHTML())
+      const mdStorage = ed.storage as unknown as Record<string, MarkdownStorage>
+      const markdown = mdStorage.markdown?.getMarkdown() ?? ''
       localMarkdownRef.current = markdown
       onChangeRef.current(markdown)
     },
@@ -166,5 +177,12 @@ export function MarkdownRichEditor({
     return () => clearTimeout(timer)
   }, [editor, isEditable])
 
-  return <EditorContent editor={editor} className="min-h-full" />
+  return (
+    <div className="flex min-h-full flex-col">
+      {editing && editor && <MarkdownEditorToolbar editor={editor} />}
+      <EditorContent editor={editor} className="min-h-full flex-1" />
+      {editor && <MarkdownBubbleMenu editor={editor} />}
+      {editor && <TableBubbleMenu editor={editor} />}
+    </div>
+  )
 }

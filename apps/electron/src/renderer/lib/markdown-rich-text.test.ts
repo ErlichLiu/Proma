@@ -2,16 +2,16 @@ import { describe, expect, test } from 'bun:test'
 import { markdownToHtml } from './markdown-rich-text'
 
 describe('markdownToHtml rich preview blocks', () => {
-  test('wraps markdown tables as preview blocks while preserving the source markdown', () => {
+  test('renders markdown tables as standard HTML tables', () => {
     const html = markdownToHtml([
       '| Header 1 | Header 2 |',
       '| --- | --- |',
       '| Cell 1 | Cell 2 |',
     ].join('\n'))
 
-    expect(html).toContain('data-type="markdown-table"')
-    expect(html).toContain('data-markdown="| Header 1 | Header 2 |&#10;| --- | --- |&#10;| Cell 1 | Cell 2 |"')
-    expect(html).toContain('&lt;table&gt;')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<th>Header 1</th>')
+    expect(html).toContain('<td>Cell 1</td>')
   })
 
   test('renders markdown inside details blocks while preserving the source markdown', () => {
