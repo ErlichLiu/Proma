@@ -247,12 +247,10 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
   const isMac = navigator.platform.includes('Mac')
   const mod = isMac ? '⌘' : 'Ctrl+'
   const [screenshotting, setScreenshotting] = React.useState(false)
-  const [screenshotMode, setScreenshotMode] = React.useState<'clipboard' | 'file' | null>(null)
 
   const handleScreenshot = React.useCallback(async (mode: 'clipboard' | 'file') => {
     if (screenshotting) return
     setScreenshotting(true)
-    setScreenshotMode(mode)
     try {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       const { html, width } = buildScreenshotHtml(editor)
@@ -265,7 +263,6 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
       console.error('[截图] 失败:', err)
     } finally {
       setScreenshotting(false)
-      setScreenshotMode(null)
     }
   }, [editor, screenshotting])
 
@@ -309,10 +306,16 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
 
       {/* 截图导出 */}
       {screenshotting && (
-        <div className="mr-1 flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>{screenshotMode === 'file' ? '正在生成截图...' : '正在复制截图...'}</span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-label="截图处理中" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            生成截图中
+          </TooltipContent>
+        </Tooltip>
       )}
       <ToolbarButton
         icon={Copy}

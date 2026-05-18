@@ -667,6 +667,19 @@ export function createShikiCodeBlock(themeRef: ThemeRef): Node {
       return [{ tag: 'pre', preserveWhitespace: 'full' }]
     },
 
+    addCommands() {
+      return {
+        setCodeBlock:
+          (attributes) =>
+          ({ commands }) =>
+            commands.setNode(this.name, attributes),
+        toggleCodeBlock:
+          (attributes) =>
+          ({ commands }) =>
+            commands.toggleNode(this.name, 'paragraph', attributes),
+      }
+    },
+
     renderHTML({ node, HTMLAttributes }) {
       const language = node.attrs.language ? `language-${node.attrs.language}` : undefined
       return ['pre', mergeAttributes(HTMLAttributes), ['code', { class: language }, 0]]
