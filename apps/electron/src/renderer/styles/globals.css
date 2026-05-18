@@ -1063,7 +1063,7 @@
 .ProseMirror .md-th {
   background-clip: padding-box;
   border: 0 !important;
-  border-right: 2px solid hsl(var(--foreground) / 0.32) !important;
+  border-right: 1px solid hsl(var(--foreground) / 0.28) !important;
   border-bottom: 1px solid hsl(var(--foreground) / 0.16) !important;
   box-shadow: inset -1px 0 0 hsl(var(--background) / 0.9);
   min-width: 48px;
@@ -1074,21 +1074,21 @@
 
 .ProseMirror table.markdown-table td,
 .ProseMirror table.markdown-table th {
-  border-right-color: hsl(var(--foreground) / 0.32) !important;
+  border-right-color: hsl(var(--foreground) / 0.28) !important;
 }
 
 .ProseMirror table td:not(:last-child)::after,
 .ProseMirror table th:not(:last-child)::after,
 .ProseMirror table.markdown-table td:not(:last-child)::after,
 .ProseMirror table.markdown-table th:not(:last-child)::after {
-  background: hsl(var(--foreground) / 0.36);
+  background: hsl(var(--foreground) / 0.28);
   bottom: 0;
   content: '';
   pointer-events: none;
   position: absolute;
-  right: -2px;
+  right: -1px;
   top: 0;
-  width: 2px;
+  width: 1px;
 }
 
 .ProseMirror table tr > :last-child,
@@ -1166,22 +1166,31 @@
 
 .ProseMirror pre.markdown-code-block .hljs-keyword,
 .ProseMirror pre.markdown-code-block .hljs-selector-tag,
-.ProseMirror pre.markdown-code-block .hljs-subst {
+.ProseMirror pre.markdown-code-block .hljs-subst,
+.ProseMirror pre.markdown-code-block .hljs-doctag,
+.ProseMirror pre.markdown-code-block .hljs-template-tag,
+.ProseMirror pre.markdown-code-block .hljs-template-variable {
   color: hsl(var(--primary));
   font-weight: 600;
 }
 
 .ProseMirror pre.markdown-code-block .hljs-string,
+.ProseMirror pre.markdown-code-block .hljs-regexp,
 .ProseMirror pre.markdown-code-block .hljs-title,
 .ProseMirror pre.markdown-code-block .hljs-section,
-.ProseMirror pre.markdown-code-block .hljs-name {
+.ProseMirror pre.markdown-code-block .hljs-name,
+.ProseMirror pre.markdown-code-block .hljs-selector-id,
+.ProseMirror pre.markdown-code-block .hljs-selector-class {
   color: hsl(150 55% 34%);
 }
 
 .dark .ProseMirror pre.markdown-code-block .hljs-string,
+.dark .ProseMirror pre.markdown-code-block .hljs-regexp,
 .dark .ProseMirror pre.markdown-code-block .hljs-title,
 .dark .ProseMirror pre.markdown-code-block .hljs-section,
-.dark .ProseMirror pre.markdown-code-block .hljs-name {
+.dark .ProseMirror pre.markdown-code-block .hljs-name,
+.dark .ProseMirror pre.markdown-code-block .hljs-selector-id,
+.dark .ProseMirror pre.markdown-code-block .hljs-selector-class {
   color: hsl(150 55% 62%);
 }
 
@@ -1189,7 +1198,9 @@
 .ProseMirror pre.markdown-code-block .hljs-literal,
 .ProseMirror pre.markdown-code-block .hljs-variable,
 .ProseMirror pre.markdown-code-block .hljs-template-variable,
-.ProseMirror pre.markdown-code-block .hljs-attribute {
+.ProseMirror pre.markdown-code-block .hljs-attribute,
+.ProseMirror pre.markdown-code-block .hljs-symbol,
+.ProseMirror pre.markdown-code-block .hljs-bullet {
   color: hsl(24 80% 44%);
 }
 
@@ -1197,20 +1208,82 @@
 .dark .ProseMirror pre.markdown-code-block .hljs-literal,
 .dark .ProseMirror pre.markdown-code-block .hljs-variable,
 .dark .ProseMirror pre.markdown-code-block .hljs-template-variable,
-.dark .ProseMirror pre.markdown-code-block .hljs-attribute {
+.dark .ProseMirror pre.markdown-code-block .hljs-attribute,
+.dark .ProseMirror pre.markdown-code-block .hljs-symbol,
+.dark .ProseMirror pre.markdown-code-block .hljs-bullet {
   color: hsl(32 90% 64%);
 }
 
 .ProseMirror pre.markdown-code-block .hljs-built_in,
 .ProseMirror pre.markdown-code-block .hljs-type,
-.ProseMirror pre.markdown-code-block .hljs-class .hljs-title {
+.ProseMirror pre.markdown-code-block .hljs-class .hljs-title,
+.ProseMirror pre.markdown-code-block .hljs-function .hljs-title,
+.ProseMirror pre.markdown-code-block .hljs-title.function_ {
   color: hsl(210 70% 45%);
 }
 
 .dark .ProseMirror pre.markdown-code-block .hljs-built_in,
 .dark .ProseMirror pre.markdown-code-block .hljs-type,
-.dark .ProseMirror pre.markdown-code-block .hljs-class .hljs-title {
+.dark .ProseMirror pre.markdown-code-block .hljs-class .hljs-title,
+.dark .ProseMirror pre.markdown-code-block .hljs-function .hljs-title,
+.dark .ProseMirror pre.markdown-code-block .hljs-title.function_ {
   color: hsl(210 90% 70%);
+}
+
+.ProseMirror pre.markdown-code-block .hljs-attr,
+.ProseMirror pre.markdown-code-block .hljs-property,
+.ProseMirror pre.markdown-code-block .hljs-params,
+.ProseMirror pre.markdown-code-block .hljs-selector-attr,
+.ProseMirror pre.markdown-code-block .hljs-selector-pseudo {
+  color: hsl(270 55% 48%);
+}
+
+.dark .ProseMirror pre.markdown-code-block .hljs-attr,
+.dark .ProseMirror pre.markdown-code-block .hljs-property,
+.dark .ProseMirror pre.markdown-code-block .hljs-params,
+.dark .ProseMirror pre.markdown-code-block .hljs-selector-attr,
+.dark .ProseMirror pre.markdown-code-block .hljs-selector-pseudo {
+  color: hsl(275 72% 74%);
+}
+
+.ProseMirror pre.markdown-code-block .hljs-operator,
+.ProseMirror pre.markdown-code-block .hljs-punctuation,
+.ProseMirror pre.markdown-code-block .hljs-meta,
+.ProseMirror pre.markdown-code-block .hljs-link {
+  color: hsl(190 72% 34%);
+}
+
+.dark .ProseMirror pre.markdown-code-block .hljs-operator,
+.dark .ProseMirror pre.markdown-code-block .hljs-punctuation,
+.dark .ProseMirror pre.markdown-code-block .hljs-meta,
+.dark .ProseMirror pre.markdown-code-block .hljs-link {
+  color: hsl(190 78% 65%);
+}
+
+.ProseMirror pre.markdown-code-block .hljs-tag,
+.ProseMirror pre.markdown-code-block .hljs-tag .hljs-name {
+  color: hsl(345 72% 44%);
+}
+
+.dark .ProseMirror pre.markdown-code-block .hljs-tag,
+.dark .ProseMirror pre.markdown-code-block .hljs-tag .hljs-name {
+  color: hsl(345 82% 70%);
+}
+
+.ProseMirror pre.markdown-code-block .hljs-addition {
+  color: hsl(145 58% 32%);
+}
+
+.dark .ProseMirror pre.markdown-code-block .hljs-addition {
+  color: hsl(145 62% 64%);
+}
+
+.ProseMirror pre.markdown-code-block .hljs-deletion {
+  color: hsl(0 68% 48%);
+}
+
+.dark .ProseMirror pre.markdown-code-block .hljs-deletion {
+  color: hsl(0 78% 72%);
 }
 
 .ProseMirror .markdown-code-edit-layer {
