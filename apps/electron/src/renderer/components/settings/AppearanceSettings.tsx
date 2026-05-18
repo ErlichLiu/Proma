@@ -43,12 +43,12 @@ import promaCyberpunkLogo from '@/assets/bots/proma-logos/proma-cyberpunk.png'
 import promaFuturisticLogo from '@/assets/bots/proma-logos/proma-futuristic.png'
 
 // ===== 主题预览图片导入 =====
-import themeCloudDancer from '@/assets/theme-previews/theme-cloud-dancer.png'
-import themeOceanLight from '@/assets/theme-previews/theme-ocean-light.png'
-import themeForestMorning from '@/assets/theme-previews/theme-forest-morning.png'
-import themeOceanDark from '@/assets/theme-previews/theme-ocean-dark.png'
-import themeForestNight from '@/assets/theme-previews/theme-forest-night.png'
-import themeMorandiNight from '@/assets/theme-previews/theme-morandi-night.png'
+import themeCloudDancer from '@/assets/theme-previews/theme-cloud-dancer.webp'
+import themeOceanLight from '@/assets/theme-previews/theme-ocean-light.webp'
+import themeForestMorning from '@/assets/theme-previews/theme-forest-morning.webp'
+import themeOceanDark from '@/assets/theme-previews/theme-ocean-dark.webp'
+import themeForestNight from '@/assets/theme-previews/theme-forest-night.webp'
+import themeMorandiNight from '@/assets/theme-previews/theme-morandi-night.webp'
 
 /** 主题选项 */
 const THEME_OPTIONS = [
@@ -58,9 +58,12 @@ const THEME_OPTIONS = [
   { value: 'special', label: '特殊风格' },
 ]
 
+/** 特殊风格 ID（排除 default） */
+type SpecialStyleId = Exclude<ThemeStyle, 'default'>
+
 /** 特殊风格定义 */
 interface SpecialStyle {
-  id: ThemeStyle
+  id: SpecialStyleId
   name: string
   variant: 'light' | 'dark'
   /** 主题预览图 */
@@ -71,7 +74,7 @@ interface SpecialStyle {
   imageScale?: number
 }
 
-const SPECIAL_STYLES: SpecialStyle[] = [
+const SPECIAL_STYLES: readonly SpecialStyle[] = [
   {
     id: 'slate-light',
     name: '云朵舞者',
@@ -190,7 +193,7 @@ export function AppearanceSettings(): React.ReactElement {
           {/* 特殊风格 - 标签在上，卡片在下 */}
           <div className="px-4 py-3 space-y-2">
             <div className="text-sm font-medium text-foreground">特殊风格</div>
-            <div className="flex justify-between">
+            <div className="grid grid-cols-6 gap-3">
               {SPECIAL_STYLES.map((style) => (
                 <StyleCard
                   key={style.id}
@@ -354,31 +357,33 @@ function StyleCard({
         className={cn(
           'relative rounded-lg transition-all overflow-hidden',
           'w-[90px] h-[260px]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
           isSelected
             ? 'ring-2 ring-primary shadow-lg shadow-primary/20'
             : 'ring-1 ring-border/50 hover:ring-border'
         )}
       >
-        <img
-          src={style.image}
-          alt={style.name}
-          className="w-full h-full object-cover"
-          style={{
-            ...(style.objectPosition ? { objectPosition: style.objectPosition } : {}),
-            ...(style.imageScale ? { transform: `scale(${style.imageScale})` } : {}),
-          }}
-          draggable={false}
-        />
+        <div
+          className="w-full h-full"
+          style={style.imageScale ? { transform: `scale(${style.imageScale})` } : undefined}
+        >
+          <img
+            src={style.image}
+            alt={style.name}
+            loading="lazy"
+            decoding="async"
+            className="w-full h-full object-cover"
+            style={style.objectPosition ? { objectPosition: style.objectPosition } : undefined}
+            draggable={false}
+          />
+        </div>
         {isSelected && (
           <div className="absolute top-1 right-1 size-4 rounded-full bg-primary flex items-center justify-center">
             <Check className="size-2.5 text-primary-foreground" />
           </div>
         )}
       </button>
-      <span className={cn(
-        'text-sm font-medium',
-        style.variant === 'dark' ? 'text-white' : 'text-foreground'
-      )}>
+      <span className="text-sm font-medium text-foreground">
         {style.name}
       </span>
     </div>
