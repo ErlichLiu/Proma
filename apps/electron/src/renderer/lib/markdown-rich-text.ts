@@ -3,6 +3,7 @@ import MarkdownIt from 'markdown-it'
 const VIDEO_EXT_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:[?#].*)?$/i
 const PREVIEW_BLOCK_RE = /^<div\s+[^>]*data-type=(["'])(?:raw-html-block|math-block)\1/i
 const DETAILS_BLOCK_RE = /<details(\s[^>]*)?>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi
+const STANDALONE_HTML_MEDIA_RE = /^\s*<(?:img|video)\b[^>]*(?:\/?>|>.*?<\/video>)\s*$/i
 
 export const MARKDOWN_RENDERER_VERSION = 3
 
@@ -182,8 +183,28 @@ function wrapMarkdownDetailsBlocks(markdown: string): string {
   })
 }
 
+function separateStandaloneHtmlMediaBlocks(markdown: string): string {
+  const lines = markdown.split('\n')
+  const result: string[] = []
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
+    result.push(line)
+    const nextLine = lines[i + 1] ?? ''
+    if (STANDALONE_HTML_MEDIA_RE.test(line) && nextLine.trim()) {
+      result.push('')
+    }
+  }
+  return result.join('\n')
+}
+
+function normalizeMarkdownLinePrefixes(markdown: string): string {
+  return markdown
+    .replace(/^[\u200b\ufeff]+(?=#{1,6}\s)/gm, '')
+    .replace(/^\u00a0{1,3}(?=#{1,6}\s)/gm, (spaces) => ' '.repeat(spaces.length))
+}
+
 function preprocessMarkdown(markdown: string): string {
-  return wrapMarkdownDetailsBlocks(markdown)
+  return wrapMarkdownDetailsBlocks(separateStandaloneHtmlMediaBlocks(normalizeMarkdownLinePrefixes(markdown)))
 }
 
 function enhanceMarkdownHtml(html: string): string {

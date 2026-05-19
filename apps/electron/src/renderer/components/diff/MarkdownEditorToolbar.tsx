@@ -51,47 +51,35 @@ interface ToolbarActiveState {
   link: boolean
 }
 
-const ROOT_STYLE_OVERRIDES = [
-  'height:auto',
-  'min-height:0',
-  'max-height:none',
-  'overflow:visible',
-  'position:relative',
-]
-
-function inlineComputedStyles(source: Element, target: Element): void {
-  const computed = window.getComputedStyle(source)
-  const declarations: string[] = []
-  for (const property of Array.from(computed)) {
-    const value = computed.getPropertyValue(property)
-    if (!value) continue
-    const priority = computed.getPropertyPriority(property)
-    declarations.push(`${property}:${value}${priority ? ' !important' : ''}`)
-  }
-
-  target.setAttribute('style', declarations.join(';'))
-  target.removeAttribute('contenteditable')
-  target.removeAttribute('spellcheck')
-  target.removeAttribute('data-gramm')
-  target.removeAttribute('data-gramm_editor')
-
-  const sourceChildren = Array.from(source.children)
-  const targetChildren = Array.from(target.children)
-  for (let i = 0; i < sourceChildren.length; i += 1) {
-    const sourceChild = sourceChildren[i]
-    const targetChild = targetChildren[i]
-    if (sourceChild && targetChild) {
-      inlineComputedStyles(sourceChild, targetChild)
+/**
+ * 收集渲染端已编译的 CSS（含 Tailwind 输出 + globals.css）。
+ * 跨域 / file: 协议的 sheet 读 cssRules 会抛，捕获后跳过。
+ */
+function collectRuntimeStyles(): string {
+  const chunks: string[] = []
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      const rules = sheet.cssRules
+      if (!rules) continue
+      for (const rule of Array.from(rules)) {
+        chunks.push(rule.cssText)
+      }
+    } catch {
+      // 无法访问的 sheet（CORS / 跨域字体表）跳过
     }
   }
+  return chunks.join('\n')
 }
 
-function buildScreenshotHtml(editor: Editor): { html: string; width: number } {
+function buildScreenshotPayload(editor: Editor): {
+  html: string
+  width: number
+  css: string
+  themeClass: string
+} {
   const root = editor.view.dom
 
-  // 渲染端预检：在做昂贵的 inlineComputedStyles 之前快速失败。
-  // 元素数和原始 HTML 大小是两个互补信号——element 数主要反映 getComputedStyle
-  // 的耗时，HTML 字节数主要反映 IPC 传输后的体积膨胀。
+  // 预检：早失败，避免昂贵工作白做
   const elementCount = root.querySelectorAll('*').length
   if (elementCount > SCREENSHOT_LIMITS.MAX_ELEMENTS) {
     throw new Error('文档结构过于复杂，请缩短内容后重试')
@@ -100,8 +88,15 @@ function buildScreenshotHtml(editor: Editor): { html: string; width: number } {
     throw new Error('文档过大，请缩短内容后重试')
   }
 
+  // 克隆 DOM，但不再逐元素 inline computed style——
+  // 直接把渲染端运行时的 CSS 整体注入到截图 HTML，由浏览器自然层叠。
   const clone = root.cloneNode(true) as HTMLElement
-  inlineComputedStyles(root, clone)
+  clone.querySelectorAll('[contenteditable]').forEach((el) => {
+    el.removeAttribute('contenteditable')
+  })
+  clone.querySelectorAll('[spellcheck]').forEach((el) => {
+    el.removeAttribute('spellcheck')
+  })
 
   const rect = root.getBoundingClientRect()
   const width = Math.max(
@@ -110,15 +105,20 @@ function buildScreenshotHtml(editor: Editor): { html: string; width: number } {
   )
   clone.style.width = `${width}px`
   clone.style.height = 'auto'
-  clone.style.minHeight = '0'
   clone.style.maxHeight = 'none'
   clone.style.overflow = 'visible'
-  clone.style.position = 'relative'
-  clone.style.boxSizing = 'border-box'
   clone.setAttribute('data-proma-screenshot-root', 'true')
-  clone.setAttribute('style', `${clone.getAttribute('style') || ''};${ROOT_STYLE_OVERRIDES.join(';')}`)
 
-  return { html: clone.outerHTML, width }
+  // 透传主题 class（dark / theme-ocean-dark / theme-forest-dark 等），
+  // 确保 globals.css 里基于这些 class 的 CSS 变量在截图侧也生效
+  const themeClass = document.documentElement.className
+
+  return {
+    html: clone.outerHTML,
+    width,
+    css: collectRuntimeStyles(),
+    themeClass,
+  }
 }
 
 function ToolbarButton({
@@ -312,9 +312,9 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
     setScreenshotting(true)
     try {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-      const { html, width } = buildScreenshotHtml(editor)
+      const { html, width, css, themeClass } = buildScreenshotPayload(editor)
       const isDark = document.documentElement.classList.contains('dark')
-      const result = await window.electronAPI.screenshotCapture({ html, isDark, width, mode })
+      const result = await window.electronAPI.screenshotCapture({ html, isDark, width, mode, css, themeClass })
       if (result.success) {
         toast.success(result.message)
       } else {

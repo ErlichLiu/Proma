@@ -261,6 +261,26 @@ function setClass(el: HTMLElement, className: string): void {
   el.className = className
 }
 
+function decodeLocalMediaPath(value: string): string {
+  try {
+    return decodeURI(value)
+  } catch {
+    return value
+  }
+}
+
+function uniqueMediaCandidates(paths: string[]): string[] {
+  return paths.filter((path, index) => path && paths.indexOf(path) === index)
+}
+
+async function resolveFirstMediaCandidate(paths: string[], fileAccessRef: FileAccessRef): Promise<string> {
+  for (const path of paths) {
+    const result = await window.electronAPI.resolveFilePath(path, fileAccessRef.current)
+    if (result?.url) return result.url
+  }
+  return ''
+}
+
 function resolveMediaSrc(src: string, fileAccessRef: FileAccessRefOrNull, apply: (src: string) => void): () => void {
   // 外链 / data-URL / blob / 已授权 proma-file 协议：直接 apply，不走 IPC
   if (!src || isExternalUrl(src)) {
@@ -277,6 +297,7 @@ function resolveMediaSrc(src: string, fileAccessRef: FileAccessRefOrNull, apply:
         }
       })()
     : src
+  const candidatePaths = uniqueMediaCandidates([localSrc, decodeLocalMediaPath(localSrc)])
   // 无会话上下文：直接显示原始 src（ScratchPad 等无文件解析需求的场景）
   if (fileAccessRef === null) {
     apply(isFileUrl ? '' : localSrc)
@@ -285,10 +306,9 @@ function resolveMediaSrc(src: string, fileAccessRef: FileAccessRefOrNull, apply:
 
   let cancelled = false
   apply(isFileUrl ? '' : localSrc)
-  window.electronAPI
-    .resolveFilePath(localSrc, fileAccessRef.current)
+  resolveFirstMediaCandidate(candidatePaths, fileAccessRef)
     .then((result) => {
-      if (!cancelled) apply(result?.url ?? '')
+      if (!cancelled) apply(result)
     })
     .catch(() => {
       if (!cancelled) apply('')

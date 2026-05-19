@@ -27,4 +27,24 @@ describe('markdownToHtml rich preview blocks', () => {
     expect(html).toContain('&lt;strong&gt;text&lt;/strong&gt;')
     expect(html).toContain('&lt;li&gt;item&lt;/li&gt;')
   })
+
+  test('keeps markdown after standalone html media renderable', () => {
+    const html = markdownToHtml([
+      '<img src="晨光.jpg">',
+      '### Agent 模式',
+    ].join('\n'))
+
+    expect(html).toContain('data-type="raw-html-block"')
+    expect(html).toContain('<h3>Agent 模式</h3>')
+    expect(html).not.toContain('&#10;### Agent 模式')
+  })
+
+  test('normalizes invisible heading prefixes after media', () => {
+    const html = markdownToHtml([
+      '![晨光](晨光.jpg)',
+      '\u200b### Agent 模式',
+    ].join('\n'))
+
+    expect(html).toContain('<h3>Agent 模式</h3>')
+  })
 })

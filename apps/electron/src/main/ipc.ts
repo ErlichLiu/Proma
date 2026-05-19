@@ -507,7 +507,7 @@ export function registerIpcHandlers(): void {
   // 截图导出
   ipcMain.handle(
     IPC_CHANNELS.SCREENSHOT_CAPTURE,
-    async (_, input: { html: string; isDark: boolean; width?: number; mode: 'clipboard' | 'file' }) => {
+    async (_, input: { html: string; isDark: boolean; width?: number; mode: 'clipboard' | 'file'; css?: string; themeClass?: string }) => {
       const { captureScreenshot } = await import('./lib/screenshot-service')
       return captureScreenshot(input)
     }

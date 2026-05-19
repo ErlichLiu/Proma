@@ -18,6 +18,10 @@ const SCREENSHOT_SCALE_CANDIDATES = [4, 3, 2, 1.5, 1]
 const SCREENSHOT_MAX_SEGMENT = 4000
 const SCREENSHOT_SEGMENT_MARGIN = 96
 const SCREENSHOT_RESOURCE_TIMEOUT_MS = 5000
+/** 截图左右两侧的背景留白（单边） */
+const SCREENSHOT_PADDING_X = 48
+/** 截图顶部背景留白 */
+const SCREENSHOT_PADDING_TOP = 24
 
 /* ── 离屏窗口单例 ── */
 
@@ -128,29 +132,34 @@ function sanitizeScreenshotFragment(html: string): string {
     .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '')
 }
 
-function buildScreenshotHtml(htmlContent: string, isDark: boolean): string {
+function buildScreenshotHtml(htmlContent: string, isDark: boolean, css: string, themeClass: string): string {
   const bg = isDark ? '#111827' : '#ffffff'
   const safeHtml = sanitizeScreenshotFragment(htmlContent)
+  // 防止 css 字符串中出现 `</style>` 提前终止 style 块；CSS 里这两个字符是合法的（如 attr 选择器），需转义
+  const safeCss = css.replace(/<\/style>/gi, '<\\/style>')
+  const safeThemeClass = themeClass.replace(/["<>]/g, '')
 
   return `<!DOCTYPE html>
-<html><head>
+<html class="${safeThemeClass}"><head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob: proma-file: https: http:; media-src 'self' data: blob: proma-file: https: http:; font-src 'self' data: https: http:; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<style>${safeCss}</style>
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;background:${bg};scrollbar-width:none;-ms-overflow-style:none}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none}
 body{-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
 img,video,canvas,svg{max-width:100%}
+.proma-screenshot-wrapper{padding:${SCREENSHOT_PADDING_TOP}px ${SCREENSHOT_PADDING_X}px;background:${bg};width:max-content;max-width:100%;margin:0 auto}
 .proma-screenshot-sheet{width:max-content;max-width:100%;margin:0 auto;background:${bg}}
 .proma-screenshot-sheet [contenteditable],
 .proma-screenshot-sheet [contenteditable="false"]{outline:none}
 .proma-screenshot-sheet .ProseMirror-selectednode,
 .proma-screenshot-sheet .selectedCell::after{display:none!important}
-.watermark{display:flex;align-items:center;justify-content:flex-end;gap:.4em;margin:16px 16px 0;padding-top:10px;border-top:1px solid rgba(127,127,127,.18);font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:rgba(127,127,127,.55)}
-</style></head><body>
+</style></head><body class="${safeThemeClass}">
+<div class="proma-screenshot-wrapper">
 <main class="proma-screenshot-sheet">${safeHtml}</main>
-<footer class="watermark"><span>Proma</span></footer>
+</div>
 </body></html>`
 }
 
@@ -250,6 +259,10 @@ export interface ScreenshotInput {
   isDark: boolean
   width?: number
   mode: 'clipboard' | 'file'
+  /** 渲染端 document.styleSheets 收集到的运行时 CSS（含 Tailwind 编译输出） */
+  css?: string
+  /** 渲染端 documentElement.className（dark / theme-* 等），用于让基于主题 class 的 CSS 变量生效 */
+  themeClass?: string
 }
 
 export interface ScreenshotResult {
@@ -261,9 +274,12 @@ export interface ScreenshotResult {
 export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotResult> {
   return withLock(async () => {
     try {
-      const { html, isDark, width = 960, mode } = input
+      const { html, isDark, width = 960, mode, css = '', themeClass = '' } = input
       if (typeof html !== 'string' || Buffer.byteLength(html, 'utf-8') > SCREENSHOT_LIMITS.MAX_HTML_BYTES) {
         throw new Error('截图内容过大')
+      }
+      if (typeof css !== 'string' || Buffer.byteLength(css, 'utf-8') > SCREENSHOT_LIMITS.MAX_HTML_BYTES) {
+        throw new Error('截图样式过大')
       }
       if (!Number.isFinite(width)) {
         throw new Error('截图宽度无效')
@@ -271,8 +287,11 @@ export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotRes
       if (mode !== 'clipboard' && mode !== 'file') {
         throw new Error('截图模式无效')
       }
-      const safeWidth = Math.max(SCREENSHOT_LIMITS.MIN_WIDTH, Math.min(SCREENSHOT_LIMITS.MAX_WIDTH, Math.ceil(width)))
-      const htmlContent = buildScreenshotHtml(html, isDark)
+      // 渲染端传入的是「内容宽度」，加上左右各 SCREENSHOT_PADDING_X 才是最终截图宽度。
+      // gutter 是叠加在内容之外、而不是从内容里挤出来的——所以内容不会被压缩。
+      const contentWidth = Math.max(SCREENSHOT_LIMITS.MIN_WIDTH, Math.min(SCREENSHOT_LIMITS.MAX_WIDTH, Math.ceil(width)))
+      const safeWidth = contentWidth + SCREENSHOT_PADDING_X * 2
+      const htmlContent = buildScreenshotHtml(html, isDark, css, themeClass)
       const pngBuffer = await screenshotCapture(htmlContent, safeWidth)
 
       if (mode === 'clipboard') {
