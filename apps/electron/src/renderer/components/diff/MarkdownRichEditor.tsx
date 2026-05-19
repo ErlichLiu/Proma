@@ -185,7 +185,7 @@ export function MarkdownRichEditor({
     <div className="flex min-h-full flex-col">
       {editing && editor && <MarkdownEditorToolbar editor={editor} />}
       <EditorContent editor={editor} className="min-h-full flex-1" />
-      {editor && <TableBubbleMenu editor={editor} />}
+      {editing && editor && <TableBubbleMenu editor={editor} />}
     </div>
   )
 }

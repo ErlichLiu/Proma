@@ -36,6 +36,25 @@ function escapeAttr(value: string): string {
     .replace(/\n/g, '&#10;')
 }
 
+function escapeMarkdownText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/([`*_[\]<>|])/g, '\\$1')
+    .replace(/^(\s*)([#>+-])(?=\s)/gm, '$1\\$2')
+    .replace(/^(\s*)(\d+)\.(?=\s)/gm, '$1$2\\.')
+}
+
+function escapeMarkdownLinkTarget(value: string): string {
+  return value.replace(/[\s()"]/g, '\\$&')
+}
+
+function serializeInlineCode(value: string): string {
+  if (!value.includes('`')) return `\`${value}\``
+  const fence = value.match(/`+/g)?.sort((a, b) => b.length - a.length)[0] ?? '`'
+  const wrapper = `${fence}\``
+  return `${wrapper} ${value} ${wrapper}`
+}
+
 function isPreviewBlockHtml(value: string): boolean {
   return PREVIEW_BLOCK_RE.test(value.trim())
 }
@@ -203,9 +222,10 @@ export function htmlToMarkdown(html: string): string {
   const div = document.createElement('div')
   div.innerHTML = html
 
-  function processNode(node: Node): string {
+  function processNode(node: Node, context: 'normal' | 'code' = 'normal'): string {
     if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent || ''
+      const text = node.textContent || ''
+      return context === 'code' ? text : escapeMarkdownText(text)
     }
 
     if (node.nodeType !== Node.ELEMENT_NODE) {
@@ -214,7 +234,8 @@ export function htmlToMarkdown(html: string): string {
 
     const el = node as HTMLElement
     const tagName = el.tagName.toLowerCase()
-    const children = Array.from(el.childNodes).map(processNode).join('')
+    const childContext = tagName === 'pre' || tagName === 'code' ? 'code' : 'normal'
+    const children = Array.from(el.childNodes).map((child) => processNode(child, childContext)).join('')
 
     switch (tagName) {
       case 'div':
@@ -232,12 +253,12 @@ export function htmlToMarkdown(html: string): string {
         const src = el.getAttribute('src') || ''
         const alt = el.getAttribute('alt') || ''
         const title = el.getAttribute('title') || ''
-        return `![${alt}](${src}${title ? ` "${title}"` : ''})`
+        return `![${escapeMarkdownText(alt)}](${escapeMarkdownLinkTarget(src)}${title ? ` "${title.replace(/"/g, '\\"')}"` : ''})`
       }
       case 'video': {
         const src = el.getAttribute('src') || el.querySelector('source')?.getAttribute('src') || ''
         const title = el.getAttribute('title') || ''
-        return `<video controls src="${src}"${title ? ` title="${title}"` : ''}></video>\n`
+        return `<video controls src="${escapeAttr(src)}"${title ? ` title="${escapeAttr(title)}"` : ''}></video>\n`
       }
       case 'p':
         return children + '\n\n'
@@ -259,7 +280,7 @@ export function htmlToMarkdown(html: string): string {
         if (el.parentElement?.tagName.toLowerCase() === 'pre') {
           return children
         }
-        return `\`${children}\``
+        return serializeInlineCode(children)
       case 'pre': {
         const codeEl = el.querySelector('code')
         const langClass = codeEl?.className || ''
@@ -270,7 +291,7 @@ export function htmlToMarkdown(html: string): string {
       }
       case 'a': {
         const href = el.getAttribute('href') || ''
-        return `[${children}](${href})`
+        return `[${children}](${escapeMarkdownLinkTarget(href)})`
       }
       case 'ul':
         if (el.getAttribute('data-type') === 'taskList') {

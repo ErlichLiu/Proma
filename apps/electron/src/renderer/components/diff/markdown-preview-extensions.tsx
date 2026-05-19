@@ -12,6 +12,7 @@ import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import { highlightCode, highlightToTokens } from '@proma/core'
+import type { HighlightTokensResult } from '@proma/core'
 import type { FileAccessOptions } from '@proma/shared'
 
 type FileAccessRef = { current: FileAccessOptions | undefined }
@@ -33,6 +34,8 @@ interface ShikiDecorationState {
 
 const shikiCodeBlockPluginKey = new PluginKey<ShikiDecorationState>('markdownShikiCodeBlock')
 const SHIKI_REFRESH_META = 'markdownShikiCodeBlockRefresh'
+const SHIKI_TOKEN_CACHE_LIMIT = 160
+const shikiTokenCache = new Map<string, HighlightTokensResult>()
 
 function normalizeCodeLanguage(language: unknown): string {
   const value = typeof language === 'string' ? language.trim() : ''
@@ -105,6 +108,26 @@ function shouldLoadShikiLanguage(requestedLanguage: string, actualLanguage: stri
   return requestedLanguage !== 'text' && actualLanguage === 'text'
 }
 
+function getCachedShikiTokens(code: string, language: string, theme: string): HighlightTokensResult | null {
+  const key = `${theme}\u0000${language}\u0000${code}`
+  if (shikiTokenCache.has(key)) {
+    const cached = shikiTokenCache.get(key) ?? null
+    shikiTokenCache.delete(key)
+    if (cached) shikiTokenCache.set(key, cached)
+    return cached
+  }
+
+  const result = highlightToTokens({ code, language, theme })
+  if (!result || shouldLoadShikiLanguage(language, result.language)) return result
+
+  shikiTokenCache.set(key, result)
+  if (shikiTokenCache.size > SHIKI_TOKEN_CACHE_LIMIT) {
+    const oldestKey = shikiTokenCache.keys().next().value
+    if (oldestKey) shikiTokenCache.delete(oldestKey)
+  }
+  return result
+}
+
 function buildShikiDecorations(doc: ProseMirrorNode, theme: string): DecorationSet {
   const decorations: Decoration[] = []
 
@@ -115,7 +138,7 @@ function buildShikiDecorations(doc: ProseMirrorNode, theme: string): DecorationS
     if (!code) return false
 
     const language = normalizeCodeLanguage(node.attrs.language)
-    const result = highlightToTokens({ code, language, theme })
+    const result = getCachedShikiTokens(code, language, theme)
     if (!result) return false
 
     let offset = 0
@@ -206,19 +229,16 @@ function createShikiDecorationsPlugin(themeRef: ThemeRef): Plugin<ShikiDecoratio
 }
 
 function isExternalUrl(src: string): boolean {
-  return /^(?:https?:|data:|blob:|file:|proma-file:)/i.test(src)
+  return /^(?:https?:|data:|blob:|proma-file:)/i.test(src)
 }
 
 function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
-    ADD_TAGS: ['iframe', 'video', 'source', 'summary', 'details'],
+    ADD_TAGS: ['video', 'source', 'summary', 'details'],
     ADD_ATTR: [
       'align',
-      'allow',
-      'allowfullscreen',
       'colspan',
       'controls',
-      'frameborder',
       'loading',
       'open',
       'poster',
@@ -234,26 +254,36 @@ function setClass(el: HTMLElement, className: string): void {
 }
 
 function resolveMediaSrc(src: string, fileAccessRef: FileAccessRefOrNull, apply: (src: string) => void): () => void {
-  // 外链 / data-URL / blob / file 协议：直接 apply，不走 IPC
+  // 外链 / data-URL / blob / 已授权 proma-file 协议：直接 apply，不走 IPC
   if (!src || isExternalUrl(src)) {
     apply(src)
     return () => {}
   }
+  const isFileUrl = src.toLowerCase().startsWith('file:')
+  const localSrc = isFileUrl
+    ? (() => {
+        try {
+          return decodeURIComponent(new URL(src).pathname)
+        } catch {
+          return ''
+        }
+      })()
+    : src
   // 无会话上下文：直接显示原始 src（ScratchPad 等无文件解析需求的场景）
   if (fileAccessRef === null) {
-    apply(src)
+    apply(isFileUrl ? '' : localSrc)
     return () => {}
   }
 
   let cancelled = false
-  apply(src)
+  apply(isFileUrl ? '' : localSrc)
   window.electronAPI
-    .resolveFilePath(src, fileAccessRef.current)
+    .resolveFilePath(localSrc, fileAccessRef.current)
     .then((result) => {
-      if (!cancelled) apply(result?.url ?? src)
+      if (!cancelled) apply(result?.url ?? '')
     })
     .catch(() => {
-      if (!cancelled) apply(src)
+      if (!cancelled) apply('')
     })
 
   return () => { cancelled = true }

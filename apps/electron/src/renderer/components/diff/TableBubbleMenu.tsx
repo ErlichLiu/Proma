@@ -32,6 +32,7 @@ function selectionInsideNode(editor: Editor, nodeName: string): boolean {
 }
 
 function shouldShowTableMenu(editor: Editor): boolean {
+  if (!editor.isEditable) return false
   if (editor.state.selection instanceof CellSelection) return false
   return isInTable(editor.state) || selectionInsideNode(editor, 'table')
 }
