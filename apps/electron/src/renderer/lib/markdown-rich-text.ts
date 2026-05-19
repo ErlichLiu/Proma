@@ -48,7 +48,7 @@ function escapeMarkdownText(value: string): string {
 }
 
 function escapeMarkdownLinkTarget(value: string): string {
-  return value.replace(/[\s()"]/g, '\\$&')
+  return `<${value.replace(/[<>\r\n]/g, (char) => encodeURIComponent(char))}>`
 }
 
 function serializeInlineCode(value: string): string {
@@ -183,6 +183,43 @@ function wrapMarkdownDetailsBlocks(markdown: string): string {
   })
 }
 
+function splitMarkdownCodeRegions(markdown: string): Array<{ text: string; code: boolean }> {
+  const chunks: Array<{ text: string; code: boolean }> = []
+  const lines = markdown.split('\n')
+  let inFence: { marker: '`' | '~'; length: number } | null = null
+
+  const append = (text: string, code: boolean) => {
+    const last = chunks[chunks.length - 1]
+    if (last && last.code === code) {
+      last.text += text
+    } else {
+      chunks.push({ text, code })
+    }
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
+    const lineWithBreak = i < lines.length - 1 ? `${line}\n` : line
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/)
+    const indentedCode = !inFence && /^(?: {4}|\t)/.test(line)
+    const isCode = Boolean(inFence || indentedCode)
+
+    append(lineWithBreak, isCode)
+
+    if (fenceMatch) {
+      const markerText = fenceMatch[1] ?? ''
+      const marker = markerText[0] as '`' | '~'
+      if (!inFence) {
+        inFence = { marker, length: markerText.length }
+      } else if (marker === inFence.marker && markerText.length >= inFence.length) {
+        inFence = null
+      }
+    }
+  }
+
+  return chunks
+}
+
 function separateStandaloneHtmlMediaBlocks(markdown: string): string {
   const lines = markdown.split('\n')
   const result: string[] = []
@@ -204,7 +241,11 @@ function normalizeMarkdownLinePrefixes(markdown: string): string {
 }
 
 function preprocessMarkdown(markdown: string): string {
-  return wrapMarkdownDetailsBlocks(separateStandaloneHtmlMediaBlocks(normalizeMarkdownLinePrefixes(markdown)))
+  return splitMarkdownCodeRegions(markdown)
+    .map((chunk) => chunk.code
+      ? chunk.text
+      : wrapMarkdownDetailsBlocks(separateStandaloneHtmlMediaBlocks(normalizeMarkdownLinePrefixes(chunk.text))))
+    .join('')
 }
 
 function enhanceMarkdownHtml(html: string): string {

@@ -48,7 +48,7 @@ function stringAttr(node: ProseMirrorNode, name: string): string {
 }
 
 function escapeMarkdownLinkTarget(value: string): string {
-  return value.replace(/[\(\)"]/g, '\\$&')
+  return `<${value.replace(/[<>\r\n]/g, (char) => encodeURIComponent(char))}>`
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -263,7 +263,7 @@ function setClass(el: HTMLElement, className: string): void {
 
 function decodeLocalMediaPath(value: string): string {
   try {
-    return decodeURI(value)
+    return decodeURIComponent(value)
   } catch {
     return value
   }

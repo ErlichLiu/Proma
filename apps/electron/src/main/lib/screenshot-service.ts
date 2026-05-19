@@ -135,8 +135,8 @@ function sanitizeScreenshotFragment(html: string): string {
 function buildScreenshotHtml(htmlContent: string, isDark: boolean, css: string, themeClass: string): string {
   const bg = isDark ? '#111827' : '#ffffff'
   const safeHtml = sanitizeScreenshotFragment(htmlContent)
-  // 防止 css 字符串中出现 `</style>` 提前终止 style 块；CSS 里这两个字符是合法的（如 attr 选择器），需转义
-  const safeCss = css.replace(/<\/style>/gi, '<\\/style>')
+  // 防止 css 字符串中出现 `</style >` 等变体提前终止 style 块。
+  const safeCss = css.replace(/<\/style\s*>/gi, '<\\/style>')
   const safeThemeClass = themeClass.replace(/["<>]/g, '')
 
   return `<!DOCTYPE html>
@@ -292,6 +292,9 @@ export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotRes
       const contentWidth = Math.max(SCREENSHOT_LIMITS.MIN_WIDTH, Math.min(SCREENSHOT_LIMITS.MAX_WIDTH, Math.ceil(width)))
       const safeWidth = contentWidth + SCREENSHOT_PADDING_X * 2
       const htmlContent = buildScreenshotHtml(html, isDark, css, themeClass)
+      if (Buffer.byteLength(htmlContent, 'utf-8') > SCREENSHOT_LIMITS.MAX_HTML_BYTES) {
+        throw new Error('截图内容和样式过大')
+      }
       const pngBuffer = await screenshotCapture(htmlContent, safeWidth)
 
       if (mode === 'clipboard') {

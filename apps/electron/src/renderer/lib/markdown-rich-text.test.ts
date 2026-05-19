@@ -47,4 +47,39 @@ describe('markdownToHtml rich preview blocks', () => {
 
     expect(html).toContain('<h3>Agent 模式</h3>')
   })
+
+  test('parses angle image destinations with local path characters', () => {
+    const html = markdownToHtml('![晨光](<foo bar/晨光 (1)#a.jpg>)')
+
+    expect(html).toContain('<img')
+    expect(html).toContain('src="foo%20bar/%E6%99%A8%E5%85%89%20(1)#a.jpg"')
+    expect(html).toContain('alt="晨光"')
+  })
+
+  test('does not preprocess fenced code blocks as markdown content', () => {
+    const html = markdownToHtml([
+      '```md',
+      '<img src="晨光.jpg">',
+      '### Agent 模式',
+      '\u200b### Hidden',
+      '```',
+    ].join('\n'))
+
+    expect(html).toContain('&lt;img src=&quot;晨光.jpg&quot;&gt;')
+    expect(html).toContain('### Agent 模式')
+    expect(html).toContain('\u200b### Hidden')
+    expect(html).not.toContain('<h3>Agent 模式</h3>')
+    expect(html).not.toContain('<h3>Hidden</h3>')
+  })
+
+  test('does not preprocess indented code blocks as markdown content', () => {
+    const html = markdownToHtml([
+      '    <img src="晨光.jpg">',
+      '    ### Agent 模式',
+    ].join('\n'))
+
+    expect(html).toContain('&lt;img src=&quot;晨光.jpg&quot;&gt;')
+    expect(html).toContain('### Agent 模式')
+    expect(html).not.toContain('<h3>Agent 模式</h3>')
+  })
 })
