@@ -237,7 +237,7 @@ function createShikiDecorationsPlugin(themeRef: ThemeRef): Plugin<ShikiDecoratio
 }
 
 function isExternalUrl(src: string): boolean {
-  return /^(?:https?:|data:|blob:|proma-file:)/i.test(src)
+  return /^(?:https?:|data:|blob:|file:|proma-file:)/i.test(src)
 }
 
 function sanitizeHtml(html: string): string {

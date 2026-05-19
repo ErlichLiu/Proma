@@ -46,8 +46,9 @@ function getScreenshotWindow(scale: number): BrowserWindow {
       webSecurity: true,
       allowRunningInsecureContent: false,
       offscreen: { deviceScaleFactor: scale } as unknown as boolean,
-      // 注：Electron 运行时支持 offscreen 接收对象（含 deviceScaleFactor），
-      // 但 TS 类型仅声明为 boolean，这里是已知的类型与运行时差异。
+      // Electron >=28 运行时接受 offscreen 对象（含 deviceScaleFactor），
+      // 但 TS 类型仅声明为 boolean。已在 Electron 39 验证。
+      // 若升级 Electron 后截图全白/崩溃，优先检查此处。
     },
   })
   return _screenshotWin
@@ -125,11 +126,13 @@ function stitchScreenshotSegments(parts: PNG[]): Buffer {
 /* ── 构建截图 HTML ── */
 
 function sanitizeScreenshotFragment(html: string): string {
+  // 纵深防御：CSP (script-src 'none') 是主要安全保障，此处做额外清理。
   return html
     .replace(/<script\b[\s\S]*?<\/script>/gi, '')
     .replace(/<(?:iframe|object|embed|base|form)\b[\s\S]*?<\/(?:iframe|object|embed|base|form)>/gi, '')
     .replace(/<(?:iframe|object|embed|base|form)\b[^>]*\/?>/gi, '')
     .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '')
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
 }
 
 function buildScreenshotHtml(htmlContent: string, isDark: boolean, css: string, themeClass: string): string {
