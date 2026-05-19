@@ -1,5 +1,5 @@
 import * as React from 'react'
-import type { Editor } from '@tiptap/react'
+import { useEditorState, type Editor } from '@tiptap/react'
 import {
   Bold,
   Italic,
@@ -30,6 +30,23 @@ import { cn } from '@/lib/utils'
 
 interface MarkdownEditorToolbarProps {
   editor: Editor
+}
+
+interface ToolbarActiveState {
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  strike: boolean
+  code: boolean
+  heading1: boolean
+  heading2: boolean
+  heading3: boolean
+  bulletList: boolean
+  orderedList: boolean
+  taskList: boolean
+  blockquote: boolean
+  codeBlock: boolean
+  link: boolean
 }
 
 const ROOT_STYLE_OVERRIDES = [
@@ -173,7 +190,7 @@ function TableGridPicker({ editor }: { editor: Editor }) {
   )
 }
 
-function LinkPopover({ editor }: { editor: Editor }) {
+function LinkPopover({ editor, active }: { editor: Editor; active: boolean }) {
   const [open, setOpen] = React.useState(false)
   const [url, setUrl] = React.useState('')
 
@@ -202,7 +219,7 @@ function LinkPopover({ editor }: { editor: Editor }) {
             <Button
               variant="ghost"
               size="icon-sm"
-              className={cn('h-7 w-7', editor.isActive('link') && 'bg-accent text-accent-foreground')}
+              className={cn('h-7 w-7', active && 'bg-accent text-accent-foreground')}
             >
               <LinkIcon className="h-3.5 w-3.5" />
             </Button>
@@ -224,7 +241,7 @@ function LinkPopover({ editor }: { editor: Editor }) {
           <Button size="sm" className="h-7 px-2 text-xs" onClick={apply}>
             确认
           </Button>
-          {editor.isActive('link') && (
+          {active && (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -247,6 +264,25 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
   const isMac = navigator.platform.includes('Mac')
   const mod = isMac ? '⌘' : 'Ctrl+'
   const [screenshotting, setScreenshotting] = React.useState(false)
+  const activeState = useEditorState<ToolbarActiveState>({
+    editor,
+    selector: ({ editor: currentEditor }) => ({
+      bold: currentEditor.isActive('bold'),
+      italic: currentEditor.isActive('italic'),
+      underline: currentEditor.isActive('underline'),
+      strike: currentEditor.isActive('strike'),
+      code: currentEditor.isActive('code'),
+      heading1: currentEditor.isActive('heading', { level: 1 }),
+      heading2: currentEditor.isActive('heading', { level: 2 }),
+      heading3: currentEditor.isActive('heading', { level: 3 }),
+      bulletList: currentEditor.isActive('bulletList'),
+      orderedList: currentEditor.isActive('orderedList'),
+      taskList: currentEditor.isActive('taskList'),
+      blockquote: currentEditor.isActive('blockquote'),
+      codeBlock: currentEditor.isActive('codeBlock'),
+      link: currentEditor.isActive('link'),
+    }),
+  })
 
   const handleScreenshot = React.useCallback(async (mode: 'clipboard' | 'file') => {
     if (screenshotting) return
@@ -269,37 +305,37 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
   return (
     <div className="sticky top-0 z-10 flex items-center gap-0.5 border-b border-border/50 bg-background px-2 py-1">
       {/* 行内格式 */}
-      <ToolbarButton icon={Bold} label="加粗" shortcut={`${mod}B`} active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
-      <ToolbarButton icon={Italic} label="斜体" shortcut={`${mod}I`} active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
-      <ToolbarButton icon={UnderlineIcon} label="下划线" shortcut={`${mod}U`} active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
-      <ToolbarButton icon={Strikethrough} label="删除线" shortcut={`${mod}⇧X`} active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
-      <ToolbarButton icon={Code} label="行内代码" shortcut={`${mod}E`} active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} />
+      <ToolbarButton icon={Bold} label="加粗" shortcut={`${mod}B`} active={activeState.bold} onClick={() => editor.chain().focus().toggleBold().run()} />
+      <ToolbarButton icon={Italic} label="斜体" shortcut={`${mod}I`} active={activeState.italic} onClick={() => editor.chain().focus().toggleItalic().run()} />
+      <ToolbarButton icon={UnderlineIcon} label="下划线" shortcut={`${mod}U`} active={activeState.underline} onClick={() => editor.chain().focus().toggleUnderline().run()} />
+      <ToolbarButton icon={Strikethrough} label="删除线" shortcut={`${mod}⇧X`} active={activeState.strike} onClick={() => editor.chain().focus().toggleStrike().run()} />
+      <ToolbarButton icon={Code} label="行内代码" shortcut={`${mod}E`} active={activeState.code} onClick={() => editor.chain().focus().toggleCode().run()} />
 
       <Separator orientation="vertical" className="mx-0.5 h-5" />
 
       {/* 标题 */}
-      <ToolbarButton icon={Heading1} label="标题 1" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} />
-      <ToolbarButton icon={Heading2} label="标题 2" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
-      <ToolbarButton icon={Heading3} label="标题 3" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} />
+      <ToolbarButton icon={Heading1} label="标题 1" active={activeState.heading1} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} />
+      <ToolbarButton icon={Heading2} label="标题 2" active={activeState.heading2} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
+      <ToolbarButton icon={Heading3} label="标题 3" active={activeState.heading3} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} />
 
       <Separator orientation="vertical" className="mx-0.5 h-5" />
 
       {/* 列表 */}
-      <ToolbarButton icon={List} label="无序列表" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
-      <ToolbarButton icon={ListOrdered} label="有序列表" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
-      <ToolbarButton icon={ListChecks} label="任务列表" active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()} />
+      <ToolbarButton icon={List} label="无序列表" active={activeState.bulletList} onClick={() => editor.chain().focus().toggleBulletList().run()} />
+      <ToolbarButton icon={ListOrdered} label="有序列表" active={activeState.orderedList} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
+      <ToolbarButton icon={ListChecks} label="任务列表" active={activeState.taskList} onClick={() => editor.chain().focus().toggleTaskList().run()} />
 
       <Separator orientation="vertical" className="mx-0.5 h-5" />
 
       {/* 块元素 */}
-      <ToolbarButton icon={Quote} label="引用" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
-      <ToolbarButton icon={CodeSquare} label="代码块" active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
+      <ToolbarButton icon={Quote} label="引用" active={activeState.blockquote} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
+      <ToolbarButton icon={CodeSquare} label="代码块" active={activeState.codeBlock} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
       <ToolbarButton icon={Minus} label="分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()} />
 
       <Separator orientation="vertical" className="mx-0.5 h-5" />
 
       {/* 插入 */}
-      <LinkPopover editor={editor} />
+      <LinkPopover editor={editor} active={activeState.link} />
       <TableGridPicker editor={editor} />
 
       <div className="flex-1" />

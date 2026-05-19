@@ -19,6 +19,14 @@ type FileAccessRef = { current: FileAccessOptions | undefined }
 type FileAccessRefOrNull = FileAccessRef | null
 type ThemeRef = { current: string }
 
+interface MarkdownSerializerLike {
+  write: (value: string) => void
+  text: (value: string, escape?: boolean) => void
+  ensureNewLine: () => void
+  closeBlock: (node: ProseMirrorNode) => void
+  esc: (value: string, startOfLine?: boolean) => string
+}
+
 interface ShikiDecorationState {
   decorations: DecorationSet
 }
@@ -29,6 +37,68 @@ const SHIKI_REFRESH_META = 'markdownShikiCodeBlockRefresh'
 function normalizeCodeLanguage(language: unknown): string {
   const value = typeof language === 'string' ? language.trim() : ''
   return value || 'text'
+}
+
+function stringAttr(node: ProseMirrorNode, name: string): string {
+  const value = node.attrs[name]
+  return typeof value === 'string' ? value : ''
+}
+
+function escapeMarkdownLinkTarget(value: string): string {
+  return value.replace(/[\(\)"]/g, '\\$&')
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function serializeMarkdownImage(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  const src = escapeMarkdownLinkTarget(stringAttr(node, 'src'))
+  const alt = state.esc(stringAttr(node, 'alt'))
+  const title = stringAttr(node, 'title').replace(/"/g, '\\"')
+  state.write(`![${alt}](${src}${title ? ` "${title}"` : ''})`)
+}
+
+function serializeMarkdownVideo(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  const src = escapeHtmlAttr(stringAttr(node, 'src'))
+  const poster = escapeHtmlAttr(stringAttr(node, 'poster'))
+  const title = escapeHtmlAttr(stringAttr(node, 'title'))
+  state.write(`<video controls src="${src}"${poster ? ` poster="${poster}"` : ''}${title ? ` title="${title}"` : ''}></video>`)
+  state.closeBlock(node)
+}
+
+function serializeRawHtmlBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  const markdown = stringAttr(node, 'markdown') || stringAttr(node, 'html')
+  state.write(markdown)
+  state.closeBlock(node)
+}
+
+function serializeRawHtmlInline(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  state.write(stringAttr(node, 'html'))
+}
+
+function serializeMathInline(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  state.write(`$${stringAttr(node, 'latex')}$`)
+}
+
+function serializeMathBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  state.write(`$$\n${stringAttr(node, 'latex')}\n$$`)
+  state.closeBlock(node)
+}
+
+function serializeCodeBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  const backticks = node.textContent.match(/`{3,}/gm)
+  const fence = backticks ? `${backticks.sort().slice(-1)[0]}\`` : '```'
+  const language = stringAttr(node, 'language')
+  state.write(`${fence}${language === 'text' ? '' : language}\n`)
+  state.text(node.textContent, false)
+  state.ensureNewLine()
+  state.write(fence)
+  state.closeBlock(node)
 }
 
 function shouldLoadShikiLanguage(requestedLanguage: string, actualLanguage: string): boolean {
@@ -444,6 +514,14 @@ export function createMarkdownImage(fileAccessRef: FileAccessRefOrNull): Node {
       return ['img', mergeAttributes(HTMLAttributes)]
     },
 
+    addStorage() {
+      return {
+        markdown: {
+          serialize: serializeMarkdownImage,
+        },
+      }
+    },
+
     addNodeView() {
       return ({ node }) => createMarkdownImageView(node, fileAccessRef)
     },
@@ -484,6 +562,14 @@ export function createMarkdownVideo(fileAccessRef: FileAccessRefOrNull): Node {
       return ['video', mergeAttributes({ controls: 'true' }, HTMLAttributes)]
     },
 
+    addStorage() {
+      return {
+        markdown: {
+          serialize: serializeMarkdownVideo,
+        },
+      }
+    },
+
     addNodeView() {
       return ({ node }) => createMarkdownVideoView(node, fileAccessRef)
     },
@@ -522,6 +608,14 @@ export const RawHtmlBlock = Node.create({
     ]
   },
 
+  addStorage() {
+    return {
+      markdown: {
+        serialize: serializeRawHtmlBlock,
+      },
+    }
+  },
+
   addNodeView() {
     return ({ node }) => createStaticHtmlView(node, {
       className: 'not-prose my-3 overflow-auto',
@@ -549,6 +643,14 @@ export const RawHtmlInline = Node.create({
 
   renderHTML({ node }) {
     return ['span', { 'data-type': 'raw-html-inline', 'data-html': node.attrs.html }]
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize: serializeRawHtmlInline,
+      },
+    }
   },
 
   addNodeView() {
@@ -579,6 +681,14 @@ export const MathInline = Node.create({
 
   renderHTML({ node }) {
     return ['span', { 'data-type': 'math-inline', 'data-latex': node.attrs.latex }]
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize: serializeMathInline,
+      },
+    }
   },
 
   addNodeView() {
@@ -618,6 +728,14 @@ export const MathBlock = Node.create({
 
   renderHTML({ node }) {
     return ['div', { 'data-type': 'math-block', 'data-latex': node.attrs.latex }]
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize: serializeMathBlock,
+      },
+    }
   },
 
   addNodeView() {
@@ -677,6 +795,14 @@ export function createShikiCodeBlock(themeRef: ThemeRef): Node {
           (attributes) =>
           ({ commands }) =>
             commands.toggleNode(this.name, 'paragraph', attributes),
+      }
+    },
+
+    addStorage() {
+      return {
+        markdown: {
+          serialize: serializeCodeBlock,
+        },
       }
     },
 

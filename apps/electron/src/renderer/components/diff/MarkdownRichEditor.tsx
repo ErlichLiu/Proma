@@ -22,7 +22,6 @@ import {
   createMarkdownVideo,
 } from './markdown-preview-extensions'
 import { MarkdownEditorToolbar } from './MarkdownEditorToolbar'
-import { MarkdownBubbleMenu } from './MarkdownBubbleMenu'
 import { TableBubbleMenu } from './TableBubbleMenu'
 
 interface MarkdownRichEditorProps {
@@ -186,7 +185,6 @@ export function MarkdownRichEditor({
     <div className="flex min-h-full flex-col">
       {editing && editor && <MarkdownEditorToolbar editor={editor} />}
       <EditorContent editor={editor} className="min-h-full flex-1" />
-      {editor && <MarkdownBubbleMenu editor={editor} />}
       {editor && <TableBubbleMenu editor={editor} />}
     </div>
   )

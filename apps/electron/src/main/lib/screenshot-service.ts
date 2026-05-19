@@ -13,22 +13,39 @@ import { tmpdir, homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { PNG } from 'pngjs'
 
-const SCREENSHOT_SCALE = 4
+const SCREENSHOT_SCALE_CANDIDATES = [4, 3, 2, 1.5, 1]
+const SCREENSHOT_MAX_PIXELS = 100_000_000
+const SCREENSHOT_MAX_HTML_BYTES = 12 * 1024 * 1024
+const SCREENSHOT_MIN_WIDTH = 480
+const SCREENSHOT_MAX_WIDTH = 1600
 const SCREENSHOT_MAX_SEGMENT = 4000
 const SCREENSHOT_SEGMENT_MARGIN = 96
+const SCREENSHOT_RESOURCE_TIMEOUT_MS = 5000
 
 /* ── 离屏窗口单例 ── */
 
 let _screenshotWin: BrowserWindow | null = null
+let _screenshotScale = 0
 
-function getScreenshotWindow(): BrowserWindow {
-  if (_screenshotWin && !_screenshotWin.isDestroyed()) return _screenshotWin
+function getScreenshotWindow(scale: number): BrowserWindow {
+  if (_screenshotWin && !_screenshotWin.isDestroyed() && _screenshotScale === scale) return _screenshotWin
+  if (_screenshotWin && !_screenshotWin.isDestroyed()) {
+    _screenshotWin.destroy()
+  }
+  _screenshotScale = scale
   _screenshotWin = new BrowserWindow({
     width: 960,
     height: 100,
     show: false,
     skipTaskbar: true,
-    webPreferences: { offscreen: { deviceScaleFactor: SCREENSHOT_SCALE } as unknown as boolean },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      offscreen: { deviceScaleFactor: scale } as unknown as boolean,
+    },
   })
   return _screenshotWin
 }
@@ -57,8 +74,24 @@ function resolveMaxSegmentHeight(): number {
   return SCREENSHOT_MAX_SEGMENT
 }
 
-function stitchScreenshotSegments(segments: NativeImage[], scale: number): Buffer {
-  const parts = segments.map((segment) => PNG.sync.read(segment.toPNG({ scaleFactor: scale })))
+function resolveScreenshotScale(width: number, height: number): number {
+  for (const scale of SCREENSHOT_SCALE_CANDIDATES) {
+    if (width * height * scale * scale <= SCREENSHOT_MAX_PIXELS) return scale
+  }
+  return 0
+}
+
+function assertScreenshotBudget(width: number, height: number, scale: number): void {
+  const pixels = width * height * scale * scale
+  if (!Number.isFinite(pixels) || pixels <= 0) {
+    throw new Error('截图尺寸无效')
+  }
+  if (pixels > SCREENSHOT_MAX_PIXELS) {
+    throw new Error('文档过长，当前截图会占用过多内存，请缩短内容后重试')
+  }
+}
+
+function stitchScreenshotSegments(parts: PNG[]): Buffer {
   if (parts.length === 0) {
     throw new Error('没有捕获到截图分段')
   }
@@ -88,11 +121,23 @@ function stitchScreenshotSegments(segments: NativeImage[], scale: number): Buffe
 
 /* ── 构建截图 HTML ── */
 
+function sanitizeScreenshotFragment(html: string): string {
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<(?:iframe|object|embed|base|form)\b[\s\S]*?<\/(?:iframe|object|embed|base|form)>/gi, '')
+    .replace(/<(?:iframe|object|embed|base|form)\b[^>]*\/?>/gi, '')
+    .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '')
+}
+
 function buildScreenshotHtml(htmlContent: string, isDark: boolean): string {
   const bg = isDark ? '#111827' : '#ffffff'
+  const safeHtml = sanitizeScreenshotFragment(htmlContent)
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob: file: proma-file: https: http:; media-src 'self' data: blob: file: proma-file: https: http:; font-src 'self' data: file: https: http:; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<style>
 *{box-sizing:border-box}
 html,body{margin:0;background:${bg};scrollbar-width:none;-ms-overflow-style:none}
 html::-webkit-scrollbar,body::-webkit-scrollbar{display:none}
@@ -105,57 +150,95 @@ img,video,canvas,svg{max-width:100%}
 .proma-screenshot-sheet .selectedCell::after{display:none!important}
 .watermark{display:flex;align-items:center;justify-content:flex-end;gap:.4em;margin:16px 16px 0;padding-top:10px;border-top:1px solid rgba(127,127,127,.18);font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:rgba(127,127,127,.55)}
 </style></head><body>
-<main class="proma-screenshot-sheet">${htmlContent}</main>
+<main class="proma-screenshot-sheet">${safeHtml}</main>
 <footer class="watermark"><span>Proma</span></footer>
 </body></html>`
 }
 
 /* ── 核心截图函数 ── */
 
-async function screenshotCapture(htmlContent: string, width: number): Promise<Buffer> {
-  const win = getScreenshotWindow()
+async function loadScreenshotDocument(win: BrowserWindow, htmlPath: string, width: number): Promise<number> {
   win.setSize(width, 100)
+  await win.loadURL(pathToFileURL(htmlPath).href)
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitForFonts = document.fonts?.ready?.catch(() => undefined) ?? Promise.resolve();
+      const waitForImages = Promise.allSettled(Array.from(document.images).map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        if (typeof img.decode === 'function') return img.decode().catch(() => undefined);
+        return new Promise((resolve) => {
+          img.addEventListener('load', resolve, { once: true });
+          img.addEventListener('error', resolve, { once: true });
+        });
+      }));
+      return Promise.race([
+        Promise.allSettled([waitForFonts, waitForImages]).then(() => true),
+        sleep(${SCREENSHOT_RESOURCE_TIMEOUT_MS}).then(() => true),
+      ]);
+    })()
+  `)
+  await new Promise((r) => setTimeout(r, 100))
+  const totalHeight: number = await win.webContents.executeJavaScript(`
+      Math.max(document.body.scrollHeight, document.body.offsetHeight,
+               document.documentElement.scrollHeight, document.documentElement.offsetHeight)
+  `)
+  if (!Number.isFinite(totalHeight) || totalHeight <= 0) {
+    throw new Error('截图内容高度无效')
+  }
+  return Math.ceil(totalHeight)
+}
 
+async function captureLoadedDocument(win: BrowserWindow, width: number, totalHeight: number, scale: number): Promise<Buffer> {
+  assertScreenshotBudget(width, totalHeight, scale)
+
+  const maxH = resolveMaxSegmentHeight()
+
+  if (totalHeight <= maxH) {
+    win.setSize(width, totalHeight)
+    await new Promise((r) => setTimeout(r, 100))
+    const image = await win.webContents.capturePage(
+      { x: 0, y: 0, width, height: totalHeight },
+    )
+    return image.toPNG({ scaleFactor: scale })
+  }
+
+  // 分段截图（长文档）
+  const parts: PNG[] = []
+  let captured = 0
+  while (captured < totalHeight) {
+    const segH = Math.min(maxH, totalHeight - captured)
+    win.setSize(width, segH)
+    await win.webContents.executeJavaScript(`window.scrollTo(0, ${captured})`)
+    await new Promise((r) => setTimeout(r, 120))
+    const seg: NativeImage = await win.webContents.capturePage(
+      { x: 0, y: 0, width, height: segH },
+    )
+    parts.push(PNG.sync.read(seg.toPNG({ scaleFactor: scale })))
+    captured += segH
+  }
+
+  return stitchScreenshotSegments(parts)
+}
+
+async function screenshotCapture(htmlContent: string, width: number): Promise<Buffer> {
   const tmpPath = join(tmpdir(), `proma-ss-${Date.now()}.html`)
   writeFileSync(tmpPath, htmlContent, 'utf-8')
 
   try {
-    await win.loadURL(pathToFileURL(tmpPath).href)
-    await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)')
-    await new Promise((r) => setTimeout(r, 300))
-
-    const totalHeight: number = await win.webContents.executeJavaScript(`
-      Math.max(document.body.scrollHeight, document.body.offsetHeight,
-               document.documentElement.scrollHeight, document.documentElement.offsetHeight)
-    `)
-
-    const maxH = resolveMaxSegmentHeight()
-
-    if (totalHeight <= maxH) {
-      win.setSize(width, totalHeight)
-      await new Promise((r) => setTimeout(r, 200))
-      const image = await win.webContents.capturePage(
-        { x: 0, y: 0, width, height: totalHeight },
-      )
-      return image.toPNG({ scaleFactor: SCREENSHOT_SCALE })
+    let win = getScreenshotWindow(1)
+    let totalHeight = await loadScreenshotDocument(win, tmpPath, width)
+    const scale = resolveScreenshotScale(width, totalHeight)
+    if (!scale) {
+      throw new Error('文档过长，当前截图会占用过多内存，请缩短内容后重试')
     }
 
-    // 分段截图（长文档）
-    const segments: NativeImage[] = []
-    let captured = 0
-    while (captured < totalHeight) {
-      const segH = Math.min(maxH, totalHeight - captured)
-      win.setSize(width, segH)
-      await win.webContents.executeJavaScript(`window.scrollTo(0, ${captured})`)
-      await new Promise((r) => setTimeout(r, 300))
-      const seg = await win.webContents.capturePage(
-        { x: 0, y: 0, width, height: segH },
-      )
-      segments.push(seg)
-      captured += segH
+    if (scale !== 1) {
+      win = getScreenshotWindow(scale)
+      totalHeight = await loadScreenshotDocument(win, tmpPath, width)
     }
 
-    return stitchScreenshotSegments(segments, SCREENSHOT_SCALE)
+    return captureLoadedDocument(win, width, totalHeight, scale)
   } finally {
     try { unlinkSync(tmpPath) } catch { /* 清理 */ }
   }
@@ -180,8 +263,18 @@ export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotRes
   return withLock(async () => {
     try {
       const { html, isDark, width = 960, mode } = input
+      if (typeof html !== 'string' || Buffer.byteLength(html, 'utf-8') > SCREENSHOT_MAX_HTML_BYTES) {
+        throw new Error('截图内容过大')
+      }
+      if (!Number.isFinite(width)) {
+        throw new Error('截图宽度无效')
+      }
+      if (mode !== 'clipboard' && mode !== 'file') {
+        throw new Error('截图模式无效')
+      }
+      const safeWidth = Math.max(SCREENSHOT_MIN_WIDTH, Math.min(SCREENSHOT_MAX_WIDTH, Math.ceil(width)))
       const htmlContent = buildScreenshotHtml(html, isDark)
-      const pngBuffer = await screenshotCapture(htmlContent, width)
+      const pngBuffer = await screenshotCapture(htmlContent, safeWidth)
 
       if (mode === 'clipboard') {
         const img = nativeImage.createFromBuffer(pngBuffer)

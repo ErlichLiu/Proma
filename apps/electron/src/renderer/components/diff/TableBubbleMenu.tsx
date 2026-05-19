@@ -31,8 +31,7 @@ function selectionInsideNode(editor: Editor, nodeName: string): boolean {
   return contains($from) || contains($to)
 }
 
-function shouldShowTableMenu(editor: Editor, from: number, to: number): boolean {
-  if (from !== to) return false
+function shouldShowTableMenu(editor: Editor): boolean {
   if (editor.state.selection instanceof CellSelection) return false
   return isInTable(editor.state) || selectionInsideNode(editor, 'table')
 }
@@ -76,7 +75,7 @@ export function TableBubbleMenu({ editor }: TableBubbleMenuProps): React.ReactEl
     <BubbleMenu
       editor={editor}
       pluginKey="tableBubbleMenu"
-      shouldShow={({ editor: ed, from, to }) => shouldShowTableMenu(ed, from, to)}
+      shouldShow={({ editor: ed }) => shouldShowTableMenu(ed)}
     >
       <div className="flex items-center gap-0.5 rounded-lg border bg-popover px-1 py-0.5 shadow-md">
         <TableButton icon={ArrowUpFromLine} label="上方插入行" onClick={() => editor.chain().focus().addRowBefore().run()} />
