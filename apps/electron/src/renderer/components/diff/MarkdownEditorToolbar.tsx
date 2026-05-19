@@ -22,6 +22,8 @@ import {
   Copy,
   Loader2,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import { SCREENSHOT_LIMITS } from '@proma/shared'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -86,11 +88,26 @@ function inlineComputedStyles(source: Element, target: Element): void {
 
 function buildScreenshotHtml(editor: Editor): { html: string; width: number } {
   const root = editor.view.dom
+
+  // 渲染端预检：在做昂贵的 inlineComputedStyles 之前快速失败。
+  // 元素数和原始 HTML 大小是两个互补信号——element 数主要反映 getComputedStyle
+  // 的耗时，HTML 字节数主要反映 IPC 传输后的体积膨胀。
+  const elementCount = root.querySelectorAll('*').length
+  if (elementCount > SCREENSHOT_LIMITS.MAX_ELEMENTS) {
+    throw new Error('文档结构过于复杂，请缩短内容后重试')
+  }
+  if (root.outerHTML.length > SCREENSHOT_LIMITS.MAX_RAW_HTML_BYTES) {
+    throw new Error('文档过大，请缩短内容后重试')
+  }
+
   const clone = root.cloneNode(true) as HTMLElement
   inlineComputedStyles(root, clone)
 
   const rect = root.getBoundingClientRect()
-  const width = Math.max(480, Math.min(1200, Math.ceil(rect.width || 960)))
+  const width = Math.max(
+    SCREENSHOT_LIMITS.MIN_WIDTH,
+    Math.min(SCREENSHOT_LIMITS.MAX_WIDTH, Math.ceil(rect.width || 960)),
+  )
   clone.style.width = `${width}px`
   clone.style.height = 'auto'
   clone.style.minHeight = '0'
@@ -261,9 +278,12 @@ function LinkPopover({ editor, active }: { editor: Editor; active: boolean }) {
 }
 
 export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): React.ReactElement {
-  const isMac = navigator.platform.includes('Mac')
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+    ?? navigator.platform
+  const isMac = platform.includes('Mac')
   const mod = isMac ? '⌘' : 'Ctrl+'
   const [screenshotting, setScreenshotting] = React.useState(false)
+  const screenshottingRef = React.useRef(false)
   const activeState = useEditorState<ToolbarActiveState>({
     editor,
     selector: ({ editor: currentEditor }) => ({
@@ -285,22 +305,37 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
   })
 
   const handleScreenshot = React.useCallback(async (mode: 'clipboard' | 'file') => {
-    if (screenshotting) return
+    // ref 做同步重入锁，state 仅驱动 UI——state 在同 tick 内的 setState 不会立即生效，
+    // 用作 guard 会漏检同一 tick 内的二次触发（键盘 + 点击同时发生等情况）。
+    if (screenshottingRef.current) return
+    screenshottingRef.current = true
     setScreenshotting(true)
     try {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       const { html, width } = buildScreenshotHtml(editor)
       const isDark = document.documentElement.classList.contains('dark')
       const result = await window.electronAPI.screenshotCapture({ html, isDark, width, mode })
-      if (!result.success) {
-        console.warn('[截图]', result.message)
+      if (result.success) {
+        toast.success(result.message)
+      } else {
+        toast.warning(result.message)
       }
     } catch (err) {
       console.error('[截图] 失败:', err)
+      toast.error(err instanceof Error ? err.message : '截图失败')
     } finally {
+      screenshottingRef.current = false
       setScreenshotting(false)
     }
-  }, [editor, screenshotting])
+  }, [editor])
+
+  const handleScreenshotClipboard = React.useCallback(() => {
+    void handleScreenshot('clipboard')
+  }, [handleScreenshot])
+
+  const handleScreenshotFile = React.useCallback(() => {
+    void handleScreenshot('file')
+  }, [handleScreenshot])
 
   return (
     <div className="sticky top-0 z-10 flex items-center gap-0.5 border-b border-border/50 bg-background px-2 py-1">
@@ -357,13 +392,13 @@ export function MarkdownEditorToolbar({ editor }: MarkdownEditorToolbarProps): R
         icon={Copy}
         label="截图到剪贴板"
         disabled={screenshotting}
-        onClick={() => void handleScreenshot('clipboard')}
+        onClick={handleScreenshotClipboard}
       />
       <ToolbarButton
         icon={Camera}
         label="截图保存文件"
         disabled={screenshotting}
-        onClick={() => void handleScreenshot('file')}
+        onClick={handleScreenshotFile}
       />
     </div>
   )

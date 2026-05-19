@@ -37,11 +37,13 @@ function escapeAttr(value: string): string {
 }
 
 function escapeMarkdownText(value: string): string {
+  // 只在文本节点首字符处转义块级标记。原来的 /gm 会对节点内每一行都生效，
+  // 把段落中本不是块标记的 "+ "/"- " 行首误识别为列表标记。
   return value
     .replace(/\\/g, '\\\\')
     .replace(/([`*_[\]<>|])/g, '\\$1')
-    .replace(/^(\s*)([#>+-])(?=\s)/gm, '$1\\$2')
-    .replace(/^(\s*)(\d+)\.(?=\s)/gm, '$1$2\\.')
+    .replace(/^(\s*)([#>+-])(?=\s)/, '$1\\$2')
+    .replace(/^(\s*)(\d+)\.(?=\s)/, '$1$2\\.')
 }
 
 function escapeMarkdownLinkTarget(value: string): string {

@@ -216,12 +216,20 @@ function createShikiDecorationsPlugin(themeRef: ThemeRef): Plugin<ShikiDecoratio
     },
     view: (view) => {
       const pending = new Set<string>()
+      let lastRequestedTheme = themeRef.current
       requestMissingShikiLanguages(view, themeRef.current, pending)
 
       return {
         update: (nextView, previousState) => {
-          if (previousState.doc === nextView.state.doc && previousState.selection === nextView.state.selection) return
-          requestMissingShikiLanguages(nextView, themeRef.current, pending)
+          // 主题切换通过 SHIKI_REFRESH_META 触发事务，但既不改 doc 也不改 selection，
+          // 仅靠 doc/selection 比较会漏掉「切换主题后某些语言尚未加载」的情况。
+          const currentTheme = themeRef.current
+          const themeChanged = currentTheme !== lastRequestedTheme
+          const docChanged = previousState.doc !== nextView.state.doc
+          const selectionChanged = previousState.selection !== nextView.state.selection
+          if (!themeChanged && !docChanged && !selectionChanged) return
+          lastRequestedTheme = currentTheme
+          requestMissingShikiLanguages(nextView, currentTheme, pending)
         },
       }
     },

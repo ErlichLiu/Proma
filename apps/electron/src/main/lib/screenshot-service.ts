@@ -12,12 +12,9 @@ import { join } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { PNG } from 'pngjs'
+import { SCREENSHOT_LIMITS } from '@proma/shared'
 
 const SCREENSHOT_SCALE_CANDIDATES = [4, 3, 2, 1.5, 1]
-const SCREENSHOT_MAX_PIXELS = 100_000_000
-const SCREENSHOT_MAX_HTML_BYTES = 12 * 1024 * 1024
-const SCREENSHOT_MIN_WIDTH = 480
-const SCREENSHOT_MAX_WIDTH = 1600
 const SCREENSHOT_MAX_SEGMENT = 4000
 const SCREENSHOT_SEGMENT_MARGIN = 96
 const SCREENSHOT_RESOURCE_TIMEOUT_MS = 5000
@@ -45,6 +42,8 @@ function getScreenshotWindow(scale: number): BrowserWindow {
       webSecurity: true,
       allowRunningInsecureContent: false,
       offscreen: { deviceScaleFactor: scale } as unknown as boolean,
+      // 注：Electron 运行时支持 offscreen 接收对象（含 deviceScaleFactor），
+      // 但 TS 类型仅声明为 boolean，这里是已知的类型与运行时差异。
     },
   })
   return _screenshotWin
@@ -76,7 +75,7 @@ function resolveMaxSegmentHeight(): number {
 
 function resolveScreenshotScale(width: number, height: number): number {
   for (const scale of SCREENSHOT_SCALE_CANDIDATES) {
-    if (width * height * scale * scale <= SCREENSHOT_MAX_PIXELS) return scale
+    if (width * height * scale * scale <= SCREENSHOT_LIMITS.MAX_PIXELS) return scale
   }
   return 0
 }
@@ -86,7 +85,7 @@ function assertScreenshotBudget(width: number, height: number, scale: number): v
   if (!Number.isFinite(pixels) || pixels <= 0) {
     throw new Error('截图尺寸无效')
   }
-  if (pixels > SCREENSHOT_MAX_PIXELS) {
+  if (pixels > SCREENSHOT_LIMITS.MAX_PIXELS) {
     throw new Error('文档过长，当前截图会占用过多内存，请缩短内容后重试')
   }
 }
@@ -263,7 +262,7 @@ export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotRes
   return withLock(async () => {
     try {
       const { html, isDark, width = 960, mode } = input
-      if (typeof html !== 'string' || Buffer.byteLength(html, 'utf-8') > SCREENSHOT_MAX_HTML_BYTES) {
+      if (typeof html !== 'string' || Buffer.byteLength(html, 'utf-8') > SCREENSHOT_LIMITS.MAX_HTML_BYTES) {
         throw new Error('截图内容过大')
       }
       if (!Number.isFinite(width)) {
@@ -272,7 +271,7 @@ export function captureScreenshot(input: ScreenshotInput): Promise<ScreenshotRes
       if (mode !== 'clipboard' && mode !== 'file') {
         throw new Error('截图模式无效')
       }
-      const safeWidth = Math.max(SCREENSHOT_MIN_WIDTH, Math.min(SCREENSHOT_MAX_WIDTH, Math.ceil(width)))
+      const safeWidth = Math.max(SCREENSHOT_LIMITS.MIN_WIDTH, Math.min(SCREENSHOT_LIMITS.MAX_WIDTH, Math.ceil(width)))
       const htmlContent = buildScreenshotHtml(html, isDark)
       const pngBuffer = await screenshotCapture(htmlContent, safeWidth)
 
