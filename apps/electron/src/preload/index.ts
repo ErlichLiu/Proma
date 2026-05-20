@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, LAN_BRIDGE_IPC_CHANNELS } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -887,6 +887,17 @@ export interface ElectronAPI {
   getWeChatStatus: () => Promise<WeChatBridgeState>
   /** 订阅微信 Bridge 状态变化 */
   onWeChatStatusChanged: (callback: (state: WeChatBridgeState) => void) => () => void
+
+  // ===== LAN Bridge 局域网远程连接 =====
+
+  getLanBridgeConfig: () => Promise<import('@proma/shared').LanBridgeConfig>
+  updateLanBridgeConfig: (updates: Partial<import('@proma/shared').LanBridgeConfig>) => Promise<import('@proma/shared').LanBridgeConfig>
+  getLanBridgeStatus: () => Promise<import('@proma/shared').LanBridgeRuntimeState>
+  startLanBridge: () => Promise<void>
+  stopLanBridge: () => Promise<void>
+  getLanBridgePin: () => Promise<string>
+  refreshLanBridgePin: () => Promise<string>
+  onLanBridgeStatusChanged: (listener: (state: import('@proma/shared').LanBridgeRuntimeState) => void) => () => void
 
   /** 订阅菜单关闭标签页事件（Cmd+W 被菜单拦截后转发） */
   onMenuCloseTab: (callback: () => void) => () => void
@@ -1988,6 +1999,42 @@ const electronAPI: ElectronAPI = {
     const listener = (_event: Electron.IpcRendererEvent, state: WeChatBridgeState): void => callback(state)
     ipcRenderer.on(WECHAT_IPC_CHANNELS.STATUS_CHANGED, listener)
     return () => { ipcRenderer.removeListener(WECHAT_IPC_CHANNELS.STATUS_CHANGED, listener) }
+  },
+
+  // ===== LAN Bridge 局域网远程连接 =====
+
+  getLanBridgeConfig: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.GET_CONFIG) as Promise<import('@proma/shared').LanBridgeConfig>
+  },
+
+  updateLanBridgeConfig: (updates: Partial<import('@proma/shared').LanBridgeConfig>) => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.UPDATE_CONFIG, updates) as Promise<import('@proma/shared').LanBridgeConfig>
+  },
+
+  getLanBridgeStatus: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.GET_STATUS) as Promise<import('@proma/shared').LanBridgeRuntimeState>
+  },
+
+  startLanBridge: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.START) as Promise<void>
+  },
+
+  stopLanBridge: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.STOP) as Promise<void>
+  },
+
+  getLanBridgePin: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.GET_PIN) as Promise<string>
+  },
+
+  refreshLanBridgePin: () => {
+    return ipcRenderer.invoke(LAN_BRIDGE_IPC_CHANNELS.REFRESH_PIN) as Promise<string>
+  },
+
+  onLanBridgeStatusChanged: (listener: (state: import('@proma/shared').LanBridgeRuntimeState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: import('@proma/shared').LanBridgeRuntimeState): void => listener(state)
+    ipcRenderer.on(LAN_BRIDGE_IPC_CHANNELS.STATUS_CHANGED, handler)
+    return () => { ipcRenderer.removeListener(LAN_BRIDGE_IPC_CHANNELS.STATUS_CHANGED, handler) }
   },
 
   // ===== 钉钉集成 =====

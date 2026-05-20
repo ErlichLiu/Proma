@@ -180,6 +180,13 @@ function filterHistory(
 
 // ===== 核心流式函数 =====
 
+export type ChatStreamEvent =
+  | { type: 'chunk'; conversationId: string; delta?: string }
+  | { type: 'reasoning'; conversationId: string; delta?: string }
+  | { type: 'tool_activity'; conversationId: string; activity: ChatToolActivity }
+  | { type: 'error'; conversationId: string; error: string }
+  | { type: 'complete'; conversationId: string; model: string; messageId?: string }
+
 /**
  * 发送消息并流式返回 AI 响应
  *
@@ -188,10 +195,12 @@ function filterHistory(
  *
  * @param input 发送参数
  * @param webContents 渲染进程的 webContents 实例（用于推送事件）
+ * @param onEvent 可选的事件回调（LAN Bridge 等 non-webContents 场景使用）
  */
 export async function sendMessage(
   input: ChatSendInput,
-  webContents: WebContents,
+  webContents: WebContents | null,
+  onEvent?: (event: ChatStreamEvent) => void,
 ): Promise<void> {
   const {
     conversationId, userMessage, channelId,
@@ -199,11 +208,25 @@ export async function sendMessage(
     thinkingEnabled, enabledToolIds,
   } = input
 
+  const emit = onEvent
+    ? (ch: string, data: object) => {
+        const mapping: Record<string, ChatStreamEvent> = {
+          [CHAT_IPC_CHANNELS.STREAM_CHUNK]: { type: 'chunk', conversationId, delta: (data as any).delta },
+          [CHAT_IPC_CHANNELS.STREAM_REASONING]: { type: 'reasoning', conversationId, delta: (data as any).delta },
+          [CHAT_IPC_CHANNELS.STREAM_ERROR]: { type: 'error', conversationId, error: (data as any).error },
+          [CHAT_IPC_CHANNELS.STREAM_COMPLETE]: { type: 'complete', conversationId, model: modelId, messageId: (data as any).messageId },
+          [CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY]: { type: 'tool_activity', conversationId, activity: (data as any).activity },
+        }
+        const event = mapping[ch]
+        if (event) onEvent(event)
+      }
+    : (ch: string, data: object) => { webContents!.send(ch, data) }
+
   // 1. 查找渠道
   const channels = listChannels()
   const channel = channels.find((c) => c.id === channelId)
   if (!channel) {
-    webContents.send(CHAT_IPC_CHANNELS.STREAM_ERROR, {
+    emit(CHAT_IPC_CHANNELS.STREAM_ERROR, {
       conversationId,
       error: '渠道不存在',
     })
@@ -215,7 +238,7 @@ export async function sendMessage(
   try {
     apiKey = decryptApiKey(channelId)
   } catch {
-    webContents.send(CHAT_IPC_CHANNELS.STREAM_ERROR, {
+    emit(CHAT_IPC_CHANNELS.STREAM_ERROR, {
       conversationId,
       error: '解密 API Key 失败',
     })
@@ -278,14 +301,14 @@ export async function sendMessage(
       switch (event.type) {
         case 'chunk':
           accumulatedContent += event.delta ?? ''
-          webContents.send(CHAT_IPC_CHANNELS.STREAM_CHUNK, {
+          emit(CHAT_IPC_CHANNELS.STREAM_CHUNK, {
             conversationId,
             delta: event.delta,
           })
           break
         case 'reasoning':
           accumulatedReasoning += event.delta ?? ''
-          webContents.send(CHAT_IPC_CHANNELS.STREAM_REASONING, {
+          emit(CHAT_IPC_CHANNELS.STREAM_REASONING, {
             conversationId,
             delta: event.delta,
           })
@@ -296,7 +319,7 @@ export async function sendMessage(
             toolName: event.toolName!,
             type: 'start',
           })
-          webContents.send(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, {
+          emit(CHAT_IPC_CHANNELS.STREAM_TOOL_ACTIVITY, {
             conversationId,
             activity: { type: 'start', toolName: event.toolName!, toolCallId: event.toolCallId! },
           })
@@ -341,7 +364,7 @@ export async function sendMessage(
       const lastUserMsg = fullHistory.filter((m) => m.role === 'user').at(-1)
       const lastAssistantMsg = fullHistory.filter((m) => m.role === 'assistant').at(-1)
       const toolResults = await executeToolCalls(toolCalls, {
-        webContents,
+        webContents: webContents as WebContents,
         conversationId,
         currentAttachments: attachments,
         previousUserAttachments: lastUserMsg?.attachments,
@@ -433,7 +456,7 @@ export async function sendMessage(
       console.warn(`[聊天服务] 模型返回空内容且无生成附件，跳过保存 (对话 ${conversationId})`)
     }
 
-    webContents.send(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
+    emit(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
       conversationId,
       model: modelId,
       messageId: (accumulatedContent.trim() || accumulatedGeneratedAttachments.length > 0) ? assistantMsgId : undefined,
@@ -464,13 +487,13 @@ export async function sendMessage(
           // 索引更新失败不影响主流程
         }
 
-        webContents.send(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
+        emit(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
           conversationId,
           model: modelId,
           messageId: assistantMsgId,
         })
       } else {
-        webContents.send(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
+        emit(CHAT_IPC_CHANNELS.STREAM_COMPLETE, {
           conversationId,
           model: modelId,
         })
@@ -504,7 +527,7 @@ export async function sendMessage(
       }
     }
 
-    webContents.send(CHAT_IPC_CHANNELS.STREAM_ERROR, {
+    emit(CHAT_IPC_CHANNELS.STREAM_ERROR, {
       conversationId,
       error: errorMessage,
     })

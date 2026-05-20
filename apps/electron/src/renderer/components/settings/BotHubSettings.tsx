@@ -12,19 +12,22 @@ import { cn } from '@/lib/utils'
 import { feishuBotStatesAtom } from '@/atoms/feishu-atoms'
 import { dingtalkBotStatesAtom } from '@/atoms/dingtalk-atoms'
 import { wechatBridgeStateAtom } from '@/atoms/wechat-atoms'
+import { lanBridgeStateAtom } from '@/atoms/lan-bridge-atoms'
 import { FeishuSettings } from './FeishuSettings'
 import { DingTalkSettings } from './DingTalkSettings'
 import { WeChatSettings } from './WeChatSettings'
+import { LanBridgeSettings } from './LanBridgeSettings'
 import { BotDefaultSettings } from './BotDefaultSettings'
 import { PromaLogoSettings } from './PromaLogoSettings'
 import feishuLogo from '@/assets/bots/feishu.png'
 import dingtalkLogo from '@/assets/bots/dingding.png'
 import wechatLogo from '@/assets/bots/wechat.png'
+import lanIcon from '@/assets/models/lan.svg'
 import promaLogo from '@/assets/models/proma.png'
 
 // ===== 类型 =====
 
-type BotPlatformId = 'feishu' | 'dingtalk' | 'wechat' | 'defaults' | 'logos'
+type BotPlatformId = 'feishu' | 'dingtalk' | 'wechat' | 'lan' | 'defaults' | 'logos'
 
 interface BotPlatformDef {
   id: BotPlatformId
@@ -45,6 +48,12 @@ const PLATFORMS: readonly BotPlatformDef[] = [
     name: '微信',
     iconSrc: wechatLogo,
     iconBgClass: 'bg-green-500/15',
+  },
+  {
+    id: 'lan',
+    name: '局域网',
+    iconSrc: lanIcon,
+    iconBgClass: 'bg-muted',
   },
   {
     id: 'feishu',
@@ -79,6 +88,9 @@ const BRIDGE_STATUS_COLORS = {
   connecting: 'bg-yellow-400 animate-pulse',
   connected: 'bg-green-500',
   error: 'bg-red-500',
+  stopped: 'bg-gray-400',
+  starting: 'bg-yellow-400 animate-pulse',
+  running: 'bg-green-500',
 } as const
 
 // ===== 子组件 =====
@@ -88,6 +100,7 @@ function PlatformStatusDot({ platformId }: { platformId: BotPlatformId }): React
   const feishuBotStates = useAtomValue(feishuBotStatesAtom)
   const dingtalkBotStates = useAtomValue(dingtalkBotStatesAtom)
   const wechatState = useAtomValue(wechatBridgeStateAtom)
+  const lanState = useAtomValue(lanBridgeStateAtom)
 
   if (platformId === 'defaults' || platformId === 'logos') return null
 
@@ -95,6 +108,7 @@ function PlatformStatusDot({ platformId }: { platformId: BotPlatformId }): React
     feishu: getPlatformStatus(feishuBotStates),
     dingtalk: getPlatformStatus(dingtalkBotStates),
     wechat: wechatState.status,
+    lan: lanState.status,
   }
   const status = statusMap[platformId] ?? 'disconnected'
   const colorClass = BRIDGE_STATUS_COLORS[status as keyof typeof BRIDGE_STATUS_COLORS] ?? 'bg-gray-400'
@@ -168,6 +182,8 @@ function renderPlatformPanel(id: BotPlatformId): React.ReactElement {
       return <DingTalkSettings />
     case 'wechat':
       return <WeChatSettings />
+    case 'lan':
+      return <LanBridgeSettings />
     case 'defaults':
       return <BotDefaultSettings />
     case 'logos':

@@ -50,3 +50,6 @@ export * from './dingtalk'
 
 // 微信集成相关类型
 export * from './wechat'
+
+// LAN Bridge 局域网远程连接相关类型
+export * from './lan-bridge'

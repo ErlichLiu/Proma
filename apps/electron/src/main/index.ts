@@ -134,6 +134,10 @@ registerBridge({
   stop: () => wechatBridge.stop(),
 })
 
+// LAN Bridge 在注册时内部动态导入 agentEventBus，避免循环依赖
+import { lanBridgeRegistration } from './lib/lan-bridge/lan-bridge'
+registerBridge(lanBridgeRegistration)
+
 let mainWindow: BrowserWindow | null = null
 
 /** 获取主窗口实例（供其他模块使用） */
