@@ -117,6 +117,17 @@ const SPECIAL_STYLES: readonly SpecialStyle[] = [
   },
 ]
 
+/** 浅色主题各自的 primary 色（用于遮罩渐变，与 CSS 变量 --primary 保持一致） */
+const STYLE_PRIMARY_COLORS: Record<SpecialStyleId, string> = {
+  'slate-light': 'hsla(18, 20%, 67%, 0.7)',
+  'ocean-light': 'hsla(205, 50%, 50%, 0.7)',
+  'forest-light': 'hsla(150, 35%, 38%, 0.7)',
+  // 下面三个是深色主题，不会用到，但 Record 类型要求完整
+  'ocean-dark': 'hsla(205, 87%, 24%, 0.7)',
+  'forest-dark': 'hsla(151, 55%, 21%, 0.7)',
+  'slate-dark': 'hsla(15, 25%, 68%, 0.7)',
+}
+
 /** 图标变体定义 */
 interface IconVariant {
   id: string
@@ -352,42 +363,49 @@ function StyleCard({
   onSelect: () => void
 }): React.ReactElement {
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <button
-        type="button"
-        onClick={onSelect}
-        className={cn(
-          'relative rounded-lg overflow-hidden',
-          'w-[99px] h-[183px]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-          isSelected
-            ? 'ring-2 ring-primary shadow-lg shadow-primary/20'
-            : 'ring-1 ring-border/50 hover:ring-border'
-        )}
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'relative rounded-lg overflow-hidden',
+        'w-[99px] h-[183px]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
+        isSelected
+          ? 'ring-2 ring-primary shadow-lg shadow-primary/20'
+          : 'ring-1 ring-border/50 hover:ring-border'
+      )}
+    >
+      <div
+        className="w-full h-full"
+        style={style.imageScale ? { transform: `scale(${style.imageScale})` } : undefined}
       >
-        <div
-          className="w-full h-full"
-          style={style.imageScale ? { transform: `scale(${style.imageScale})` } : undefined}
-        >
-          <img
-            src={style.image}
-            alt={style.name}
-            loading="lazy"
-            decoding="async"
-            className="w-full h-full object-cover"
-            style={style.objectPosition ? { objectPosition: style.objectPosition } : undefined}
-            draggable={false}
-          />
+        <img
+          src={style.image}
+          alt={style.name}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          style={style.objectPosition ? { objectPosition: style.objectPosition } : undefined}
+          draggable={false}
+        />
+      </div>
+      <div
+        className="absolute bottom-0 left-0 right-0 h-10 flex items-end justify-center pb-1.5"
+        style={{
+          background: style.variant === 'light'
+            ? `linear-gradient(to top, ${STYLE_PRIMARY_COLORS[style.id]}, transparent)`
+            : 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)',
+        }}
+      >
+        <span className="text-xs font-medium text-white">
+          {style.name}
+        </span>
+      </div>
+      {isSelected && (
+        <div className="absolute top-1 right-1 size-4 rounded-full bg-primary flex items-center justify-center z-10">
+          <Check className="size-2.5 text-primary-foreground" />
         </div>
-        {isSelected && (
-          <div className="absolute top-1 right-1 size-4 rounded-full bg-primary flex items-center justify-center">
-            <Check className="size-2.5 text-primary-foreground" />
-          </div>
-        )}
-      </button>
-      <span className="text-base font-medium text-foreground">
-        {style.name}
-      </span>
-    </div>
+      )}
+    </button>
   )
 }
