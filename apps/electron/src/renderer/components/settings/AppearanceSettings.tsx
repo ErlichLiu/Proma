@@ -117,15 +117,14 @@ const SPECIAL_STYLES: readonly SpecialStyle[] = [
   },
 ]
 
-/** 浅色主题各自的 primary 色（用于遮罩渐变，与 CSS 变量 --primary 保持一致） */
-const STYLE_PRIMARY_COLORS: Record<SpecialStyleId, string> = {
-  'slate-light': 'hsla(18, 20%, 67%, 0.7)',
-  'ocean-light': 'hsla(205, 50%, 50%, 0.7)',
-  'forest-light': 'hsla(150, 35%, 38%, 0.7)',
-  // 下面三个是深色主题，不会用到，但 Record 类型要求完整
-  'ocean-dark': 'hsla(205, 87%, 24%, 0.7)',
-  'forest-dark': 'hsla(151, 55%, 21%, 0.7)',
-  'slate-dark': 'hsla(15, 25%, 68%, 0.7)',
+/** 各主题遮罩颜色（实心背景 + 浅色文字，与 CSS --primary 对应） */
+const STYLE_MASK_COLORS: Record<SpecialStyleId, { bg: string; text: string }> = {
+  'slate-light':  { bg: 'hsl(18, 20%, 67%)',  text: 'hsl(18, 20%, 88%)' },
+  'ocean-light':  { bg: 'hsl(205, 50%, 50%)', text: 'hsl(205, 50%, 82%)' },
+  'forest-light': { bg: 'hsl(150, 35%, 38%)', text: 'hsl(150, 35%, 75%)' },
+  'ocean-dark':   { bg: 'rgba(0,0,0,0.8)', text: 'hsl(205, 50%, 82%)' },
+  'forest-dark':  { bg: 'rgba(0,0,0,0.8)', text: 'hsl(150, 35%, 75%)' },
+  'slate-dark':   { bg: 'rgba(0,0,0,0.8)', text: 'hsl(18, 20%, 88%)' },
 }
 
 /** 图标变体定义 */
@@ -390,14 +389,13 @@ function StyleCard({
         />
       </div>
       <div
-        className="absolute bottom-0 left-0 right-0 h-10 flex items-end justify-center pb-1.5"
-        style={{
-          background: style.variant === 'light'
-            ? `linear-gradient(to top, ${STYLE_PRIMARY_COLORS[style.id]}, transparent)`
-            : 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)',
-        }}
+        className="absolute bottom-0 left-0 right-0 h-5 flex items-end justify-center pb-0.5"
+        style={{ background: STYLE_MASK_COLORS[style.id].bg }}
       >
-        <span className="text-xs font-medium text-white">
+        <span
+          className="text-xs font-medium"
+          style={{ color: STYLE_MASK_COLORS[style.id].text }}
+        >
           {style.name}
         </span>
       </div>
