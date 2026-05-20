@@ -283,7 +283,12 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
 
 // ===== 默认 Skills 自动升级 =====
 
-/** 将所有工作区中版本过旧的默认 Skill 升级到 ~/.proma/default-skills/ 的最新版本 */
+/**
+ * 同步默认 Skills 到所有工作区。规则：
+ * - 缺失：注入到 skills/（active），让升级后新增的内置 Skill 对老用户立即可用
+ * - 已存在于 skills/：按 version 升级，保持 active
+ * - 已存在于 skills-inactive/：按 version 升级，保持 inactive（不强制启用用户已禁用的 Skill）
+ */
 export function upgradeDefaultSkillsInWorkspaces(): void {
   const defaultDir = getDefaultSkillsDir()
 
@@ -310,23 +315,40 @@ export function upgradeDefaultSkillsInWorkspaces(): void {
   const index = readIndex()
 
   for (const workspace of index.workspaces) {
-    const dirs = [
-      getWorkspaceSkillsDir(workspace.slug),
-      getInactiveSkillsDir(workspace.slug),
-    ]
+    const activeDir = getWorkspaceSkillsDir(workspace.slug)
+    const inactiveDir = getInactiveSkillsDir(workspace.slug)
 
-    for (const dir of dirs) {
-      if (!existsSync(dir)) continue
+    for (const [slug, info] of defaultSkills) {
+      const activePath = join(activeDir, slug)
+      const inactivePath = join(inactiveDir, slug)
+      const inActive = existsSync(activePath)
+      const inInactive = existsSync(inactivePath)
 
-      for (const [slug, info] of defaultSkills) {
-        const targetPath = join(dir, slug)
-        if (!existsSync(targetPath)) continue
-
-        const currentVer = parseSkillVersion(targetPath)
+      if (inActive) {
+        const currentVer = parseSkillVersion(activePath)
         if (compareSemver(info.version, currentVer) > 0) {
-          cpSync(info.sourcePath, targetPath, { recursive: true, force: true })
-          console.log(`[Agent 工作区] 已升级 Skill: ${workspace.slug}/${slug} (${currentVer} → ${info.version})`)
+          cpSync(info.sourcePath, activePath, { recursive: true, force: true })
+          console.log(`[Agent 工作区] 已升级 Skill: ${workspace.slug}/${slug} (${currentVer} → ${info.version}, active)`)
         }
+        continue
+      }
+
+      if (inInactive) {
+        const currentVer = parseSkillVersion(inactivePath)
+        if (compareSemver(info.version, currentVer) > 0) {
+          cpSync(info.sourcePath, inactivePath, { recursive: true, force: true })
+          console.log(`[Agent 工作区] 已升级 Skill: ${workspace.slug}/${slug} (${currentVer} → ${info.version}, inactive)`)
+        }
+        continue
+      }
+
+      // 缺失：注入到 active
+      try {
+        if (!existsSync(activeDir)) mkdirSync(activeDir, { recursive: true })
+        cpSync(info.sourcePath, activePath, { recursive: true })
+        console.log(`[Agent 工作区] 已注入新默认 Skill: ${workspace.slug}/${slug} (${info.version}) → active`)
+      } catch (err) {
+        console.warn(`[Agent 工作区] 注入默认 Skill 失败 (${workspace.slug}/${slug}):`, err)
       }
     }
   }
