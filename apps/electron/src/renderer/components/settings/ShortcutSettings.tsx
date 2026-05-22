@@ -10,9 +10,15 @@
 
 import * as React from 'react'
 import { useAtom } from 'jotai'
-import { RotateCcw, Ban } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { shortcutOverridesAtom, sendWithCmdEnterAtom } from '@/atoms/shortcut-atoms'
 import {
   DEFAULT_SHORTCUTS,
@@ -410,9 +416,9 @@ export function ShortcutSettings(): React.ReactElement {
         const def = DEFAULT_SHORTCUTS.find((s) => s.id === shortcutId)
         if (def?.global) {
           try {
-            // 禁用语义下主进程会跳过 register，results[id] 必然为 false，
-            // 这是期望结果，因此不需要像 handleSaveShortcut 那样校验返回值。
-            await window.electronAPI.reregisterGlobalShortcuts()
+            // 禁用语义下主进程会跳过 register，对应 reregisterGlobalShortcut 返回 false，
+            // 这是期望结果，因此这里不像 handleSaveShortcut 那样把 false 当 warning。
+            await reregisterGlobalShortcut(shortcutId)
           } catch (error) {
             console.error(error)
             toast.warning('快捷键已禁用，但主进程重新注册时出错', {
@@ -428,7 +434,7 @@ export function ShortcutSettings(): React.ReactElement {
         toast.error('禁用快捷键失败', { id: 'shortcut-save-error' })
       }
     },
-    [overrides, setOverrides],
+    [overrides, reregisterGlobalShortcut, setOverrides],
   )
 
   // 恢复所有默认值（同时会清除所有"已禁用"标记）
@@ -570,7 +576,6 @@ export function ShortcutSettings(): React.ReactElement {
                 const platformOverride = overrides[def.id]?.[isMac ? 'mac' : 'win']
                 const isDisabled = platformOverride === null
                 const isCustomized = !isDisabled && !!platformOverride
-                const showResetButton = isCustomized || isDisabled
 
                 return (
                   <div
@@ -598,27 +603,44 @@ export function ShortcutSettings(): React.ReactElement {
                             onSave={handleSaveShortcut}
                             onActiveChange={(active) => handleRecordingChange(def.id, active)}
                           />
-                          {!isDisabled && recordingId !== def.id && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
-                              onClick={() => handleDisable(def.id)}
-                              title="禁用此快捷键"
-                            >
-                              <Ban size={12} />
-                            </Button>
+                          {recordingId !== def.id && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex">
+                                  <Switch
+                                    checked={!isDisabled}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        handleReset(def.id)
+                                      } else {
+                                        handleDisable(def.id)
+                                      }
+                                    }}
+                                    aria-label={isDisabled ? '启用此快捷键' : '禁用此快捷键'}
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {isDisabled
+                                  ? '已禁用 — 打开以恢复默认快捷键'
+                                  : '关闭以禁用此快捷键，避免与其他应用冲突'}
+                              </TooltipContent>
+                            </Tooltip>
                           )}
-                          {showResetButton && recordingId !== def.id && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
-                              onClick={() => handleReset(def.id)}
-                              title="恢复默认"
-                            >
-                              <RotateCcw size={12} />
-                            </Button>
+                          {isCustomized && recordingId !== def.id && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
+                                  onClick={() => handleReset(def.id)}
+                                >
+                                  <RotateCcw size={12} />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">恢复默认快捷键</TooltipContent>
+                            </Tooltip>
                           )}
                         </>
                       )}
