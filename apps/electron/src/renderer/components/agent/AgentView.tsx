@@ -1806,6 +1806,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
               <div className="flex flex-wrap gap-2 px-3 pt-2.5 pb-1.5">
                 {pendingFiles.map((file) => (
                   <AttachmentPreviewItem
+                    id={file.id}
                     key={file.id}
                     filename={file.filename}
                     mediaType={file.mediaType}

@@ -282,10 +282,30 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
               {pendingAttachments.map((att) => (
                 <AttachmentPreviewItem
                   key={att.id}
+                  id={att.id}
                   filename={att.filename}
                   mediaType={att.mediaType}
                   previewUrl={att.previewUrl}
                   onRemove={() => handleRemoveAttachment(att.id)}
+                  onAnnotate={(attachmentId, newBase64) => {
+                    // 更新临时缓存中的 base64 数据（去掉 data URL 前缀）
+                    if (window.__pendingAttachmentData) {
+                      window.__pendingAttachmentData.set(attachmentId, newBase64.replace(/^data:image\/png;base64,/, ''))
+                    }
+                    // 更新预览 URL、文件名和 MIME 类型（标注后统一为 PNG）
+                    setPendingAttachments((prev) =>
+                      prev.map((a) =>
+                        a.id === attachmentId
+                          ? {
+                              ...a,
+                              previewUrl: newBase64,
+                              filename: `${a.filename.replace(/\.[^.]+$/, '')}_annotated.png`,
+                              mediaType: 'image/png',
+                            }
+                          : a,
+                      ),
+                    )
+                  }}
                 />
               ))}
             </div>
