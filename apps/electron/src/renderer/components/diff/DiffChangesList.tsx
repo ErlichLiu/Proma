@@ -52,7 +52,7 @@ const SOURCE_CONFIG: Record<string, { color: string; label: string }> = {
   none: { color: 'bg-muted text-muted-foreground', label: '附加目录文件' },
 }
 
-export function DiffChangesList({
+export const DiffChangesList = React.memo(function DiffChangesList({
   dirPath,
   sessionPath,
   sessionId,
@@ -160,6 +160,8 @@ export function DiffChangesList({
     return untrackedFiles.filter((f) => f.filePath.toLowerCase().includes(q))
   }, [untrackedFiles, searchQuery])
 
+  const isEmpty = fileGroups.length === 0 && filteredUntrackedFiles.length === 0
+
   // 非 Git 仓库
   if (!isGitRepo) {
     return (
@@ -181,11 +183,12 @@ export function DiffChangesList({
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* 搜索框 — 有改动文件时才显示 */}
-      <div className="flex-shrink-0 sticky top-0 z-10 px-2 pt-1.5 pb-1">
-        <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-muted/40 border border-transparent focus-within:border-primary/40 focus-within:bg-muted/70 transition-colors">
+      <div className="flex-shrink-0 sticky top-0 z-10 bg-content-area px-2 pt-1.5 pb-1">
+        <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-muted/50 border border-transparent focus-within:border-primary/40 focus-within:bg-muted/70 transition-colors">
           <Search className="size-3 text-muted-foreground flex-shrink-0" />
           <input
             type="text"
+            aria-label="搜索改动文件"
             className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/40"
             placeholder="搜索改动文件..."
             value={searchQuery}
@@ -198,6 +201,7 @@ export function DiffChangesList({
               </span>
               <button
                 type="button"
+                aria-label="清除搜索"
                 className="flex-shrink-0 p-0.5 rounded-sm hover:bg-foreground/[0.08] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                 onClick={() => setSearchQuery('')}
               >
@@ -208,11 +212,12 @@ export function DiffChangesList({
         </div>
       </div>
 
-      {fileGroups.length === 0 && filteredUntrackedFiles.length === 0 ? (
+      {isEmpty && (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
           <p className="text-[12px] text-center">没有匹配的文件</p>
         </div>
-      ) : (
+      )}
+      {!isEmpty && (
         <>
       {fileGroups.map((group) => {
         const isCollapsed = collapsedDirs.has(group.gitRoot)
@@ -282,7 +287,7 @@ export function DiffChangesList({
       )}
     </div>
   )
-}
+})
 
 /** 已追踪文件的行 */
 function FileRow({
