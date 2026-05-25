@@ -115,6 +115,7 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty, onAddT
   )
   const revealTarget = revealForThisRoot?.path ?? null
   const revealTs = revealForThisRoot?.ts ?? 0
+  const revealSelect = revealForThisRoot?.select ?? false
 
   // ===== autoReveal 带 select 标记时，将目标文件加入选中态 =====
   const consumedSelectTsRef = React.useRef(0)
@@ -318,6 +319,7 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty, onAddT
           revealAncestors={revealAncestors}
           revealTarget={revealTarget}
           revealTs={revealTs}
+          revealSelect={revealSelect}
           recentlyModifiedSet={recentlyModifiedSet}
           onSelect={handleSelect}
           onShowInFolder={handleShowInFolder}
@@ -419,6 +421,8 @@ interface FileTreeItemProps {
   revealTarget: string | null
   /** 自动定位脉冲时间戳，变化时重新触发 */
   revealTs: number
+  /** 本次 reveal 是否带 select 标记（来源于用户搜索点击）；为 true 时跳过 flash 高亮，避免覆盖选中色 */
+  revealSelect: boolean
   /** 最近修改的路径集合（命中则在行左侧显示竖条标记） */
   recentlyModifiedSet: Set<string>
   onSelect: (entry: FileEntry, event: React.MouseEvent) => void
@@ -445,6 +449,7 @@ function FileTreeItem({
   revealAncestors,
   revealTarget,
   revealTs,
+  revealSelect,
   recentlyModifiedSet,
   onSelect,
   onShowInFolder,
@@ -503,9 +508,14 @@ function FileTreeItem({
       requestAnimationFrame(() => {
         rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       })
-      setFlash(true)
-      const t = setTimeout(() => setFlash(false), 1200)
-      return () => clearTimeout(t)
+      // 用户搜索点击场景（revealSelect=true）会同步把目标置为选中态，
+      // flash 动画末关键帧的 transparent 背景会盖掉 bg-accent，造成"先闪一下再变选中"的视觉断层，
+      // 因此该路径跳过 flash，仅保留滚动 + 选中态。Agent 自动定位（无 select）仍走 flash。
+      if (!revealSelect) {
+        setFlash(true)
+        const t = setTimeout(() => setFlash(false), 1200)
+        return () => clearTimeout(t)
+      }
     }
   }, [revealTs]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -817,6 +827,7 @@ function FileTreeItem({
               revealAncestors={revealAncestors}
               revealTarget={revealTarget}
               revealTs={revealTs}
+              revealSelect={revealSelect}
               recentlyModifiedSet={recentlyModifiedSet}
               onSelect={onSelect}
               onShowInFolder={onShowInFolder}
