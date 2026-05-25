@@ -164,7 +164,7 @@ export function FileSearchBar({
       const entry = results[selectedIndex]
       if (entry && entry.type === 'file') {
         const absPath = resolveAbsolutePath(entry)
-        if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now() })
+        if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
         onFilePreview?.(absPath)
         setIsOpen(false)
         inputRef.current?.blur()
@@ -203,7 +203,7 @@ export function FileSearchBar({
           placeholder={placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => { if (results.length > 0) setIsOpen(true) }}
+          onClick={() => { if (results.length > 0 && !isOpen) setIsOpen(true) }}
           onKeyDown={handleKeyDown}
         />
         {query && !searching && (
