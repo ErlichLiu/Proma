@@ -635,6 +635,9 @@ function FileTreeItem({
   const stickyTop = stickyDepth * TREE_ROW_HEIGHT
   // 起点 10 已足够压住普通行内元素；保持外层目录在更上层以遮住下方滚过的内层。
   const stickyZIndex = Math.max(1, 10 - stickyDepth)
+  const isSticky = entry.isDirectory && expanded
+  // sticky 状态下行铺满容器（去掉 mx-2 / rounded-lg），左侧文字需 +8 补偿失去的外边距
+  const effectivePaddingLeft = isSticky ? paddingLeft + TREE_ROW_HORIZONTAL_MARGIN : paddingLeft
   const showMenu = !isRenaming
   const menuSelectedCount = isSelected ? selectedCount : 1
 
@@ -642,16 +645,25 @@ function FileTreeItem({
     <div className="relative" onClick={handleWrapperClick}>
       <div
         ref={rowRef}
+        data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
-          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg transition-colors',
-          entry.isDirectory && expanded && 'sticky bg-background/95 backdrop-blur-sm shadow-[0_1px_0_hsl(var(--border)/0.45)]',
-          isSelected ? 'bg-accent' : 'hover:bg-accent/50',
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          isSticky
+            // sticky：铺满 + 不透明背景 + 底部阴影；多行紧贴时由 :has() 规则去除中间阴影
+            ? 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]'
+            : 'mx-2 rounded-lg',
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSelected
+            ? 'bg-accent'
+            : isSticky
+              ? 'hover:bg-accent'
+              : 'hover:bg-accent/50',
           flash && 'file-browser-row-flash',
         )}
         style={{
-          paddingLeft,
-          top: entry.isDirectory && expanded ? stickyTop : undefined,
-          zIndex: entry.isDirectory && expanded ? stickyZIndex : undefined,
+          paddingLeft: effectivePaddingLeft,
+          top: isSticky ? stickyTop : undefined,
+          zIndex: isSticky ? stickyZIndex : undefined,
         }}
         onClick={handleClick}
       >
@@ -659,7 +671,7 @@ function FileTreeItem({
           <span
             aria-label="最近被 Agent 修改"
             className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary/80"
-            style={{ left: paddingLeft - 6 }}
+            style={{ left: effectivePaddingLeft - 6 }}
           />
         )}
         {/* 展开/收起图标 */}
