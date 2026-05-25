@@ -977,6 +977,26 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
         }}
         onClick={handleClick}
       >
+        {/* sticky 行内仅绘制祖先链竖线，贯穿整行；
+            自己的子项引导线交给下方子项容器（或下一层 sticky 子行的祖先线）负责，
+            使每个文件夹自身行内不会出现从三角下方延伸出的线，符合 VS Code 行为。
+            选中态下 bg-accent 不透明背景会盖住原本的 border 色，换成 accent-foreground 以保证对比度。
+            与 components/file-browser/FileBrowser.tsx 保持一致。 */}
+        {isSticky && depth > 0 && (
+          <>
+            {Array.from({ length: depth }).map((_, i) => (
+              <span
+                key={`ancestor-guide-${i}`}
+                aria-hidden="true"
+                className={cn(
+                  'pointer-events-none absolute top-0 bottom-0 w-px',
+                  isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
+                )}
+                style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
+              />
+            ))}
+          </>
+        )}
         {entry.isDirectory ? (
           <ChevronRight
             className={cn(
