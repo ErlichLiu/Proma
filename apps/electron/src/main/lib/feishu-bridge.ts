@@ -873,11 +873,33 @@ class FeishuBridge {
 
   /**
    * 由 runAgentHeadless 的 onComplete / onError 回调调用，唤醒 runMergedBatch 的 await。
-   * 多次调用幂等（同一 sessionId 只第一次生效）。
+   *
+   * 关键：onComplete 触发的时机在 orchestrator 的 finally 之前，此时
+   * activeSessions 还没 delete。如果立刻 resolve finishedPromise，runMergedBatch
+   * 会马上 unblock 让下一波 batch 进 handleUserMessage → orchestrator 撞
+   * 并发守卫 onError → 用户消息丢失。
+   *
+   * 解法：轮询 isAgentSessionActive 变 false（orchestrator finally 完成）
+   * 再 resolve；50ms 一次，最多等 5s（兜底防 orchestrator 卡死）。
    */
   private notifyAgentRunFinished(sessionId: string): void {
     const resolver = this.runFinishedResolvers.get(sessionId)
-    if (resolver) resolver()
+    if (!resolver) return
+    let attempts = 0
+    const tick = (): void => {
+      if (!isAgentSessionActive(sessionId) || attempts >= 100) {
+        if (attempts >= 100) {
+          console.warn(`[飞书 Bridge] 等 orchestrator 清理 activeSessions 5s 超时，强制 resolve: ${sessionId}`)
+        }
+        // 双重读：可能 setTimeout 期间已被另一路 resolve（如 stop）取走
+        const r = this.runFinishedResolvers.get(sessionId)
+        if (r) r()
+        return
+      }
+      attempts++
+      setTimeout(tick, 50)
+    }
+    tick()
   }
 
   private async handleCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
@@ -1289,13 +1311,11 @@ class FeishuBridge {
       if (!binding) return
     }
 
-    // 兜底并发保护：理论上 RunCoordinator + ScopedQueue.block 已避免 batch
-    // flush 时 session 仍活着，这里 silent skip 防极端竞态（错过的消息会在
-    // unblock 后的下一波 quiet window 里被重新 flush）
-    if (isAgentSessionActive(binding.sessionId)) {
-      console.warn(`[飞书 Bridge] handleUserMessage 时 session 仍活，已跳过: ${binding.sessionId}`)
-      return
-    }
+    // 注：之前在此处有 isAgentSessionActive silent skip 兜底，会在
+    // 时序"onComplete 触发但 orchestrator finally 还没清 activeSessions"
+    // 间隙下吃掉合法 batch（实测重现：第 1 条任务跑完后第 2 条丢失）。
+    // 当前架构靠 RunCoordinator 的 per-scope 串行 + ScopedQueue.block/unblock
+    // + finishedPromise 三层保证不会真正并发，移除此兜底以避免误丢消息。
 
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
     const attachedRefs: string[] = []
