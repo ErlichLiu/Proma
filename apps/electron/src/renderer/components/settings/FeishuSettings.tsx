@@ -315,10 +315,14 @@ npm install -g @larksuite/cli
 2. 将 SKILL 配置到本工作区（默认配置本工作区，但请提醒用户是否需要额外安装到全局，会使得预置上下文增加，造成不必要的Token消耗）
 npx skills add https://github.com/larksuite/cli -y -g
 
-3. 初始化 CLI 配置
+3. 初始化 CLI 配置（创建一个全新的飞书 CLI 应用，与 Proma 飞书 Bot 互不影响）
 lark-cli config init --new
 
-到最后一步配置环节需要特别提醒用户：已有Bot应用则选择已有应用，没有再选择新建飞书CLI应用。`
+4. 一键申请全部领域的所有权限（文档/表格/日历/任务/邮件/通讯录/会议/审批/OKR/Wiki/多维表格/幻灯片/考勤/项目板等都包含在内）
+lark-cli auth login --domain all
+
+执行第 3 步时浏览器会弹出授权页面，引导用户完成应用创建并扫码授权；
+执行第 4 步时浏览器会再次弹出，引导用户一次性确认所有领域的权限——这一步是体验关键，跳过会导致后续 Agent 调用飞书文档/日历/邮件等能力时报权限不足。`
 
 /** 飞书 CLI 配置引导 */
 function FeishuCliSection(): React.ReactElement {
@@ -356,10 +360,12 @@ function FeishuCliSection(): React.ReactElement {
             <div className="bg-muted/50 rounded-md p-3 font-mono text-xs space-y-1.5 animate-in fade-in-0 slide-in-from-top-1 duration-200">
               <div><span className="text-foreground/70 font-semibold">步骤 1</span> — 安装飞书 CLI 到全局</div>
               <div className="pl-3 text-foreground/60">npm install -g @larksuite/cli</div>
-              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 2</span> — 将 SKILL 配置到本工作区（默认配置本工作区，但请提醒用户是否需要额外安装到全局，会使得预置上下文增加，造成不必要的Token消耗）</div>
+              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 2</span> — 将 SKILL 配置到本工作区（默认本工作区；如需全局会增加 Token 消耗）</div>
               <div className="pl-3 text-foreground/60">npx skills add https://github.com/larksuite/cli -y -g</div>
-              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 3</span> — 初始化 CLI 配置</div>
+              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 3</span> — 初始化 CLI（新建独立 CLI 应用，不影响 Proma 飞书 Bot）</div>
               <div className="pl-3 text-foreground/60">lark-cli config init --new</div>
+              <div className="pt-1"><span className="text-foreground/70 font-semibold">步骤 4</span> — 一键申请全部领域权限（文档/表格/日历/任务/邮件/通讯录/会议等）</div>
+              <div className="pl-3 text-foreground/60">lark-cli auth login --domain all</div>
             </div>
           )}
 
