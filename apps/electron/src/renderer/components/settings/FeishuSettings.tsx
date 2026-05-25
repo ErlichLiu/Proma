@@ -9,7 +9,7 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { toast } from 'sonner'
-import { Loader2, CheckCircle2, XCircle, ExternalLink, Users, User, Trash2, RefreshCw, Copy, Check, Power, PowerOff, Plus, ChevronRight } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Users, User, Trash2, RefreshCw, Copy, Check, Power, PowerOff, Plus, ChevronRight, PlayCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -62,18 +62,114 @@ const FEISHU_SCOPES_JSON = JSON.stringify({
   scopes: {
     tenant: [
       'contact:contact.base:readonly',
-      'im:chat:readonly',
+      'drive:drive',
+      'im:chat',
       'im:chat.members:read',
       'im:message',
       'im:message.group_at_msg:readonly',
       'im:message.group_msg',
       'im:message.p2p_msg:readonly',
+      'im:message.reactions:write_only',
       'im:message:send_as_bot',
       'im:resource',
+      'wiki:wiki',
     ],
     user: [],
   },
 }, null, 2)
+
+/**
+ * 视频教程入口配置。
+ * 后续把 url 填上即可在飞书配置页顶部显示视频教程卡片，留空则不渲染。
+ * 支持 B 站 / YouTube 等任意 iframe 嵌入地址，例如：
+ *   B 站：//player.bilibili.com/player.html?bvid=BVxxxxxx&autoplay=0
+ *   YouTube：https://www.youtube.com/embed/VIDEO_ID
+ */
+const FEISHU_TUTORIAL_VIDEO = {
+  url: '',
+  title: '飞书 Bot 配置视频教程',
+  description: '跟着视频一步步配，3 分钟内完成飞书 Bot 接入',
+} as const
+
+// ===== 视频教程组件 =====
+
+/** 把任意视频链接归一化为可 iframe 嵌入的 URL（B 站 / YouTube / 直链皆支持） */
+function normalizeVideoEmbedUrl(raw: string): { embedUrl: string; isIframe: boolean } | null {
+  const url = raw.trim()
+  if (!url) return null
+
+  // B 站普通页：https://www.bilibili.com/video/BVxxxxxx[?p=N] → player.bilibili.com
+  const bvMatch = url.match(/bilibili\.com\/video\/(BV[0-9A-Za-z]+)/)
+  if (bvMatch) {
+    const pMatch = url.match(/[?&]p=(\d+)/)
+    const pageParam = pMatch ? `&page=${pMatch[1]}` : ''
+    return { embedUrl: `https://player.bilibili.com/player.html?bvid=${bvMatch[1]}&autoplay=0&high_quality=1&danmaku=0${pageParam}`, isIframe: true }
+  }
+  // B 站短链（b23.tv/xxx）：无法在前端跟随重定向，让 iframe 自己处理
+  if (/^https?:\/\/b23\.tv\//.test(url)) {
+    return { embedUrl: url, isIframe: true }
+  }
+  // B 站 player 直链
+  if (/^https?:\/\/player\.bilibili\.com\//.test(url)) {
+    return { embedUrl: url, isIframe: true }
+  }
+  // YouTube watch / shorts / youtu.be → embed
+  const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/)
+  if (ytMatch) {
+    return { embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}`, isIframe: true }
+  }
+  // YouTube embed 直链
+  if (/^https?:\/\/(www\.)?youtube\.com\/embed\//.test(url)) {
+    return { embedUrl: url, isIframe: true }
+  }
+  // mp4 / webm / m3u8 直链：用 video 标签
+  if (/\.(mp4|webm|m3u8)(\?.*)?$/i.test(url)) {
+    return { embedUrl: url, isIframe: false }
+  }
+  // 默认尝试当作 iframe 渲染
+  return { embedUrl: url, isIframe: true }
+}
+
+/** 飞书配置页顶部的视频教程卡片，URL 留空时不渲染 */
+function FeishuTutorialVideo(): React.ReactElement | null {
+  const video = React.useMemo(() => normalizeVideoEmbedUrl(FEISHU_TUTORIAL_VIDEO.url), [])
+  if (!video) return null
+
+  return (
+    <SettingsSection
+      title={
+        <span className="flex items-center gap-2">
+          <PlayCircle size={16} className="text-primary" />
+          {FEISHU_TUTORIAL_VIDEO.title}
+        </span>
+      }
+      description={FEISHU_TUTORIAL_VIDEO.description}
+    >
+      <SettingsCard divided={false}>
+        <div className="relative w-full overflow-hidden rounded-md bg-black" style={{ aspectRatio: '16 / 9' }}>
+          {video.isIframe ? (
+            <iframe
+              src={video.embedUrl}
+              title={FEISHU_TUTORIAL_VIDEO.title}
+              className="absolute inset-0 w-full h-full border-0"
+              allowFullScreen
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture"
+              referrerPolicy="no-referrer"
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+            />
+          ) : (
+            <video
+              src={video.embedUrl}
+              controls
+              preload="metadata"
+              className="absolute inset-0 w-full h-full"
+            />
+          )}
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
 
 // ===== 工具组件 =====
 
@@ -114,23 +210,38 @@ function PermissionsStep(): React.ReactElement {
   }, [])
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center">4</span>
         <span className="font-medium text-foreground">配置权限</span>
       </div>
-      <div className="pl-7 space-y-2 text-muted-foreground">
+      <div className="pl-7 space-y-3 text-muted-foreground">
         <p>
           进入「权限管理」页面，点击下方按钮复制权限配置 JSON，
-          然后在飞书开放平台通过「批量开通」粘贴即可一键添加所有权限：
+          在飞书开放平台点击右上角「<span className="text-foreground font-medium">批量开通权限</span>」按钮，把 JSON 粘贴进去即可一次性添加所有权限。
         </p>
+
+        {/* 主操作：一键复制按钮（更显眼） */}
+        <Button
+          size="default"
+          onClick={handleCopy}
+          className={cn(
+            'gap-2 transition-all',
+            copied && 'bg-green-600 hover:bg-green-600 text-white'
+          )}
+        >
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+          <span className="font-medium">{copied ? '已复制到剪贴板' : '一键复制权限配置 JSON'}</span>
+        </Button>
+
+        {/* 次要：展开查看每个权限对应的能力 */}
         <button
           type="button"
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           onClick={() => setExpanded(!expanded)}
         >
           <ChevronRight size={14} className={cn('transition-transform duration-200', expanded && 'rotate-90')} />
-          <span>{expanded ? '收起权限详情' : '展开查看权限详情'}</span>
+          <span>{expanded ? '收起权限明细' : '查看每个权限的作用'}</span>
         </button>
         {expanded && (
           <div className="bg-muted/50 rounded-md p-3 font-mono text-xs space-y-0.5 animate-in fade-in-0 slide-in-from-top-1 duration-200">
@@ -139,21 +250,15 @@ function PermissionsStep(): React.ReactElement {
             <div><span className="text-foreground/70">im:message.p2p_msg:readonly</span> — 接收用户发给机器人的单聊消息</div>
             <div><span className="text-foreground/70">im:message.group_at_msg:readonly</span> — 接收群聊中 @机器人 的消息</div>
             <div><span className="text-foreground/70">im:message.group_msg</span> — 读取群聊历史消息（群聊上下文）</div>
-            <div><span className="text-foreground/70">im:chat:readonly</span> — 获取群组信息</div>
+            <div><span className="text-foreground/70">im:message.reactions:write_only</span> — 为消息添加状态表情（如⌨️/✅），让用户感知 Bot 正在处理 / 已完成</div>
+            <div><span className="text-foreground/70">im:chat</span> — 读取并管理群组信息（为后续 Bot 主动拉群协作预留）</div>
             <div><span className="text-foreground/70">im:chat.members:read</span> — 获取群成员列表（支持 @某人）</div>
             <div><span className="text-foreground/70">im:resource</span> — 获取消息中的资源文件（图片、文档等）</div>
             <div><span className="text-foreground/70">contact:contact.base:readonly</span> — 获取用户基本信息（群聊发送者名称）</div>
+            <div><span className="text-foreground/70">drive:drive</span> — 云文档评论 @Bot 时读取与回复（支持文档协作场景）</div>
+            <div><span className="text-foreground/70">wiki:wiki</span> — 解析知识库链接的真实文档（@Bot 在 wiki 文档评论时使用）</div>
           </div>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleCopy}
-          className="gap-1.5"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          <span>{copied ? '已复制' : '复制批量权限配置'}</span>
-        </Button>
       </div>
     </div>
   )
@@ -784,6 +889,9 @@ function FeishuConfigTab(): React.ReactElement {
 
   return (
     <div className="space-y-8">
+      {/* 视频教程（顶部最显眼处，未配置 URL 时自动隐藏） */}
+      <FeishuTutorialVideo />
+
       {/* Bot 列表 */}
       <SettingsSection
         title="飞书 Bot 列表"
