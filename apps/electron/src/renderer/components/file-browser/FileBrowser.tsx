@@ -48,7 +48,7 @@ import type { FileEntry } from '@proma/shared'
 import { FileTypeIcon } from './FileTypeIcon'
 
 /** 计算目标路径相对 rootPath 的祖先目录集合（不含 rootPath 自身、含目标的所有上级） */
-function computeRevealAncestors(rootPath: string, targetPath: string): Set<string> {
+export function computeRevealAncestors(rootPath: string, targetPath: string): Set<string> {
   const ancestors = new Set<string>()
   if (!rootPath || !targetPath) return ancestors
   // 归一化：移除尾部分隔符
@@ -69,7 +69,7 @@ function computeRevealAncestors(rootPath: string, targetPath: string): Set<strin
 }
 
 /** 判断目标路径是否落在 rootPath 内 */
-function isPathUnderRoot(rootPath: string, targetPath: string): boolean {
+export function isPathUnderRoot(rootPath: string, targetPath: string): boolean {
   if (!rootPath || !targetPath) return false
   const root = rootPath.replace(/[/\\]+$/, '')
   if (targetPath === root) return true
