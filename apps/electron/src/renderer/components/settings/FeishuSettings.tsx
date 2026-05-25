@@ -64,7 +64,12 @@ const FEISHU_SCOPES_JSON = JSON.stringify({
       'contact:contact.base:readonly',
       'drive:drive',
       'im:chat',
+      'im:chat.announcement:write_only',
+      'im:chat.managers:write_only',
       'im:chat.members:read',
+      'im:chat.members:write_only',
+      'im:chat.tabs:write_only',
+      'im:chat.top_notice:write_only',
       'im:message',
       'im:message.group_at_msg:readonly',
       'im:message.group_msg',
@@ -86,7 +91,7 @@ const FEISHU_SCOPES_JSON = JSON.stringify({
  *   YouTube：https://www.youtube.com/embed/VIDEO_ID
  */
 const FEISHU_TUTORIAL_VIDEO = {
-  url: '',
+  url: 'https://www.bilibili.com/video/BV1z8G867Epv',
   title: '飞书 Bot 配置视频教程',
   description: '跟着视频一步步配，3 分钟内完成飞书 Bot 接入',
 } as const
@@ -130,9 +135,26 @@ function normalizeVideoEmbedUrl(raw: string): { embedUrl: string; isIframe: bool
   return { embedUrl: url, isIframe: true }
 }
 
-/** 飞书配置页顶部的视频教程卡片，URL 留空时不渲染 */
+/** 飞书配置页顶部的视频教程卡片，URL 留空时不渲染。
+ *  默认展开方便新用户上手；检测到任一 Bot 已 connected（视为配置完成）会自动收起一次，
+ *  之后用户随时可以手动展开/收起。 */
 function FeishuTutorialVideo(): React.ReactElement | null {
   const video = React.useMemo(() => normalizeVideoEmbedUrl(FEISHU_TUTORIAL_VIDEO.url), [])
+  const botStates = useAtomValue(feishuBotStatesAtom)
+  const hasConnectedBot = React.useMemo(
+    () => Object.values(botStates).some((b) => b.status === 'connected'),
+    [botStates],
+  )
+  const [expanded, setExpanded] = React.useState(true)
+  const autoCollapsedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (hasConnectedBot && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true
+      setExpanded(false)
+    }
+  }, [hasConnectedBot])
+
   if (!video) return null
 
   return (
@@ -146,26 +168,40 @@ function FeishuTutorialVideo(): React.ReactElement | null {
       description={FEISHU_TUTORIAL_VIDEO.description}
     >
       <SettingsCard divided={false}>
-        <div className="relative w-full overflow-hidden rounded-md bg-black" style={{ aspectRatio: '16 / 9' }}>
-          {video.isIframe ? (
-            <iframe
-              src={video.embedUrl}
-              title={FEISHU_TUTORIAL_VIDEO.title}
-              className="absolute inset-0 w-full h-full border-0"
-              allowFullScreen
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture"
-              referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-            />
-          ) : (
-            <video
-              src={video.embedUrl}
-              controls
-              preload="metadata"
-              className="absolute inset-0 w-full h-full"
-            />
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer text-left"
+        >
+          <span className="text-sm text-muted-foreground">
+            {expanded ? '点击收起视频' : '点击展开视频教程（约 3 分钟）'}
+          </span>
+          <ChevronRight size={16} className={cn('text-muted-foreground transition-transform duration-200', expanded && 'rotate-90')} />
+        </button>
+        {expanded && (
+          <div className="px-4 pb-4 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+            <div className="relative w-full overflow-hidden rounded-md bg-black" style={{ aspectRatio: '16 / 9' }}>
+              {video.isIframe ? (
+                <iframe
+                  src={video.embedUrl}
+                  title={FEISHU_TUTORIAL_VIDEO.title}
+                  className="absolute inset-0 w-full h-full border-0"
+                  allowFullScreen
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture"
+                  referrerPolicy="no-referrer"
+                  sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+                />
+              ) : (
+                <video
+                  src={video.embedUrl}
+                  controls
+                  preload="metadata"
+                  className="absolute inset-0 w-full h-full"
+                />
+              )}
+            </div>
+          </div>
+        )}
       </SettingsCard>
     </SettingsSection>
   )
@@ -251,8 +287,13 @@ function PermissionsStep(): React.ReactElement {
             <div><span className="text-foreground/70">im:message.group_at_msg:readonly</span> — 接收群聊中 @机器人 的消息</div>
             <div><span className="text-foreground/70">im:message.group_msg</span> — 读取群聊历史消息（群聊上下文）</div>
             <div><span className="text-foreground/70">im:message.reactions:write_only</span> — 为消息添加状态表情（如⌨️/✅），让用户感知 Bot 正在处理 / 已完成</div>
-            <div><span className="text-foreground/70">im:chat</span> — 读取并管理群组信息（为后续 Bot 主动拉群协作预留）</div>
+            <div><span className="text-foreground/70">im:chat</span> — 创建群 + 读取/更新群基础信息（群名、简介、邀请链接等）</div>
             <div><span className="text-foreground/70">im:chat.members:read</span> — 获取群成员列表（支持 @某人）</div>
+            <div><span className="text-foreground/70">im:chat.members:write_only</span> — 添加 / 移除群成员（Bot 主动拉人入群）</div>
+            <div><span className="text-foreground/70">im:chat.managers:write_only</span> — 指定 / 移除群管理员</div>
+            <div><span className="text-foreground/70">im:chat.announcement:write_only</span> — 更新群公告（把任务进度挂到公告里）</div>
+            <div><span className="text-foreground/70">im:chat.tabs:write_only</span> — 操作群会话标签页</div>
+            <div><span className="text-foreground/70">im:chat.top_notice:write_only</span> — 设置群置顶消息</div>
             <div><span className="text-foreground/70">im:resource</span> — 获取消息中的资源文件（图片、文档等）</div>
             <div><span className="text-foreground/70">contact:contact.base:readonly</span> — 获取用户基本信息（群聊发送者名称）</div>
             <div><span className="text-foreground/70">drive:drive</span> — 云文档评论 @Bot 时读取与回复（支持文档协作场景）</div>
