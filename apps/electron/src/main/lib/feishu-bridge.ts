@@ -172,6 +172,12 @@ class FeishuBridge {
    * 的槽位真正等到 Agent 结束再释放。
    */
   private readonly runFinishedResolvers = new Map<string, () => void>()
+
+  /**
+   * sessionId 集合：标记本次 run 撞上 orchestrator 并发守卫，executeRun
+   * 应重试而不是把错误暴露给用户。
+   */
+  private readonly lastRunHitConcurrencyGuard = new Set<string>()
   /** sessionId → 通知模式 */
   private sessionNotifyModes = new Map<string, FeishuNotifyMode>()
   /** 默认通知目标 chatId（最后一个与 Bot 交互的飞书聊天） */
@@ -326,6 +332,7 @@ class FeishuBridge {
     for (const resolver of this.runFinishedResolvers.values()) resolver()
     this.runFinishedResolvers.clear()
     this.sessionRunChains.clear()
+    this.lastRunHitConcurrencyGuard.clear()
     // 关闭所有正在跑的流式卡（不等返回，避免阻塞 stop）
     for (const stream of this.streamingCards.values()) {
       void stream.close().catch(() => {})
@@ -838,6 +845,8 @@ class FeishuBridge {
   /**
    * 实际执行一次 Agent run：调 handleUserMessage 触发 runAgentHeadless，
    * 然后等 onComplete / onError 回调真正触发后才返回。
+   * 若撞上 orchestrator 并发守卫（lastRunHitConcurrencyGuard 标记），
+   * 自动重试最多 5 次，每次间隔 500ms 退避。
    */
   private async executeRun(
     sessionId: string,
@@ -847,9 +856,25 @@ class FeishuBridge {
     fileAttachments: FeishuFileAttachment[],
     parentMessageId?: string,
   ): Promise<void> {
-    const finishedPromise = this.makeRunFinishedPromise(sessionId)
-    await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, parentMessageId)
-    await finishedPromise
+    const MAX_RETRIES = 5
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const finishedPromise = this.makeRunFinishedPromise(sessionId)
+      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, parentMessageId)
+      await finishedPromise
+
+      if (!this.lastRunHitConcurrencyGuard.has(sessionId)) {
+        return // 正常完成
+      }
+      // 撞了并发守卫，清除标记重试
+      this.lastRunHitConcurrencyGuard.delete(sessionId)
+      if (attempt >= MAX_RETRIES) {
+        console.error(`[飞书 Bridge] executeRun 重试 ${MAX_RETRIES} 次仍撞并发守卫，放弃: ${sessionId.slice(-8)}`)
+        return
+      }
+      const delay = 500 * (attempt + 1)
+      console.log(`[飞书 Bridge] executeRun 重试 #${attempt + 1}，等待 ${delay}ms`)
+      await new Promise<void>((resolve) => setTimeout(resolve, delay))
+    }
   }
 
   /**
@@ -905,13 +930,21 @@ class FeishuBridge {
 
   /**
    * 由 runAgentHeadless 的 onComplete / onError 回调调用，唤醒 runMergedBatch 的 await。
-   * 立即 resolve 即可——下一个 batch 会通过 waitUntilSessionIdle 等 orchestrator
-   * finally 走完才调 runAgentHeadless，所以这里不需要再轮询 isActive。
-   * 多次调用幂等（resolver 取出后已 delete）。
+   *
+   * 关键：onComplete 在 orchestrator 的 finally 之前同步触发，此时
+   * activeSessions 还没 delete。立即 resolve 会让下一个 batch 撞 isActive=true
+   * 守卫。延迟一个 setTimeout(0) 让 orchestrator 同步 finally 走完，
+   * 再 resolve 才安全。
    */
   private notifyAgentRunFinished(sessionId: string): void {
     const resolver = this.runFinishedResolvers.get(sessionId)
-    if (resolver) resolver()
+    if (!resolver) return
+    // 延迟到下一个 tick：让 orchestrator 的 finally { activeSessions.delete }
+    // 走完，再唤醒 batch_B
+    setTimeout(() => {
+      const r = this.runFinishedResolvers.get(sessionId)
+      if (r) r()
+    }, 0)
   }
 
   private async handleCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
@@ -1464,6 +1497,15 @@ class FeishuBridge {
 
       runAgentHeadless(input, {
         onError: (error) => {
+          // 检测 orchestrator 并发守卫错误：这是 Proma 内部并发竞态，
+          // 不应该把错误暴露给飞书侧用户。返回特殊标记让 executeRun 重试。
+          const isConcurrencyGuardError = error.includes('上一条消息仍在处理中')
+          if (isConcurrencyGuardError) {
+            console.warn(`[飞书 Bridge] 触发并发守卫，将重试: ${binding!.sessionId.slice(-8)}`)
+            this.lastRunHitConcurrencyGuard.add(binding!.sessionId)
+            this.notifyAgentRunFinished(binding!.sessionId)
+            return
+          }
           const errPrefix = this.resolveContextPrefix(chatId)
           // 优先把错误显示到流式卡上；没有流式卡才发独立错误卡
           if (this.streamingCards.has(binding!.sessionId)) {
