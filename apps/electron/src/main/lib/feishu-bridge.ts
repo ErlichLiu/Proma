@@ -1273,6 +1273,14 @@ class FeishuBridge {
   private async handleCardAction(
     evt: import('@larksuiteoapi/node-sdk').CardActionEvent,
   ): Promise<void> {
+    // 临时诊断：dump 完整 cardAction event
+    console.log('[飞书诊断 cardAction] 完整事件', JSON.stringify({
+      messageId: evt.messageId,
+      chatId: evt.chatId,
+      operator: evt.operator,
+      action: evt.action,
+    }, null, 2))
+
     const value = evt.action.value
     if (!value || typeof value !== 'object') return
     const payload = value as Record<string, unknown>
@@ -1290,7 +1298,7 @@ class FeishuBridge {
       console.log(`[飞书 Bridge] 收到 stop 卡片回调: sessionId=${sessionId.slice(-8)}, operator=${operatorOpenId.slice(-6)}`)
       try {
         stopAgent(sessionId)
-        // 立即标记流式卡为 interrupted 终态（不依赖 SDK abort 的时序）
+        // 立即标记流式卡为 interrupted 终态
         this.markStreamingInterrupted(sessionId)
       } catch (error) {
         console.error('[飞书 Bridge] stop Agent 失败:', error)

@@ -148,13 +148,23 @@ export class CardStream {
     let attempt = 0
     while (true) {
       try {
-        await this.client.cardkit.v1.card.update({
+        const resp = await this.client.cardkit.v1.card.update({
           path: { card_id: this.cardId },
           data: {
             card: { type: 'card_json', data: JSON.stringify(card) },
             sequence,
           },
         })
+        const respCode = (resp as { code?: number })?.code
+        if (respCode !== undefined && respCode !== 0) {
+          // 飞书 cardkit 服务端业务错误，如 200340（streaming_mode 状态冲突等）
+          console.warn('[飞书 CardStream] update 业务错误', {
+            cardId: this.cardId,
+            sequence,
+            code: respCode,
+            msg: (resp as { msg?: string })?.msg,
+          })
+        }
         return
       } catch (err) {
         attempt++
