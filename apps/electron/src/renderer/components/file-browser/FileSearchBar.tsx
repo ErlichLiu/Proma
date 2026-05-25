@@ -238,11 +238,6 @@ export function FileSearchBar({
           }}
           onKeyDown={handleKeyDown}
         />
-        {query && !searching && (
-          <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums">
-            {results.length}
-          </span>
-        )}
       </div>
 
       {/* 结果浮层（绝对定位，不影响布局） */}
