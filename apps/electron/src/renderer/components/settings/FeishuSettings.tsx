@@ -981,22 +981,39 @@ function FeishuConfigTab(): React.ReactElement {
                 <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center">5</span>
                 <span className="font-medium text-foreground">配置事件订阅（关键步骤）</span>
               </div>
-              <div className="pl-7 space-y-1.5 text-muted-foreground">
+              <div className="pl-7 space-y-2 text-muted-foreground">
                 <p>
-                  进入「事件与回调」页面：
+                  进入「事件与回调」页面，分别完成下面两项配置：
                 </p>
-                <ol className="list-decimal pl-4 space-y-1">
-                  <li>
-                    事件订阅方式选择{' '}
-                    <span className="text-foreground font-medium">「使用长连接接收事件」</span>
-                    （而非 Webhook，无需公网 IP）
-                  </li>
-                  <li>
-                    添加事件{' '}
-                    <code className="bg-muted/50 px-1.5 py-0.5 rounded text-xs text-foreground/80">im.message.receive_v1</code>
-                    {' '}（接收消息）
-                  </li>
-                </ol>
+                <div className="space-y-1.5">
+                  <div className="text-foreground/80 font-medium text-xs">① 事件订阅</div>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>
+                      订阅方式选择{' '}
+                      <span className="text-foreground font-medium">「使用长连接接收事件」</span>
+                      （而非 Webhook，无需公网 IP）
+                    </li>
+                    <li>
+                      添加事件{' '}
+                      <code className="bg-muted/50 px-1.5 py-0.5 rounded text-xs text-foreground/80">im.message.receive_v1</code>
+                      {' '}（接收消息）
+                    </li>
+                  </ol>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-foreground/80 font-medium text-xs">② 回调配置</div>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>
+                      回调方式同样选择{' '}
+                      <span className="text-foreground font-medium">「使用长连接接收回调」</span>
+                    </li>
+                    <li>
+                      添加回调{' '}
+                      <code className="bg-muted/50 px-1.5 py-0.5 rounded text-xs text-foreground/80">card.action.trigger</code>
+                      {' '}（卡片按钮回调，Proma 的流式卡片交互依赖此项）
+                    </li>
+                  </ol>
+                </div>
               </div>
             </div>
 
