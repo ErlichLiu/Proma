@@ -73,7 +73,7 @@ export function renderCard(state: RunState, opts: RenderOptions = {}): object {
   }
 
   if (state.terminal === 'running') {
-    if (state.footer) elements.push(footerStatus(state.footer))
+    if (state.footer) elements.push(footerStatus(state.footer, state.blocks))
     if (opts.stopActionValue) elements.push(stopButton(opts.stopActionValue))
   } else {
     elements.push(metaFooter(state))
@@ -117,7 +117,9 @@ function* groupBlocks(blocks: Block[]): Generator<Group> {
 function renderToolGroup(tools: ToolEntry[], finalized: boolean): object[] {
   if (tools.length === 0) return []
   if (tools.length < MIN_TOOLS_TO_COLLAPSE) {
-    return tools.map((t) => toolPanel(t, false))
+    // 工具数少时默认展开，让用户直接看到 input/output（点不到 panel 体验更差）
+    // 已完成的工具如果 done 状态可以收起，运行中或出错的展开
+    return tools.map((t) => toolPanel(t, t.status !== 'done'))
   }
   if (finalized) {
     return [collapsedToolSummary(tools, true)]
@@ -153,10 +155,12 @@ function toolPanel(tool: ToolEntry, expanded: boolean): object {
 function collapsedToolSummary(tools: ToolEntry[], finalized: boolean): object {
   const suffix = finalized ? '（已结束）' : ''
   const title = `🛠 **${tools.length} 个工具调用${suffix}**`
+  // 摘要默认展开，让用户直接看到调了哪些工具（不必点开二次交互）
+  // 每行 header 已含 icon + 工具名 + 参数预览，足够定位"调了什么"
   const headerList = tools.map((t) => `- ${toolHeaderText(t)}`).join('\n')
   return {
     tag: 'collapsible_panel',
-    expanded: false,
+    expanded: true,
     header: panelHeader(title),
     border: { color: 'blue', corner_radius: '5px' },
     vertical_spacing: '8px',
@@ -211,14 +215,17 @@ function stopButton(value: Record<string, unknown>): object {
   }
 }
 
-function footerStatus(status: Exclude<FooterStatus, null>): object {
-  const text =
-    status === 'thinking'
-      ? '🧠 正在思考'
-      : status === 'tool_running'
-        ? '🛠 正在调用工具'
-        : '✍️ 正在输出'
-  return noteMd(text)
+function footerStatus(status: Exclude<FooterStatus, null>, blocks: Block[]): object {
+  if (status === 'thinking') return noteMd('🧠 正在思考')
+  if (status === 'streaming') return noteMd('✍️ 正在输出')
+  // tool_running：找到最新运行中的工具，把名字带上让用户知道具体在调什么
+  const runningTool = [...blocks].reverse().find(
+    (b) => b.kind === 'tool' && b.tool.status === 'running',
+  )
+  if (runningTool && runningTool.kind === 'tool') {
+    return noteMd(`🛠 正在调用 \`${runningTool.tool.name}\``)
+  }
+  return noteMd('🛠 正在调用工具')
 }
 
 function metaFooter(state: RunState): object {
