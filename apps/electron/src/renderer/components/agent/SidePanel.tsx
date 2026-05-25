@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { FileBrowser, FileDropZone, FileTypeIcon, FileSearchBar, computeRevealAncestors, isPathUnderRoot } from '@/components/file-browser'
+import { FileBrowser, FileDropZone, FileTypeIcon, FileSearchBar, computeRevealAncestors, isPathUnderRoot, computeTreeRowLayout, AncestorGuides, STICKY_ROW_BASE_CLASS, canBeSticky } from '@/components/file-browser'
 import { DiffPanelTabBar } from '@/components/diff/DiffPanelTabBar'
 import { DiffChangesList } from '@/components/diff/DiffChangesList'
 import {
@@ -82,6 +82,15 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
     })
     setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
   }, [sessionId, setPreviewFileMap, setPreviewOpenMap])
+
+  const handleDiffFileClick = React.useCallback((filePath: string, _isUntracked: boolean, gitRoot?: string) => {
+    setPreviewFileMap((prev) => {
+      const m = new Map(prev)
+      m.set(sessionId, { filePath, dirPath: sessionPath || undefined, gitRoot })
+      return m
+    })
+    setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
+  }, [sessionId, sessionPath, setPreviewFileMap, setPreviewOpenMap])
 
   // 动画标志：isOpen 变化时启用过渡动画，切换会话时即时显示
   const prevIsOpenRef = React.useRef(isOpen)
@@ -386,14 +395,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
               extraPaths={extraPathsMemo}
               refreshVersion={diffRefreshVersion}
               selectedFilePath={selectedFilePath}
-              onFileClick={(filePath, _isUntracked, gitRoot) => {
-                setPreviewFileMap((prev) => {
-                  const m = new Map(prev)
-                  m.set(sessionId, { filePath, dirPath: sessionPath || undefined, gitRoot })
-                  return m
-                })
-                setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
-              }}
+              onFileClick={handleDiffFileClick}
             />
             ) : (
               <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs">等待会话初始化...</div>
@@ -852,10 +854,21 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
     setExpanded(!expanded)
   }
 
+  // depth=0 的根行，与 FileBrowser 保持一致的布局：铺满、无外边距、可 sticky
+  const { paddingLeft, guideLeft } = computeTreeRowLayout(0)
+  const isSticky = expanded
+
   return (
-    <div>
+    <div className="relative">
       <div
-        className="flex items-center gap-1 py-1 pl-2 pr-2 text-sm cursor-pointer hover:bg-accent/50 group mx-2 rounded-lg"
+        data-sticky-row={isSticky ? 'true' : undefined}
+        className={cn(
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          isSticky && cn(STICKY_ROW_BASE_CLASS, 'top-0 z-10'),
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSticky ? 'hover:bg-accent' : 'hover:bg-accent/50',
+        )}
+        style={{ paddingLeft }}
         onClick={toggleExpand}
       >
         <ChevronRight
@@ -878,14 +891,26 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
           <X className="size-3" />
         </Button>
       </div>
-      {expanded && children.length === 0 && loaded && (
-        <div className="text-[11px] text-muted-foreground/50 py-1" style={{ paddingLeft: 48 }}>
-          空文件夹
+      {expanded && (
+        <div className="relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+          {children.length === 0 && loaded && (
+            <div
+              className="text-[11px] text-muted-foreground/50 py-1"
+              style={{ paddingLeft: paddingLeft + 24 }}
+            >
+              空文件夹
+            </div>
+          )}
+          {children.map((child) => (
+            <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} revealTarget={revealTarget} revealTs={revealTs} revealAncestors={revealAncestors} />
+          ))}
         </div>
       )}
-      {expanded && children.map((child) => (
-        <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} revealTarget={revealTarget} revealTs={revealTs} revealAncestors={revealAncestors} />
-      ))}
     </div>
   )
 }
@@ -1051,19 +1076,34 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
     }
   }
 
-  const paddingLeft = 8 + depth * 16
+  const { paddingLeft, guideLeft, stickyTop, stickyZIndex } = computeTreeRowLayout(depth)
+  const isSticky = entry.isDirectory && expanded && canBeSticky(depth)
 
   return (
     <>
       <div
         ref={rowRef}
+        data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
-          'flex items-center gap-1 py-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg',
-          isSelected ? 'bg-accent' : 'hover:bg-accent/50',
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          isSticky && STICKY_ROW_BASE_CLASS,
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSelected
+            ? 'bg-accent'
+            : isSticky
+              ? 'hover:bg-accent'
+              : 'hover:bg-accent/50',
         )}
-        style={{ paddingLeft }}
+        style={{
+          paddingLeft,
+          top: isSticky ? stickyTop : undefined,
+          zIndex: isSticky ? stickyZIndex : undefined,
+        }}
         onClick={handleClick}
       >
+        {/* sticky 行祖先链竖线，逻辑见 tree-row-layout.tsx 的 AncestorGuides。
+            选中态下 bg-accent 不透明背景会盖住原 border 色，组件内部已切到 accent-foreground。 */}
+        {isSticky && <AncestorGuides depth={depth} isSelected={isSelected} />}
         {entry.isDirectory ? (
           <ChevronRight
             className={cn(
@@ -1165,17 +1205,26 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
           )}
         </div>
       </div>
-      {expanded && children.length === 0 && loaded && (
-        <div
-          className="text-[11px] text-muted-foreground/50 py-1"
-          style={{ paddingLeft: paddingLeft + 24 }}
-        >
-          空文件夹
+      {expanded && (
+        <div className="relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+          {children.length === 0 && loaded && (
+            <div
+              className="text-[11px] text-muted-foreground/50 py-1"
+              style={{ paddingLeft: paddingLeft + 24 }}
+            >
+              空文件夹
+            </div>
+          )}
+          {children.map((child) => (
+            <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} revealTarget={revealTarget} revealTs={revealTs} revealAncestors={revealAncestors} />
+          ))}
         </div>
       )}
-      {expanded && children.map((child) => (
-        <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} revealTarget={revealTarget} revealTs={revealTs} revealAncestors={revealAncestors} />
-      ))}
     </>
   )
 }
