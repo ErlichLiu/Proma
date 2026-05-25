@@ -45,6 +45,10 @@ export function FileSearchBar({
   const abortRef = React.useRef<AbortController>()
   /** 用户手动关闭下拉后置为 true，阻止 focus/渲染等副作用重新弹出 */
   const dismissedRef = React.useRef(false)
+  /** 上次的 query，用来区分 effect rerun 是"用户输入"还是"父组件 prop 引用变化" */
+  const prevQueryRef = React.useRef('')
+  /** 用户输入了新 query 但下拉还没打开过 — 跨 rerun 持久化"待显示"意图 */
+  const pendingShowRef = React.useRef(false)
 
   const setAutoReveal = useSetAtom(fileBrowserAutoRevealAtom)
 
@@ -64,14 +68,24 @@ export function FileSearchBar({
     abortRef.current?.abort()
 
     const trimmed = query.trim()
+    // 判断这次 effect 是不是"用户输入"导致的（query 变了）
+    // 否则是父组件 re-render 让 attachedDirs/wsAttachedDirs 等 prop 引用变化引发的 rerun，
+    // 这种情况下不应该改变下拉的开/关状态。
+    const queryChanged = prevQueryRef.current !== query
+    prevQueryRef.current = query
+
     if (!trimmed || !hasAnyRoot) {
       setResults([])
       setIsOpen(false)
+      pendingShowRef.current = false
       return
     }
 
-    // 用户开始输入新内容，取消"已关闭"标记
-    dismissedRef.current = false
+    // 只有用户输入新内容时才清掉"已关闭"守卫并标记"待显示"
+    if (queryChanged) {
+      dismissedRef.current = false
+      pendingShowRef.current = true
+    }
 
     const ac = new AbortController()
     abortRef.current = ac
@@ -115,7 +129,14 @@ export function FileSearchBar({
 
         setResults(allResults)
         setSelectedIndex(0)
-        setIsOpen(allResults.length > 0)
+        // 只在"用户输入触发的待显示"且未被主动关闭时才打开下拉；
+        // 父组件重渲染引发的 rerun 只静默更新 results，不动 isOpen。
+        if (pendingShowRef.current && !dismissedRef.current) {
+          setIsOpen(allResults.length > 0)
+          pendingShowRef.current = false
+        } else if (allResults.length === 0) {
+          setIsOpen(false)
+        }
       } catch (err) {
         console.error('[FileSearchBar] 搜索失败:', err)
         if (!ac.signal.aborted) {
