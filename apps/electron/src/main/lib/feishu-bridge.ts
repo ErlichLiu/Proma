@@ -1216,18 +1216,38 @@ class FeishuBridge {
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
     const attachedRefs: string[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
+
+    // 诊断：附件应保存但 workspace 为空时立即报错（用户能在 Console 看到）
+    const hasAnyAttachment = imageAttachments.length > 0 || fileAttachments.length > 0
+    if (hasAnyAttachment && !workspace) {
+      console.error(`[飞书 Bridge] 附件保存失败：binding.workspaceId=${binding.workspaceId} 找不到对应工作区！图片数=${imageAttachments.length}, 文件数=${fileAttachments.length}`)
+    }
+    if (hasAnyAttachment && workspace) {
+      console.log(`[飞书 Bridge] 准备保存附件：工作区=${workspace.slug}, sessionId=${binding.sessionId.slice(-8)}, 图片数=${imageAttachments.length}, 文件数=${fileAttachments.length}`)
+    }
+
     if (workspace) {
       for (const img of imageAttachments) {
-        const savedPath = saveImageToSessionShared(
-          workspace.slug, binding.sessionId, `feishu-${img.imageKey}`, img.mediaType, img.data,
-        )
-        attachedRefs.push(`- feishu-${img.imageKey}.${inferExtension(img.mediaType)}: ${savedPath}`)
+        try {
+          const savedPath = saveImageToSessionShared(
+            workspace.slug, binding.sessionId, `feishu-${img.imageKey}`, img.mediaType, img.data,
+          )
+          attachedRefs.push(`- feishu-${img.imageKey}.${inferExtension(img.mediaType)}: ${savedPath}`)
+          console.log(`[飞书 Bridge] 已保存图片: ${savedPath}`)
+        } catch (err) {
+          console.error(`[飞书 Bridge] 图片保存失败 imageKey=${img.imageKey}:`, err)
+        }
       }
       for (const file of fileAttachments) {
-        const savedPath = saveFileToSessionShared(
-          workspace.slug, binding.sessionId, file.fileName, file.data,
-        )
-        attachedRefs.push(`- ${file.fileName}: ${savedPath}`)
+        try {
+          const savedPath = saveFileToSessionShared(
+            workspace.slug, binding.sessionId, file.fileName, file.data,
+          )
+          attachedRefs.push(`- ${file.fileName}: ${savedPath}`)
+          console.log(`[飞书 Bridge] 已保存文件: ${savedPath}`)
+        } catch (err) {
+          console.error(`[飞书 Bridge] 文件保存失败 fileName=${file.fileName}:`, err)
+        }
       }
     }
     const fileReferences = attachedRefs.length > 0

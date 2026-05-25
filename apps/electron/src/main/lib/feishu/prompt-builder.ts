@@ -69,7 +69,17 @@ export const BRIDGE_USER_MESSAGE_PRELUDE = `<!-- 你正在通过 Proma 飞书桥
 - <interactive_card>：被引用消息是卡片时，附上原 card JSON 供你理解结构
 - <attached_files>：用户上传的图片/文件已保存到本地，给你绝对路径
 
-用户的实际问题在这些块之后。回答时围绕用户问题展开；XML 块只用来理解上下文。 -->`
+用户的实际问题在这些块之后。回答时围绕用户问题展开；XML 块只用来理解上下文。
+
+【飞书桥重要约束】
+1. **禁用 AskUserQuestion 工具**：飞书桥目前没有交互问答的 UI 通道，调用这个工具
+   会让会话卡死。如果信息不足，请基于现有信息给出最佳推断（可在回复里说明你的
+   假设），或直接告知用户需要的额外信息让他们补充，让用户在下一条消息里补全。
+   绝对不要调用 AskUserQuestion。
+2. **附件优先用 Read 工具读取**：<attached_files> 给的是已保存到本地的绝对路径，
+   你可以直接 Read（图片走多模态读取）/ 用 Bash 的 file/cat 等命令查看。
+3. **回复格式**：飞书侧使用 markdown 富文本卡片渲染，可以放心用 markdown 格式。
+-->`
 
 /**
  * 把上下文 / 引用 / 附件 / 用户文本组装成最终的 AgentSendInput.userMessage。
