@@ -17,8 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { FileBrowser, FileDropZone, FileTypeIcon, FileSearchBar } from '@/components/file-browser'
-import { computeRevealAncestors, isPathUnderRoot } from '@/components/file-browser/FileBrowser'
+import { FileBrowser, FileDropZone, FileTypeIcon, FileSearchBar, computeRevealAncestors, isPathUnderRoot } from '@/components/file-browser'
 import { DiffPanelTabBar } from '@/components/diff/DiffPanelTabBar'
 import { DiffChangesList } from '@/components/diff/DiffChangesList'
 import {
@@ -710,10 +709,16 @@ function AttachedDirsSection({ attachedDirs, onDetach, refreshVersion, onAddToCh
 
   // ===== 接入搜索点击触发的 reveal：附加目录文件搜到后，需要展开/选中目标 =====
   const autoReveal = useAtomValue(fileBrowserAutoRevealAtom)
-  // 找到 reveal target 命中的那个附加目录根（可能没有命中任何一个）
+  // 找到 reveal target 命中的那个附加目录根。如果用户附加了嵌套目录（如同时附加 /a 和 /a/b），
+  // 取"最深匹配"——只让真正包含该文件的最近一棵树展开，避免外层 /a 树被无谓打开。
   const revealRoot = React.useMemo(() => {
     if (!autoReveal) return null
-    return attachedDirs.find((dir) => isPathUnderRoot(dir, autoReveal.path)) ?? null
+    let best: string | null = null
+    for (const dir of attachedDirs) {
+      if (!isPathUnderRoot(dir, autoReveal.path)) continue
+      if (!best || dir.length > best.length) best = dir
+    }
+    return best
   }, [autoReveal, attachedDirs])
   const revealTarget = revealRoot ? autoReveal!.path : null
   const revealTs = revealRoot ? autoReveal!.ts : 0
