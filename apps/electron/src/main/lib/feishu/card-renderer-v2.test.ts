@@ -41,14 +41,6 @@ function findElement(card: Card, predicate: (e: Record<string, unknown>) => bool
   return card.body.elements.find(predicate)
 }
 
-function hasButtonWithCmd(card: Card, cmd: string): boolean {
-  return card.body.elements.some((e) => {
-    if (e.tag !== 'button') return false
-    const behaviors = e.behaviors as Array<{ value?: { cmd?: string } }> | undefined
-    return behaviors?.some((b) => b.value?.cmd === cmd) ?? false
-  })
-}
-
 // ===== schema 协议字段 =====
 
 describe('renderCard: CardKit 2.0 schema 协议', () => {
@@ -84,26 +76,35 @@ describe('renderCard: CardKit 2.0 schema 协议', () => {
   })
 })
 
-// ===== 终止按钮 =====
+// ===== 终止提示（飞书 cardAction 不通过长连接，用文本命令兜底）=====
 
-describe('renderCard: 终止按钮', () => {
-  test('Given running + 提供 stopActionValue Then 含 stop 按钮', () => {
+describe('renderCard: 终止提示', () => {
+  test('Given running + 提供 stopHint Then 卡底渲染提示文字', () => {
     const card = renderCard(createInitialState(), {
-      stopActionValue: { cmd: 'stop', sessionId: 'sess_x' },
+      stopHint: '💬 发送 `/stop` 可终止当前任务',
     }) as Card
-    expect(hasButtonWithCmd(card, 'stop')).toBe(true)
+    const hint = card.body.elements.find((e) =>
+      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
+    )
+    expect(hint).toBeDefined()
   })
 
-  test('Given running + 不提供 stopActionValue Then 无按钮', () => {
+  test('Given running + 不提供 stopHint Then 卡底无提示', () => {
     const card = renderCard(createInitialState()) as Card
-    expect(hasButtonWithCmd(card, 'stop')).toBe(false)
+    const hint = card.body.elements.find((e) =>
+      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
+    )
+    expect(hint).toBeUndefined()
   })
 
-  test('Given done 态 Then 不显示终止按钮（即使传了 stopActionValue）', () => {
+  test('Given done 态 Then 不显示 stopHint（即使传了）', () => {
     let s = createInitialState()
     s = { ...s, terminal: 'done', footer: null }
-    const card = renderCard(s, { stopActionValue: { cmd: 'stop' } }) as Card
-    expect(hasButtonWithCmd(card, 'stop')).toBe(false)
+    const card = renderCard(s, { stopHint: '💬 发送 `/stop` 可终止当前任务' }) as Card
+    const hint = card.body.elements.find((e) =>
+      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
+    )
+    expect(hint).toBeUndefined()
   })
 })
 

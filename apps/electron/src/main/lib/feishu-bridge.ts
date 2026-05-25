@@ -224,7 +224,9 @@ class FeishuBridge {
         console.warn('[飞书 Bridge] 获取 Bot info 失败（非致命）:', error)
       }
 
-      // 注册消息接收 + 卡片回调
+      // 注册消息接收（cardAction 暂时不接：飞书 cardAction 不通过长连接推送，
+      // 需要单独配置 HTTP 回调 URL；本期保留 LarkChannel 抽象但卡片改用文本
+      // 命令 /stop 终止，未来 Phase 3 权限审批做差异化时再评估）
       this.channel.on({
         message: (msg) => {
           // 把 NormalizedMessage 反构成旧 handleFeishuMessage 期望的 raw 形态，
@@ -232,11 +234,6 @@ class FeishuBridge {
           const raw = (msg as { raw?: Record<string, unknown> }).raw ?? {}
           this.handleFeishuMessage(raw).catch((error) => {
             console.error('[飞书 Bridge] 处理消息异常:', error)
-          })
-        },
-        cardAction: (evt) => {
-          this.handleCardAction(evt).catch((error) => {
-            console.error('[飞书 Bridge] 处理卡片回调异常:', error)
           })
         },
       })
@@ -1152,7 +1149,9 @@ class FeishuBridge {
         chatId,
         renderRunCard(initialState, {
           header: headerTitle,
-          stopActionValue: { cmd: 'stop', sessionId: binding.sessionId },
+          // 飞书 cardAction 不通过长连接推送，按钮点击会报 200340；
+          // 改为文本提示用户用 /stop 命令终止
+          stopHint: '💬 发送 `/stop` 可终止当前任务',
         }),
         {
           replyToMessageId: msgCtx.chatType === 'group' ? msgCtx.messageId : undefined,
@@ -1259,56 +1258,6 @@ class FeishuBridge {
     }
   }
 
-  // ===== 卡片回调处理 =====
-
-  /**
-   * 处理飞书卡片按钮点击（LarkChannel 已 normalize 好的 CardActionEvent）。
-   *
-   * 路由约定：button.behaviors[0].value 必须是 `{ cmd: string, ... }`
-   * 当前支持的 cmd：
-   * - 'stop': 终止流式卡片对应的 Agent 会话（payload.sessionId 必传）
-   *
-   * 后续 Phase 3/4 会扩展 'permission.respond'、'ask_user.respond' 等。
-   */
-  private async handleCardAction(
-    evt: import('@larksuiteoapi/node-sdk').CardActionEvent,
-  ): Promise<void> {
-    // 临时诊断：dump 完整 cardAction event
-    console.log('[飞书诊断 cardAction] 完整事件', JSON.stringify({
-      messageId: evt.messageId,
-      chatId: evt.chatId,
-      operator: evt.operator,
-      action: evt.action,
-    }, null, 2))
-
-    const value = evt.action.value
-    if (!value || typeof value !== 'object') return
-    const payload = value as Record<string, unknown>
-    const cmd = typeof payload.cmd === 'string' ? payload.cmd : ''
-    if (!cmd) return
-
-    const operatorOpenId = evt.operator.openId
-
-    if (cmd === 'stop') {
-      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
-      if (!sessionId) {
-        console.warn('[飞书 Bridge] stop 卡片回调缺 sessionId')
-        return
-      }
-      console.log(`[飞书 Bridge] 收到 stop 卡片回调: sessionId=${sessionId.slice(-8)}, operator=${operatorOpenId.slice(-6)}`)
-      try {
-        stopAgent(sessionId)
-        // 立即标记流式卡为 interrupted 终态
-        this.markStreamingInterrupted(sessionId)
-      } catch (error) {
-        console.error('[飞书 Bridge] stop Agent 失败:', error)
-      }
-      return
-    }
-
-    console.warn(`[飞书 Bridge] 未识别的卡片回调 cmd: ${cmd}`)
-  }
-
   // ===== EventBus 事件处理 =====
 
   private handleAgentPayload(sessionId: string, payload: AgentStreamPayload): void {
@@ -1328,9 +1277,7 @@ class FeishuBridge {
           (nextState.terminal === 'running' ? 'Agent 处理中' : 'Agent 已完成')
         const card = renderRunCard(nextState, {
           header: headerTitle,
-          stopActionValue: nextState.terminal === 'running'
-            ? { cmd: 'stop', sessionId }
-            : undefined,
+          stopHint: nextState.terminal === 'running' ? '💬 发送 `/stop` 可终止当前任务' : undefined,
         })
         if (nextState.terminal === 'running') {
           cardStream.update(card)

@@ -21,8 +21,8 @@ const TOOL_BODY_MAX = 4000
 const TEXT_BLOCK_MAX = 20_000
 
 export interface RenderOptions {
-  /** 卡片底部"⏹ 终止"按钮的 callback payload。不传则不渲染按钮。 */
-  stopActionValue?: Record<string, unknown>
+  /** 卡片底部"如何终止"的提示文字。running 终态时展示。 */
+  stopHint?: string
   /** 是否展示工具调用块（Bot 偏好里可关）。默认 true。 */
   showToolCalls?: boolean
   /** 卡片头部小标题，例如 "@xxx Bot · 工作区 yyy"。 */
@@ -74,7 +74,7 @@ export function renderCard(state: RunState, opts: RenderOptions = {}): object {
 
   if (state.terminal === 'running') {
     if (state.footer) elements.push(footerStatus(state.footer, state.blocks))
-    if (opts.stopActionValue) elements.push(stopButton(opts.stopActionValue))
+    if (opts.stopHint) elements.push(noteMd(opts.stopHint))
   } else {
     elements.push(metaFooter(state))
   }
@@ -204,15 +204,6 @@ function markdown(content: string): object {
 
 function noteMd(content: string): object {
   return { tag: 'markdown', content, text_size: 'notation' }
-}
-
-function stopButton(value: Record<string, unknown>): object {
-  return {
-    tag: 'button',
-    text: { tag: 'plain_text', content: '⏹ 终止' },
-    type: 'danger',
-    behaviors: [{ type: 'callback', value }],
-  }
 }
 
 function footerStatus(status: Exclude<FooterStatus, null>, blocks: Block[]): object {
