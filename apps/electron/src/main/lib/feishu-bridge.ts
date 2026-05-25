@@ -803,12 +803,16 @@ class FeishuBridge {
     this.messageQueue.block(scope)
     try {
       // 拿到 binding 才有 sessionId；handleUserMessage 内部会自动建会话
-      // 这里先去拿 binding（可能触发 createNewSession 异步），再创建 finished
-      // promise 绑定到该 sessionId
       const binding = await this.ensureBinding(msgCtx)
       if (!binding) return
-      const finishedPromise = this.makeRunFinishedPromise(binding.sessionId)
 
+      // 关键：orchestrator 的并发守卫基于 activeSessions.has(sessionId)。
+      // 上一次 run 即使 onComplete 已触发，orchestrator finally 也可能没走
+      // 完，此时立即调 runAgentHeadless 会撞 "上一条消息仍在处理中" 错误。
+      // 在这里轮询等 activeSessions 真正清空再继续，避免业务层报错。
+      await this.waitUntilSessionIdle(binding.sessionId)
+
+      const finishedPromise = this.makeRunFinishedPromise(binding.sessionId)
       await this.handleUserMessage(msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
 
       // handleUserMessage 内部 runAgentHeadless 是 fire-and-forget；这里等
@@ -818,6 +822,18 @@ class FeishuBridge {
       release()
       this.messageQueue.unblock(scope)
     }
+  }
+
+  /**
+   * 轮询等待 orchestrator.activeSessions 真正清空（finally 走完）。
+   * 50ms 一次，最多等 10s 兜底。
+   */
+  private async waitUntilSessionIdle(sessionId: string): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      if (!isAgentSessionActive(sessionId)) return
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    console.warn(`[飞书 Bridge] waitUntilSessionIdle 10s 超时，session 仍活: ${sessionId}`)
   }
 
   /**
@@ -873,33 +889,13 @@ class FeishuBridge {
 
   /**
    * 由 runAgentHeadless 的 onComplete / onError 回调调用，唤醒 runMergedBatch 的 await。
-   *
-   * 关键：onComplete 触发的时机在 orchestrator 的 finally 之前，此时
-   * activeSessions 还没 delete。如果立刻 resolve finishedPromise，runMergedBatch
-   * 会马上 unblock 让下一波 batch 进 handleUserMessage → orchestrator 撞
-   * 并发守卫 onError → 用户消息丢失。
-   *
-   * 解法：轮询 isAgentSessionActive 变 false（orchestrator finally 完成）
-   * 再 resolve；50ms 一次，最多等 5s（兜底防 orchestrator 卡死）。
+   * 立即 resolve 即可——下一个 batch 会通过 waitUntilSessionIdle 等 orchestrator
+   * finally 走完才调 runAgentHeadless，所以这里不需要再轮询 isActive。
+   * 多次调用幂等（resolver 取出后已 delete）。
    */
   private notifyAgentRunFinished(sessionId: string): void {
     const resolver = this.runFinishedResolvers.get(sessionId)
-    if (!resolver) return
-    let attempts = 0
-    const tick = (): void => {
-      if (!isAgentSessionActive(sessionId) || attempts >= 100) {
-        if (attempts >= 100) {
-          console.warn(`[飞书 Bridge] 等 orchestrator 清理 activeSessions 5s 超时，强制 resolve: ${sessionId}`)
-        }
-        // 双重读：可能 setTimeout 期间已被另一路 resolve（如 stop）取走
-        const r = this.runFinishedResolvers.get(sessionId)
-        if (r) r()
-        return
-      }
-      attempts++
-      setTimeout(tick, 50)
-    }
-    tick()
+    if (resolver) resolver()
   }
 
   private async handleCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
