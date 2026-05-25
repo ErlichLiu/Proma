@@ -41,6 +41,14 @@ function findElement(card: Card, predicate: (e: Record<string, unknown>) => bool
   return card.body.elements.find(predicate)
 }
 
+function hasButtonWithCmd(card: Card, cmd: string): boolean {
+  return card.body.elements.some((e) => {
+    if (e.tag !== 'button') return false
+    const behaviors = e.behaviors as Array<{ value?: { cmd?: string } }> | undefined
+    return behaviors?.some((b) => b.value?.cmd === cmd) ?? false
+  })
+}
+
 // ===== schema 协议字段 =====
 
 describe('renderCard: CardKit 2.0 schema 协议', () => {
@@ -76,35 +84,26 @@ describe('renderCard: CardKit 2.0 schema 协议', () => {
   })
 })
 
-// ===== 终止提示（lark.WSClient 不支持 cardAction，用文本命令兜底）=====
+// ===== 终止按钮 =====
 
-describe('renderCard: 终止提示', () => {
-  test('Given running + 提供 stopHint Then 卡底渲染提示文字', () => {
+describe('renderCard: 终止按钮', () => {
+  test('Given running + 提供 stopActionValue Then 含 stop 按钮', () => {
     const card = renderCard(createInitialState(), {
-      stopHint: '💬 发送 `/stop` 可终止当前任务',
+      stopActionValue: { cmd: 'stop', sessionId: 'sess_x' },
     }) as Card
-    const hint = card.body.elements.find((e) =>
-      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
-    )
-    expect(hint).toBeDefined()
+    expect(hasButtonWithCmd(card, 'stop')).toBe(true)
   })
 
-  test('Given running + 不提供 stopHint Then 卡底无提示', () => {
+  test('Given running + 不提供 stopActionValue Then 无按钮', () => {
     const card = renderCard(createInitialState()) as Card
-    const hint = card.body.elements.find((e) =>
-      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
-    )
-    expect(hint).toBeUndefined()
+    expect(hasButtonWithCmd(card, 'stop')).toBe(false)
   })
 
-  test('Given done 态 Then 不显示 stopHint（即使传了）', () => {
+  test('Given done 态 Then 不显示终止按钮（即使传了 stopActionValue）', () => {
     let s = createInitialState()
     s = { ...s, terminal: 'done', footer: null }
-    const card = renderCard(s, { stopHint: '💬 发送 `/stop` 可终止当前任务' }) as Card
-    const hint = card.body.elements.find((e) =>
-      e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('/stop'),
-    )
-    expect(hint).toBeUndefined()
+    const card = renderCard(s, { stopActionValue: { cmd: 'stop' } }) as Card
+    expect(hasButtonWithCmd(card, 'stop')).toBe(false)
   })
 })
 

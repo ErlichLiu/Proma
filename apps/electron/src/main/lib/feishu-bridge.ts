@@ -105,10 +105,10 @@ class FeishuBridge {
   /** Bot 配置（构造时注入，workspace 切换时同步更新） */
   private botConfig: FeishuBotConfig
 
-  /** SDK Client（发消息用） */
+  /** SDK Client（发消息用，等于 channel.rawClient） */
   private client: InstanceType<typeof import('@larksuiteoapi/node-sdk').Client> | null = null
-  /** WebSocket Client */
-  private wsClient: InstanceType<typeof import('@larksuiteoapi/node-sdk').WSClient> | null = null
+  /** LarkChannel（统一 WebSocket + 卡片回调路由） */
+  private channel: import('@larksuiteoapi/node-sdk').LarkChannel | null = null
 
   /** 连接状态 */
   private status: FeishuBridgeState = { status: 'disconnected', activeBindings: 0 }
@@ -181,12 +181,26 @@ class FeishuBridge {
       const plainSecret = getDecryptedBotAppSecret(this.botConfig.id)
       const lark = await import('@larksuiteoapi/node-sdk')
 
-      // 创建 SDK Client
-      this.client = new lark.Client({
+      // 用 createLarkChannel 替代 lark.Client + lark.WSClient + EventDispatcher 老组合
+      // 关键收益：channel.on({cardAction}) 能拿到卡片按钮回调（老 WSClient.handleEventData
+      // 只处理 MessageType.event 通道，会直接丢掉 MessageType.card 帧）
+      // 其余调用通过 channel.rawClient 路由，所有现有 client.* API 零改动
+      this.channel = lark.createLarkChannel({
         appId,
         appSecret: plainSecret,
-        appType: lark.AppType.SelfBuild,
+        domain: lark.Domain.Feishu,
+        loggerLevel: lark.LoggerLevel.warn,
+        policy: {
+          dmMode: 'open',
+          requireMention: false,
+          respondToMentionAll: false,
+        },
+        // 关闭 SDK 内部 per-chat 串行（chatQueue），我们的并发模型自己控
+        safety: { chatQueue: { enabled: false } },
+        // 接 raw event 用于把 NormalizedMessage 反构成旧 handleFeishuMessage 形态
+        includeRawEvent: true,
       })
+      this.client = this.channel.rawClient
 
       // 获取 Bot 自身的 open_id（用于群聊 @Bot 精确检测）
       try {
@@ -210,28 +224,24 @@ class FeishuBridge {
         console.warn('[飞书 Bridge] 获取 Bot info 失败（非致命）:', error)
       }
 
-      // 创建事件分发器
-      // 重要：回调必须立即返回，不能 await 长时间操作
-      // SDK 需要回调返回后发送 ACK 给飞书网关，否则网关会超时重投事件
-      // 注：card.action.trigger 走的是 MessageType.card 通道，lark.WSClient
-      // 老 API 不会路由给 EventDispatcher，需迁移到 createLarkChannel 才能
-      // 接收按钮回调。当前阶段卡片不渲染按钮，用户用 /stop 文本命令终止。
-      const eventDispatcher = new lark.EventDispatcher({}).register({
-        'im.message.receive_v1': (data: Record<string, unknown>) => {
-          this.handleFeishuMessage(data).catch((error) => {
+      // 注册消息接收 + 卡片回调
+      this.channel.on({
+        message: (msg) => {
+          // 把 NormalizedMessage 反构成旧 handleFeishuMessage 期望的 raw 形态，
+          // 这样 700 行业务逻辑一行不动；msg.raw 含原始 RawMessageEvent 全字段
+          const raw = (msg as { raw?: Record<string, unknown> }).raw ?? {}
+          this.handleFeishuMessage(raw).catch((error) => {
             console.error('[飞书 Bridge] 处理消息异常:', error)
+          })
+        },
+        cardAction: (evt) => {
+          this.handleCardAction(evt).catch((error) => {
+            console.error('[飞书 Bridge] 处理卡片回调异常:', error)
           })
         },
       })
 
-      // 创建 WebSocket 长连接
-      this.wsClient = new lark.WSClient({
-        appId,
-        appSecret: plainSecret,
-        loggerLevel: lark.LoggerLevel.warn,
-      })
-
-      await this.wsClient.start({ eventDispatcher })
+      await this.channel.connect()
 
       // 注册 EventBus 监听器
       this.eventBusUnsubscribe = agentEventBus.on((sessionId, payload) => {
@@ -255,14 +265,12 @@ class FeishuBridge {
     this.eventBusUnsubscribe?.()
     this.eventBusUnsubscribe = null
 
-    // 关闭 WebSocket 连接
-    if (this.wsClient) {
-      try {
-        this.wsClient.close({ force: true })
-      } catch {
+    // 关闭 LarkChannel（含底层 WSClient）
+    if (this.channel) {
+      void this.channel.disconnect().catch(() => {
         // 忽略关闭时的错误
-      }
-      this.wsClient = null
+      })
+      this.channel = null
     }
     this.client = null
 
@@ -1144,9 +1152,7 @@ class FeishuBridge {
         chatId,
         renderRunCard(initialState, {
           header: headerTitle,
-          // 老 lark.WSClient API 不路由 cardAction 给 EventDispatcher，
-          // 终止按钮无法回调；改为在卡片底部提示用户用 /stop 文本命令
-          stopHint: '💬 发送 `/stop` 可终止当前任务',
+          stopActionValue: { cmd: 'stop', sessionId: binding.sessionId },
         }),
         {
           replyToMessageId: msgCtx.chatType === 'group' ? msgCtx.messageId : undefined,
@@ -1253,6 +1259,48 @@ class FeishuBridge {
     }
   }
 
+  // ===== 卡片回调处理 =====
+
+  /**
+   * 处理飞书卡片按钮点击（LarkChannel 已 normalize 好的 CardActionEvent）。
+   *
+   * 路由约定：button.behaviors[0].value 必须是 `{ cmd: string, ... }`
+   * 当前支持的 cmd：
+   * - 'stop': 终止流式卡片对应的 Agent 会话（payload.sessionId 必传）
+   *
+   * 后续 Phase 3/4 会扩展 'permission.respond'、'ask_user.respond' 等。
+   */
+  private async handleCardAction(
+    evt: import('@larksuiteoapi/node-sdk').CardActionEvent,
+  ): Promise<void> {
+    const value = evt.action.value
+    if (!value || typeof value !== 'object') return
+    const payload = value as Record<string, unknown>
+    const cmd = typeof payload.cmd === 'string' ? payload.cmd : ''
+    if (!cmd) return
+
+    const operatorOpenId = evt.operator.openId
+
+    if (cmd === 'stop') {
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      if (!sessionId) {
+        console.warn('[飞书 Bridge] stop 卡片回调缺 sessionId')
+        return
+      }
+      console.log(`[飞书 Bridge] 收到 stop 卡片回调: sessionId=${sessionId.slice(-8)}, operator=${operatorOpenId.slice(-6)}`)
+      try {
+        stopAgent(sessionId)
+        // 立即标记流式卡为 interrupted 终态（不依赖 SDK abort 的时序）
+        this.markStreamingInterrupted(sessionId)
+      } catch (error) {
+        console.error('[飞书 Bridge] stop Agent 失败:', error)
+      }
+      return
+    }
+
+    console.warn(`[飞书 Bridge] 未识别的卡片回调 cmd: ${cmd}`)
+  }
+
   // ===== EventBus 事件处理 =====
 
   private handleAgentPayload(sessionId: string, payload: AgentStreamPayload): void {
@@ -1272,7 +1320,9 @@ class FeishuBridge {
           (nextState.terminal === 'running' ? 'Agent 处理中' : 'Agent 已完成')
         const card = renderRunCard(nextState, {
           header: headerTitle,
-          stopHint: nextState.terminal === 'running' ? '💬 发送 `/stop` 可终止当前任务' : undefined,
+          stopActionValue: nextState.terminal === 'running'
+            ? { cmd: 'stop', sessionId }
+            : undefined,
         })
         if (nextState.terminal === 'running') {
           cardStream.update(card)
