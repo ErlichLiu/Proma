@@ -629,15 +629,15 @@ function FileTreeItem({
     }
   }
 
-  const paddingLeft = 8 + depth * TREE_INDENT_WIDTH
-  const guideLeft = TREE_ROW_HORIZONTAL_MARGIN + paddingLeft + 7
+  // 统一铺满样式：paddingLeft 包含原本 mx-2 的 8px 外边距，避免 sticky/普通两种状态下文字位置偏移
+  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8 + depth * TREE_INDENT_WIDTH
+  // 子项引导线位置：外边距已合进 paddingLeft，这里只需 +7 对齐箭头中心
+  const guideLeft = paddingLeft + 7
   const stickyDepth = Math.min(depth, MAX_STICKY_DEPTH)
   const stickyTop = stickyDepth * TREE_ROW_HEIGHT
   // 起点 10 已足够压住普通行内元素；保持外层目录在更上层以遮住下方滚过的内层。
   const stickyZIndex = Math.max(1, 10 - stickyDepth)
   const isSticky = entry.isDirectory && expanded
-  // sticky 状态下行铺满容器（去掉 mx-2 / rounded-lg），左侧文字需 +8 补偿失去的外边距
-  const effectivePaddingLeft = isSticky ? paddingLeft + TREE_ROW_HORIZONTAL_MARGIN : paddingLeft
   const showMenu = !isRenaming
   const menuSelectedCount = isSelected ? selectedCount : 1
 
@@ -648,10 +648,8 @@ function FileTreeItem({
         data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
           'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
-          isSticky
-            // sticky：铺满 + 不透明背景 + 底部阴影；多行紧贴时由 :has() 规则去除中间阴影
-            ? 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]'
-            : 'mx-2 rounded-lg',
+          // sticky：不透明背景 + 底部阴影；多行紧贴时由 :has() 规则去除中间阴影
+          isSticky && 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
           // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
           isSelected
             ? 'bg-accent'
@@ -661,17 +659,25 @@ function FileTreeItem({
           flash && 'file-browser-row-flash',
         )}
         style={{
-          paddingLeft: effectivePaddingLeft,
+          paddingLeft,
           top: isSticky ? stickyTop : undefined,
           zIndex: isSticky ? stickyZIndex : undefined,
         }}
         onClick={handleClick}
       >
+        {/* sticky 状态下在行内画一条层级竖线，位置与下方子项引导线对齐，实现 VS Code 那种横跨 sticky 区的连续竖线 */}
+        {isSticky && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+        )}
         {recentlyModifiedSet.has(entry.path) && (
           <span
             aria-label="最近被 Agent 修改"
             className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary/80"
-            style={{ left: effectivePaddingLeft - 6 }}
+            style={{ left: paddingLeft - 6 }}
           />
         )}
         {/* 展开/收起图标 */}
