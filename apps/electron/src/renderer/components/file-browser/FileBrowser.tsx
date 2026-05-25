@@ -46,6 +46,12 @@ import { cn } from '@/lib/utils'
 import { workspaceFilesVersionAtom, fileBrowserAutoRevealAtom, recentlyModifiedPathsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
 import type { FileEntry } from '@proma/shared'
 import { FileTypeIcon } from './FileTypeIcon'
+import {
+  computeTreeRowLayout,
+  AncestorGuides,
+  STICKY_ROW_BASE_CLASS,
+  canBeSticky,
+} from './tree-row-layout'
 
 /** 计算目标路径相对 rootPath 的祖先目录集合（不含 rootPath 自身、含目标的所有上级） */
 function computeRevealAncestors(rootPath: string, targetPath: string): Set<string> {
@@ -89,11 +95,6 @@ interface FileBrowserProps {
   /** 单击文件时在内联预览面板中显示（替代外部窗口预览） */
   onFilePreview?: (filePath: string) => void
 }
-
-const TREE_ROW_HEIGHT = 32
-const TREE_ROW_HORIZONTAL_MARGIN = 8
-const TREE_INDENT_WIDTH = 16
-const MAX_STICKY_DEPTH = 4
 
 export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty, onAddToChat, onFilePreview }: FileBrowserProps): React.ReactElement {
   const [entries, setEntries] = React.useState<FileEntry[]>([])
@@ -629,15 +630,8 @@ function FileTreeItem({
     }
   }
 
-  // 统一铺满样式：paddingLeft 包含原本 mx-2 的 8px 外边距，避免 sticky/普通两种状态下文字位置偏移
-  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8 + depth * TREE_INDENT_WIDTH
-  // 子项引导线位置：外边距已合进 paddingLeft，这里只需 +7 对齐箭头中心
-  const guideLeft = paddingLeft + 7
-  const stickyDepth = Math.min(depth, MAX_STICKY_DEPTH)
-  const stickyTop = stickyDepth * TREE_ROW_HEIGHT
-  // 起点 10 已足够压住普通行内元素；保持外层目录在更上层以遮住下方滚过的内层。
-  const stickyZIndex = Math.max(1, 10 - stickyDepth)
-  const isSticky = entry.isDirectory && expanded
+  const { paddingLeft, guideLeft, stickyTop, stickyZIndex } = computeTreeRowLayout(depth)
+  const isSticky = entry.isDirectory && expanded && canBeSticky(depth)
   const showMenu = !isRenaming
   const menuSelectedCount = isSelected ? selectedCount : 1
 
@@ -648,8 +642,7 @@ function FileTreeItem({
         data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
           'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
-          // sticky：不透明背景 + 底部阴影；多行紧贴时由 :has() 规则去除中间阴影
-          isSticky && 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+          isSticky && STICKY_ROW_BASE_CLASS,
           // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
           isSelected
             ? 'bg-accent'
@@ -665,25 +658,8 @@ function FileTreeItem({
         }}
         onClick={handleClick}
       >
-        {/* sticky 行内仅绘制祖先链竖线，贯穿整行；
-            自己的子项引导线交给下方子项容器（或下一层 sticky 子行的祖先线）负责，
-            使每个文件夹自身行内不会出现从三角下方延伸出的线，符合 VS Code 行为。
-            选中态下 bg-accent 不透明背景会盖住原本的 border 色，换成 accent-foreground 以保证对比度 */}
-        {isSticky && depth > 0 && (
-          <>
-            {Array.from({ length: depth }).map((_, i) => (
-              <span
-                key={`ancestor-guide-${i}`}
-                aria-hidden="true"
-                className={cn(
-                  'pointer-events-none absolute top-0 bottom-0 w-px',
-                  isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
-                )}
-                style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
-              />
-            ))}
-          </>
-        )}
+        {/* sticky 行祖先链竖线，逻辑见 tree-row-layout.tsx 的 AncestorGuides */}
+        {isSticky && <AncestorGuides depth={depth} isSelected={isSelected} />}
         {recentlyModifiedSet.has(entry.path) && (
           <span
             aria-label="最近被 Agent 修改"

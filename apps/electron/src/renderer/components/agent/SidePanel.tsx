@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { FileBrowser, FileDropZone, FileTypeIcon } from '@/components/file-browser'
+import { FileBrowser, FileDropZone, FileTypeIcon, computeTreeRowLayout, AncestorGuides, STICKY_ROW_BASE_CLASS, canBeSticky } from '@/components/file-browser'
 import { DiffPanelTabBar } from '@/components/diff/DiffPanelTabBar'
 import { DiffChangesList } from '@/components/diff/DiffChangesList'
 import {
@@ -39,13 +39,6 @@ import type { FileEntry, AgentPendingFile } from '@proma/shared'
 function getPathBasename(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
 }
-
-// 附加目录树布局常量——与 components/file-browser/FileBrowser.tsx 保持一致，
-// 使附加目录与主文件树拥有相同的 sticky 堆叠、铺满、引导线 UI。
-const TREE_ROW_HEIGHT = 32
-const TREE_ROW_HORIZONTAL_MARGIN = 8
-const TREE_INDENT_WIDTH = 16
-const MAX_STICKY_DEPTH = 4
 
 function getMediaTypeFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
@@ -776,8 +769,7 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
   }
 
   // depth=0 的根行，与 FileBrowser 保持一致的布局：铺满、无外边距、可 sticky
-  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8
-  const guideLeft = paddingLeft + 7
+  const { paddingLeft, guideLeft } = computeTreeRowLayout(0)
   const isSticky = expanded
 
   return (
@@ -786,8 +778,7 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
         data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
           'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
-          // sticky：不透明背景 + 底部阴影；多行紧贴时由 globals.css 中的 :has() 规则去除中间阴影
-          isSticky && 'sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+          isSticky && cn(STICKY_ROW_BASE_CLASS, 'top-0 z-10'),
           // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
           isSticky ? 'hover:bg-accent' : 'hover:bg-accent/50',
         )}
@@ -948,12 +939,8 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
     }
   }
 
-  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8 + depth * TREE_INDENT_WIDTH
-  const guideLeft = paddingLeft + 7
-  const stickyDepth = Math.min(depth, MAX_STICKY_DEPTH)
-  const stickyTop = stickyDepth * TREE_ROW_HEIGHT
-  const stickyZIndex = Math.max(1, 10 - stickyDepth)
-  const isSticky = entry.isDirectory && expanded
+  const { paddingLeft, guideLeft, stickyTop, stickyZIndex } = computeTreeRowLayout(depth)
+  const isSticky = entry.isDirectory && expanded && canBeSticky(depth)
 
   return (
     <>
@@ -961,8 +948,7 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
         data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
           'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
-          // sticky：不透明背景 + 底部阴影；多行紧贴时由 globals.css 中的 :has() 规则去除中间阴影
-          isSticky && 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+          isSticky && STICKY_ROW_BASE_CLASS,
           // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
           isSelected
             ? 'bg-accent'
@@ -977,26 +963,9 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
         }}
         onClick={handleClick}
       >
-        {/* sticky 行内仅绘制祖先链竖线，贯穿整行；
-            自己的子项引导线交给下方子项容器（或下一层 sticky 子行的祖先线）负责，
-            使每个文件夹自身行内不会出现从三角下方延伸出的线，符合 VS Code 行为。
-            选中态下 bg-accent 不透明背景会盖住原本的 border 色，换成 accent-foreground 以保证对比度。
-            与 components/file-browser/FileBrowser.tsx 保持一致。 */}
-        {isSticky && depth > 0 && (
-          <>
-            {Array.from({ length: depth }).map((_, i) => (
-              <span
-                key={`ancestor-guide-${i}`}
-                aria-hidden="true"
-                className={cn(
-                  'pointer-events-none absolute top-0 bottom-0 w-px',
-                  isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
-                )}
-                style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
-              />
-            ))}
-          </>
-        )}
+        {/* sticky 行祖先链竖线，逻辑见 tree-row-layout.tsx 的 AncestorGuides。
+            选中态下 bg-accent 不透明背景会盖住原 border 色，组件内部已切到 accent-foreground。 */}
+        {isSticky && <AncestorGuides depth={depth} isSelected={isSelected} />}
         {entry.isDirectory ? (
           <ChevronRight
             className={cn(
