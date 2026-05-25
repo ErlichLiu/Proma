@@ -15,7 +15,8 @@ import type { Block, FooterStatus, RunState, ToolEntry } from './card-run-state'
  */
 
 const REASONING_MAX = 1500
-const COLLAPSE_TOOL_THRESHOLD = 3
+/** 当工具调用数量 >= 这个值时，把它们折叠成单个摘要面板。 */
+const MIN_TOOLS_TO_COLLAPSE = 3
 const TOOL_BODY_MAX = 4000
 const TEXT_BLOCK_MAX = 20_000
 
@@ -115,7 +116,7 @@ function* groupBlocks(blocks: Block[]): Generator<Group> {
 
 function renderToolGroup(tools: ToolEntry[], finalized: boolean): object[] {
   if (tools.length === 0) return []
-  if (tools.length < COLLAPSE_TOOL_THRESHOLD) {
+  if (tools.length < MIN_TOOLS_TO_COLLAPSE) {
     return tools.map((t) => toolPanel(t, false))
   }
   if (finalized) {

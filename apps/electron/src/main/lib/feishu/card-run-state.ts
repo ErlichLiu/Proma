@@ -1,4 +1,9 @@
-import type { AgentStreamPayload } from '@proma/shared'
+import type {
+  AgentStreamPayload,
+  SDKAssistantMessage,
+  SDKResultMessage,
+  SDKUserMessage,
+} from '@proma/shared'
 
 /**
  * 飞书流式卡片的运行时状态机。
@@ -113,38 +118,6 @@ function completeTool(state: RunState, id: string, output: string, isError: bool
   return { ...state, blocks }
 }
 
-interface SDKContentBlock {
-  type: string
-  text?: string
-  thinking?: string
-  id?: string
-  name?: string
-  input?: unknown
-  tool_use_id?: string
-  content?: unknown
-  is_error?: boolean
-}
-
-interface SDKAssistantMessage {
-  type: 'assistant'
-  message?: { content?: SDKContentBlock[]; model?: string }
-}
-
-interface SDKUserMessage {
-  type: 'user'
-  message?: { content?: SDKContentBlock[] }
-}
-
-interface SDKResultMessage {
-  type: 'result'
-  subtype?: string
-  duration_ms?: number
-  total_cost_usd?: number
-  usage?: { input_tokens?: number; output_tokens?: number }
-  is_error?: boolean
-  result?: string
-}
-
 function stringifyToolResult(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -171,7 +144,7 @@ function stringifyToolResult(content: unknown): string {
 
 export function reduce(state: RunState, payload: AgentStreamPayload): RunState {
   if (payload.kind === 'sdk_message') {
-    const msg = payload.message as SDKAssistantMessage | SDKUserMessage | SDKResultMessage | { type: string }
+    const msg = payload.message
 
     if (msg.type === 'assistant') {
       const am = msg as SDKAssistantMessage
@@ -179,13 +152,27 @@ export function reduce(state: RunState, payload: AgentStreamPayload): RunState {
       if (am.message?.model && !next.meta.model) {
         next = { ...next, meta: { ...next.meta, model: am.message.model } }
       }
+      // assistant 消息上若携带顶层 error 字段，直接转为 error 终态
+      // （SDK 偶尔会在 assistant 帧带 error，不走 result 路径）
+      if (am.error?.message) {
+        return markError(state, am.error.message)
+      }
       for (const block of am.message?.content ?? []) {
-        if (block.type === 'text' && typeof block.text === 'string' && block.text) {
-          next = appendText(next, block.text)
-        } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
-          next = appendThinking(next, block.thinking)
-        } else if (block.type === 'tool_use' && block.id && block.name) {
-          next = startTool(next, block.id, block.name, block.input)
+        if (block.type === 'text') {
+          const text = (block as { text?: unknown }).text
+          if (typeof text === 'string' && text) {
+            next = appendText(next, text)
+          }
+        } else if (block.type === 'thinking') {
+          const thinking = (block as { thinking?: unknown }).thinking
+          if (typeof thinking === 'string' && thinking) {
+            next = appendThinking(next, thinking)
+          }
+        } else if (block.type === 'tool_use') {
+          const tb = block as { id?: unknown; name?: unknown; input?: unknown }
+          if (typeof tb.id === 'string' && typeof tb.name === 'string') {
+            next = startTool(next, tb.id, tb.name, tb.input)
+          }
         }
       }
       return next
@@ -195,9 +182,12 @@ export function reduce(state: RunState, payload: AgentStreamPayload): RunState {
       const um = msg as SDKUserMessage
       let next = state
       for (const block of um.message?.content ?? []) {
-        if (block.type === 'tool_result' && block.tool_use_id) {
-          const output = stringifyToolResult(block.content)
-          next = completeTool(next, block.tool_use_id, output, block.is_error === true)
+        if (block.type === 'tool_result') {
+          const trb = block as { tool_use_id?: unknown; content?: unknown; is_error?: unknown }
+          if (typeof trb.tool_use_id === 'string') {
+            const output = stringifyToolResult(trb.content)
+            next = completeTool(next, trb.tool_use_id, output, trb.is_error === true)
+          }
         }
       }
       return next
@@ -207,19 +197,23 @@ export function reduce(state: RunState, payload: AgentStreamPayload): RunState {
       const rm = msg as SDKResultMessage
       const meta = {
         ...state.meta,
-        durationMs: rm.duration_ms,
+        durationMs: Date.now() - state.startedAt,
         inputTokens: rm.usage?.input_tokens,
         outputTokens: rm.usage?.output_tokens,
         costUsd: rm.total_cost_usd,
       }
-      if (rm.is_error) {
+      // result.subtype 以 'error' 开头视为错误（含 error / error_max_turns /
+      // error_max_budget_usd / error_during_execution）
+      const isError = typeof rm.subtype === 'string' && rm.subtype.startsWith('error')
+      if (isError) {
+        const errMsg = rm.errors?.[0] ?? rm.subtype ?? 'Agent 运行出错'
         return {
           ...state,
           blocks: closeStreamingText(state.blocks),
           reasoning: { ...state.reasoning, active: false },
           terminal: 'error',
           footer: null,
-          errorMsg: rm.result ?? 'Agent 运行出错',
+          errorMsg: errMsg,
           meta,
         }
       }
@@ -238,9 +232,6 @@ export function reduce(state: RunState, payload: AgentStreamPayload): RunState {
 
   if (payload.kind === 'proma_event') {
     const evt = payload.event
-    if (evt.type === 'retry') {
-      return state
-    }
     if (evt.type === 'model_resolved') {
       return { ...state, meta: { ...state.meta, model: evt.model } }
     }

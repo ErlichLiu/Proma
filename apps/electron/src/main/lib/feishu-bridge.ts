@@ -25,6 +25,8 @@ import type {
   FeishuChatMessage,
   FeishuUpdateBindingInput,
   FeishuBotConfig,
+  SDKAssistantMessage,
+  SDKUserMessage,
 } from '@proma/shared'
 import { FEISHU_IPC_CHANNELS, AGENT_IPC_CHANNELS } from '@proma/shared'
 import { getDecryptedBotAppSecret } from './feishu-config'
@@ -1330,29 +1332,26 @@ class FeishuBridge {
 
     if (buffer && payload.kind === 'sdk_message') {
       const msg = payload.message
-      // 从 assistant 消息中提取文本
+      // 从 assistant 消息中提取文本与工具使用摘要
       if (msg.type === 'assistant') {
-        const aMsg = msg as { message?: { content?: Array<{ type: string; text?: string }> } }
+        const aMsg = msg as SDKAssistantMessage
         for (const block of aMsg.message?.content ?? []) {
-          if (block.type === 'text' && block.text) {
-            buffer.text += block.text
-          }
-        }
-        // 从 assistant 消息中累积工具使用摘要
-        for (const block of aMsg.message?.content ?? []) {
-          if (block.type === 'tool_use') {
-            const tb = block as { name?: string }
-            if (tb.name) {
+          if (block.type === 'text') {
+            const text = (block as { text?: unknown }).text
+            if (typeof text === 'string') buffer.text += text
+          } else if (block.type === 'tool_use') {
+            const tb = block as { name?: unknown }
+            if (typeof tb.name === 'string') {
               accumulateToolStart(buffer.toolSummaries, tb.name)
             }
           }
         }
       }
-      // 从 user tool_result 中检测错误
+      // 从 user tool_result 中检测错误（暂未精细处理，预留扩展点）
       if (msg.type === 'user') {
-        const uMsg = msg as { message?: { content?: Array<{ type: string; tool_use_id?: string; is_error?: boolean }> } }
+        const uMsg = msg as SDKUserMessage
         for (const block of uMsg.message?.content ?? []) {
-          if (block.type === 'tool_result' && block.is_error) {
+          if (block.type === 'tool_result') {
             // 标记工具有错误（简化处理：无法确定具体工具名）
           }
         }
@@ -1370,17 +1369,18 @@ class FeishuBridge {
       return
     }
 
-    // Proma 内部事件处理：错误等
+    // SDK assistant 帧偶尔会带顶层 error 字段（非 result 路径）
+    // 流式卡场景下 reducer 已转 error 终态；降级路径需要这里补发独立错误卡
     if (payload.kind === 'sdk_message' && payload.message.type === 'assistant') {
-      const aMsg = payload.message as { error?: { message: string } }
-      if (aMsg.error) {
+      const aMsg = payload.message as SDKAssistantMessage
+      if (aMsg.error?.message) {
         const chatId = this.sessionToChat.get(sessionId)
-        if (chatId) {
+        if (chatId && !this.streamingCardsUsedSessions.has(sessionId)) {
           const prefix = this.resolveContextPrefix(chatId)
           this.sendCardMessage(chatId, buildErrorCard(`${prefix}${aMsg.error.message}`)).catch(console.error)
         }
         this.sessionBuffers.delete(sessionId)
-        // 流式卡片同步标记 error
+        // 流式卡片同步标记 error（若用过流式卡）
         this.markStreamingError(sessionId, aMsg.error.message)
       }
     }
