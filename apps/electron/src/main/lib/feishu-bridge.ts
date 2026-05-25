@@ -158,26 +158,6 @@ class FeishuBridge {
 
   /** Run 协调：per-scope 串行 + 全局并发上限 */
   private readonly runCoordinator = new RunCoordinator(DEFAULT_MAX_CONCURRENT_RUNS)
-
-  /**
-   * 每个 sessionId 一个串行执行链：保证同一 sessionId 的 runAgentHeadless
-   * 严格按提交顺序串行执行。Promise.chain 模式天然解决 orchestrator
-   * activeSessions 时序竞态——前一个 await 真完成后下一个才开始。
-   */
-  private readonly sessionRunChains = new Map<string, Promise<void>>()
-
-  /**
-   * sessionId → resolver：在 Agent runAgentHeadless 的 onComplete / onError
-   * 回调里调用以唤醒 runMergedBatch 的 await，让 RunCoordinator.acquire 拿到
-   * 的槽位真正等到 Agent 结束再释放。
-   */
-  private readonly runFinishedResolvers = new Map<string, () => void>()
-
-  /**
-   * sessionId 集合：标记本次 run 撞上 orchestrator 并发守卫，executeRun
-   * 应重试而不是把错误暴露给用户。
-   */
-  private readonly lastRunHitConcurrencyGuard = new Set<string>()
   /** sessionId → 通知模式 */
   private sessionNotifyModes = new Map<string, FeishuNotifyMode>()
   /** 默认通知目标 chatId（最后一个与 Bot 交互的飞书聊天） */
@@ -328,11 +308,6 @@ class FeishuBridge {
     // 清空防抖队列与 run 协调状态
     this.messageQueue.cancelAll()
     this.runCoordinator.abortAll()
-    // resolve 所有 pending run-finished promise，避免 runMergedBatch 阻塞
-    for (const resolver of this.runFinishedResolvers.values()) resolver()
-    this.runFinishedResolvers.clear()
-    this.sessionRunChains.clear()
-    this.lastRunHitConcurrencyGuard.clear()
     // 关闭所有正在跑的流式卡（不等返回，避免阻塞 stop）
     for (const stream of this.streamingCards.values()) {
       void stream.close().catch(() => {})
@@ -576,7 +551,9 @@ class FeishuBridge {
     const userId = (sender?.sender_id as Record<string, unknown>)?.open_id as string ?? 'unknown'
     const mentions = message.mentions as FeishuMention[] | undefined
 
-    // chatId 级处理锁：同一聊天同时只处理一条消息，防止 bot 回复被重入处理
+    // 早期 fast-path：如果该 chat 正在处理消息（含图片下载等耗时 IO），
+    // 提前 return 避免无谓的资源下载。真正的并发保护在 line 711 的
+    // processingChats.add/delete try/finally 块里。
     if (this.processingChats.has(chatId)) {
       console.log('[飞书 Bridge] 跳过重入消息 (chatId lock):', chatId)
       return
@@ -808,143 +785,17 @@ class FeishuBridge {
       console.log(`[飞书 Bridge] 合并 batch: scope=${scope}, 消息数=${batch.length}, textChars=${mergedText.length}`)
     }
 
-    // 全局并发槽位（多 chat 之间）
+    // 全局并发槽位（跨 chat）+ per-scope 串行（block/unblock）
+    // RunCoordinator.acquire() 内部已基于 waiters 队列保证 per-scope 串行：
+    // 同一 scope 第二次 acquire 必须等第一次 release 后才返回。
     const release = await this.runCoordinator.acquire(scope, first.msgCtx.chatId)
     this.messageQueue.block(scope)
     try {
-      const binding = await this.ensureBinding(msgCtx)
-      if (!binding) return
-
-      // 关键设计：用 sessionRunChains 串行同 sessionId 的 run。
-      // Promise.chain 保证前一个 run 的 finishedPromise 完全 resolve 后，
-      // 下一个 run 才开始。即使 finishedPromise resolve 时 orchestrator
-      // finally 还没走完，也能在 await 期间走完，从而避免撞 activeSessions
-      // 并发守卫。
-      const sessionId = binding.sessionId
-      const previousRun = this.sessionRunChains.get(sessionId) ?? Promise.resolve()
-      const currentRun = previousRun.then(async () => {
-        // 等几个 tick 让 orchestrator finally 走完（防御性）
-        await new Promise<void>((resolve) => setTimeout(resolve, 0))
-        await this.executeRun(sessionId, msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
-      }).catch((err) => {
-        console.error(`[飞书 Bridge] sessionRunChain 异常: ${sessionId}`, err)
-      })
-      this.sessionRunChains.set(sessionId, currentRun)
-      await currentRun
-
-      // 链清理：当前 run 是最后一个时清掉 map 项防泄漏
-      if (this.sessionRunChains.get(sessionId) === currentRun) {
-        this.sessionRunChains.delete(sessionId)
-      }
+      await this.handleUserMessage(msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
     } finally {
       release()
       this.messageQueue.unblock(scope)
     }
-  }
-
-  /**
-   * 实际执行一次 Agent run：调 handleUserMessage 触发 runAgentHeadless，
-   * 然后等 onComplete / onError 回调真正触发后才返回。
-   * 若撞上 orchestrator 并发守卫（lastRunHitConcurrencyGuard 标记），
-   * 自动重试最多 5 次，每次间隔 500ms 退避。
-   */
-  private async executeRun(
-    sessionId: string,
-    msgCtx: FeishuMessageContext,
-    text: string,
-    imageAttachments: FeishuImageAttachment[],
-    fileAttachments: FeishuFileAttachment[],
-    parentMessageId?: string,
-  ): Promise<void> {
-    const MAX_RETRIES = 5
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const finishedPromise = this.makeRunFinishedPromise(sessionId)
-      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, parentMessageId)
-      await finishedPromise
-
-      if (!this.lastRunHitConcurrencyGuard.has(sessionId)) {
-        return // 正常完成
-      }
-      // 撞了并发守卫，清除标记重试
-      this.lastRunHitConcurrencyGuard.delete(sessionId)
-      if (attempt >= MAX_RETRIES) {
-        console.error(`[飞书 Bridge] executeRun 重试 ${MAX_RETRIES} 次仍撞并发守卫，放弃: ${sessionId.slice(-8)}`)
-        return
-      }
-      const delay = 500 * (attempt + 1)
-      console.log(`[飞书 Bridge] executeRun 重试 #${attempt + 1}，等待 ${delay}ms`)
-      await new Promise<void>((resolve) => setTimeout(resolve, delay))
-    }
-  }
-
-  /**
-   * 确保 chatId 已有 chatBinding；若没有就先创建会话。
-   * 单独抽出来让 runMergedBatch 能在创建 finishedPromise 前拿到 sessionId。
-   */
-  private async ensureBinding(msgCtx: FeishuMessageContext): Promise<FeishuChatBinding | undefined> {
-    const existing = this.chatBindings.get(msgCtx.chatId)
-    if (existing) return existing
-    await this.createNewSession(msgCtx, 'agent')
-    return this.chatBindings.get(msgCtx.chatId)
-  }
-
-  /**
-   * 注册一个 finished promise，由 runAgentHeadless 的 onComplete / onError
-   * 回调（通过 notifyAgentRunFinished）触发 resolve。
-   *
-   * 兜底：30s 内若回调没触发自动 resolve，避免 runCoordinator 死锁。
-   */
-  private makeRunFinishedPromise(sessionId: string): Promise<void> {
-    return new Promise<void>((resolve) => {
-      // 同 sessionId 已有 pending resolver 是异常状态（说明前一个 batch 的 run
-      // 还没结束就被另一个 batch 抢入）。绝不能调用旧 resolver——会让前一个
-      // batch 提前 release/unblock 并发槽位，相当于把原 blocking bug 引回来。
-      // 正确处置：警告 + 跳过本次注册（让前 batch 走自己的超时兜底自然清理）。
-      if (this.runFinishedResolvers.has(sessionId)) {
-        console.warn(`[飞书 Bridge] makeRunFinishedPromise: sessionId ${sessionId} 已有 pending resolver，跳过本次注册（让本批次仅靠超时兜底）`)
-        // 直接给本次注册一个 30s 超时 resolver，不进 Map 防覆盖
-        setTimeout(() => resolve(), 30_000)
-        return
-      }
-
-      let resolved = false
-      let timer: NodeJS.Timeout | undefined
-      const finalize = (): void => {
-        if (resolved) return
-        resolved = true
-        if (timer) clearTimeout(timer)
-        this.runFinishedResolvers.delete(sessionId)
-        resolve()
-      }
-      this.runFinishedResolvers.set(sessionId, finalize)
-
-      // 兜底超时：30s 内 Agent 没结束（极端场景），强制释放并发槽位
-      timer = setTimeout(() => {
-        if (!resolved) {
-          console.warn(`[飞书 Bridge] Agent run finished promise 30s 超时，强制释放: ${sessionId}`)
-          finalize()
-        }
-      }, 30_000)
-    })
-  }
-
-  /**
-   * 由 runAgentHeadless 的 onComplete / onError 回调调用，唤醒 runMergedBatch 的 await。
-   *
-   * 关键：onComplete 在 orchestrator 的 finally 之前同步触发，此时
-   * activeSessions 还没 delete。立即 resolve 会让下一个 batch 撞 isActive=true
-   * 守卫。延迟一个 setTimeout(0) 让 orchestrator 同步 finally 走完，
-   * 再 resolve 才安全。
-   */
-  private notifyAgentRunFinished(sessionId: string): void {
-    const resolver = this.runFinishedResolvers.get(sessionId)
-    if (!resolver) return
-    // 延迟到下一个 tick：让 orchestrator 的 finally { activeSessions.delete }
-    // 走完，再唤醒 batch_B
-    setTimeout(() => {
-      const r = this.runFinishedResolvers.get(sessionId)
-      if (r) r()
-    }, 0)
   }
 
   private async handleCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
@@ -1349,7 +1200,7 @@ class FeishuBridge {
     const { chatId } = msgCtx
     let binding = this.chatBindings.get(chatId)
 
-    // 自动创建会话（runMergedBatch 已通过 ensureBinding 预建，此分支仅作兜底）
+    // 自动创建会话
     if (!binding) {
       await this.createNewSession(msgCtx, 'agent')
       binding = this.chatBindings.get(chatId)
@@ -1495,40 +1346,33 @@ class FeishuBridge {
         ...(customMcpServers && { customMcpServers }),
       }
 
-      runAgentHeadless(input, {
-        onError: (error) => {
-          // 检测 orchestrator 并发守卫错误：这是 Proma 内部并发竞态，
-          // 不应该把错误暴露给飞书侧用户。返回特殊标记让 executeRun 重试。
-          const isConcurrencyGuardError = error.includes('上一条消息仍在处理中')
-          if (isConcurrencyGuardError) {
-            console.warn(`[飞书 Bridge] 触发并发守卫，将重试: ${binding!.sessionId.slice(-8)}`)
-            this.lastRunHitConcurrencyGuard.add(binding!.sessionId)
-            this.notifyAgentRunFinished(binding!.sessionId)
-            return
-          }
-          const errPrefix = this.resolveContextPrefix(chatId)
-          // 优先把错误显示到流式卡上；没有流式卡才发独立错误卡
-          if (this.streamingCards.has(binding!.sessionId)) {
-            this.markStreamingError(binding!.sessionId, error)
-          } else {
-            this.sendCardMessage(chatId, buildErrorCard(`${errPrefix}${error}`)).catch(console.error)
-          }
-          this.sessionBuffers.delete(binding!.sessionId)
-          this.streamingCardsUsedSessions.delete(binding!.sessionId)
-          // 释放 runCoordinator 槽位 + unblock 防抖队列（不依赖 onComplete，
-          // 因为出错路径 Proma orchestrator 也会调 onComplete，但保险起见两端都触发）
-          this.notifyAgentRunFinished(binding!.sessionId)
-        },
-        onComplete: () => {
-          // 真正释放 runCoordinator 槽位的位置：Agent SDK 已结束本轮 query
-          this.notifyAgentRunFinished(binding!.sessionId)
-        },
-        onTitleUpdated: (_title) => {
-          // 标题更新可选通知
-        },
-      }).catch((error) => {
+      // 直接 await runAgentHeadless 的 Promise——它会在 orchestrator.sendMessage
+      // 完整 await 结束（包含 finally { activeSessions.delete }）后才 resolve。
+      // 这是消除并发守卫竞态的核心：上层 runMergedBatch 看到本 Promise resolve
+      // 时，orchestrator 已经清理干净，下一个 batch 立刻调 sendMessage 不会撞守卫。
+      try {
+        await runAgentHeadless(input, {
+          onError: (error) => {
+            const errPrefix = this.resolveContextPrefix(chatId)
+            // 优先把错误显示到流式卡上；没有流式卡才发独立错误卡
+            if (this.streamingCards.has(binding!.sessionId)) {
+              this.markStreamingError(binding!.sessionId, error)
+            } else {
+              this.sendCardMessage(chatId, buildErrorCard(`${errPrefix}${error}`)).catch(console.error)
+            }
+            this.sessionBuffers.delete(binding!.sessionId)
+            this.streamingCardsUsedSessions.delete(binding!.sessionId)
+          },
+          onComplete: () => {
+            // complete 事件由 EventBus listener 处理
+          },
+          onTitleUpdated: (_title) => {
+            // 标题更新可选通知
+          },
+        })
+      } catch (error) {
         console.error('[飞书 Bridge] Agent 运行异常:', error)
-      })
+      }
     } else {
       // Chat 模式 — TODO: Phase 4 实现
       await this.sendMessage(chatId, 'Chat 模式暂未实现，请使用 /agent 切换到 Agent 模式。')
