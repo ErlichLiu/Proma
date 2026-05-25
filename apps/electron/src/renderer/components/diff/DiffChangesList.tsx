@@ -5,7 +5,7 @@
  */
 
 import * as React from 'react'
-import { ChevronRight, Undo2 } from 'lucide-react'
+import { ChevronRight, Search, Undo2, X } from 'lucide-react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -66,6 +66,7 @@ export function DiffChangesList({
   const [untrackedFiles, setUntrackedFiles] = React.useState<UntrackedFileEntry[]>([])
   const [isGitRepo, setIsGitRepo] = React.useState(true)
   const [collapsedDirs, setCollapsedDirs] = React.useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = React.useState('')
   /** 单调递增的 fetch 序号，用于丢弃乱序到达的旧响应 */
   const fetchSeqRef = React.useRef(0)
 
@@ -134,9 +135,11 @@ export function DiffChangesList({
 
   // 按 Git 仓库分组（在所有 hooks 之后、条件返回之前调用）
   const fileGroups: FileGroup[] = React.useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
     // 用完整 gitRoot 做 key，避免同名目录冲突
     const groups = new Map<string, ChangedFileEntry[]>()
     for (const f of files) {
+      if (q && !f.filePath.toLowerCase().includes(q)) continue
       const key = f.gitRoot || ''
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(f)
@@ -149,7 +152,13 @@ export function DiffChangesList({
       totalDeletions: groupFiles.reduce((sum, f) => sum + f.deletions, 0),
       sources: [...new Set(groupFiles.map((f) => f.source))],
     }))
-  }, [files])
+  }, [files, searchQuery])
+
+  const filteredUntrackedFiles = React.useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    if (!q) return untrackedFiles
+    return untrackedFiles.filter((f) => f.filePath.toLowerCase().includes(q))
+  }, [untrackedFiles, searchQuery])
 
   // 非 Git 仓库
   if (!isGitRepo) {
@@ -171,6 +180,40 @@ export function DiffChangesList({
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
+      {/* 搜索框 — 有改动文件时才显示 */}
+      <div className="flex-shrink-0 sticky top-0 z-10 px-2 pt-1.5 pb-1">
+        <div className="flex items-center gap-1.5 px-2 h-7 rounded-md bg-muted/40 border border-transparent focus-within:border-primary/40 focus-within:bg-muted/70 transition-colors">
+          <Search className="size-3 text-muted-foreground flex-shrink-0" />
+          <input
+            type="text"
+            className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/40"
+            placeholder="搜索改动文件..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <>
+              <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums">
+                {fileGroups.reduce((sum, g) => sum + g.files.length, 0) + filteredUntrackedFiles.length}
+              </span>
+              <button
+                type="button"
+                className="flex-shrink-0 p-0.5 rounded-sm hover:bg-foreground/[0.08] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                onClick={() => setSearchQuery('')}
+              >
+                <X className="size-3" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {fileGroups.length === 0 && filteredUntrackedFiles.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+          <p className="text-[12px] text-center">没有匹配的文件</p>
+        </div>
+      ) : (
+        <>
       {fileGroups.map((group) => {
         const isCollapsed = collapsedDirs.has(group.gitRoot)
         return (
@@ -221,12 +264,12 @@ export function DiffChangesList({
       })}
 
       {/* 未追踪文件分组 */}
-      {untrackedFiles.length > 0 && (
+      {filteredUntrackedFiles.length > 0 && (
         <div>
           <div className="flex items-center px-2 py-2 text-[13px] font-medium text-muted-foreground border-t border-border/30">
             未追踪文件
           </div>
-          {untrackedFiles.map((file) => (
+          {filteredUntrackedFiles.map((file) => (
             <UntrackedFileRow
               key={`${file.gitRoot}:${file.filePath}`}
               file={file}
@@ -234,6 +277,8 @@ export function DiffChangesList({
             />
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   )
