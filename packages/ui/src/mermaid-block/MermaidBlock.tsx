@@ -1,7 +1,7 @@
 /**
  * MermaidBlock - Mermaid 图表渲染组件
  *
- * 使用 beautiful-mermaid 将 mermaid 源码渲染为 SVG 图表。
+ * 使用官方 mermaid 将 mermaid 源码渲染为 SVG 图表。
  *
  * 核心策略 —— "源码优先，SVG 覆盖淡入"：
  *
@@ -13,16 +13,17 @@
  *
  * 渲染时序：
  *   流式输出 → 源码自然增长（零跳动）
- *   code 稳定 350ms → 后台 renderMermaid
+ *   code 稳定 350ms → 后台 renderMermaidSvg
  *   成功 → SVG 淡入覆盖，源码淡出（一次性过渡）
  *   失败 → 保持源码展示
+ *   流式期间 code 再变化 → 仅作废 generation，保留上一帧 SVG，避免回退到源码
  *
  * 防竞态：generation 计数器，只有最新一代的渲染结果才会生效
  */
 
 import * as React from 'react'
-import { renderMermaid, THEMES } from 'beautiful-mermaid'
-import type { RenderOptions } from 'beautiful-mermaid'
+import mermaid from 'mermaid'
+import type { MermaidConfig } from 'mermaid'
 
 interface MermaidBlockProps {
   /** mermaid 源码 */
@@ -37,18 +38,46 @@ const FADE_MS = 250
 const ZOOM_MIN = 0.25
 const ZOOM_MAX = 3
 const ZOOM_STEP = 0.15
+let mermaidIdSeq = 0
+let renderQueue: Promise<void> = Promise.resolve()
 
 function isDarkMode(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
-function getThemeOptions(): RenderOptions {
-  const colors = isDarkMode() ? THEMES['github-dark'] : THEMES['github-light']
-  return colors ? { ...colors } : {}
+function getMermaidConfig(dark: boolean): MermaidConfig {
+  return {
+    startOnLoad: false,
+    suppressErrorRendering: true,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default',
+    darkMode: dark,
+    htmlLabels: false,
+    fontFamily: 'inherit',
+    logLevel: 'fatal',
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+function nextMermaidId(): string {
+  mermaidIdSeq += 1
+  return `proma-mermaid-${Date.now()}-${mermaidIdSeq}`
+}
+
+export async function renderMermaidSvg(code: string, dark = isDarkMode()): Promise<string> {
+  const task = async () => {
+    mermaid.initialize(getMermaidConfig(dark))
+    const parsed = await mermaid.parse(code, { suppressErrors: true })
+    if (!parsed) throw new Error('Invalid Mermaid syntax')
+    const { svg } = await mermaid.render(nextMermaidId(), code)
+    return svg
+  }
+  const result = renderQueue.then(task, task)
+  renderQueue = result.then(() => {}, () => {})
+  return result
 }
 
 // ===== 图标（与 CodeBlock 一致） =====
@@ -110,13 +139,16 @@ export function MermaidBlock({ code }: MermaidBlockProps): React.ReactElement {
   // ==== 唯一的渲染 effect：全部走防抖，generation 防竞态 ====
   React.useEffect(() => {
     // 每次 code 变化递增 generation，作废所有旧的异步渲染
+    // 注意：不要在这里清空 svgHtml/svgVisible —— 流式输出期间 code 持续变化时，
+    // 保留上一帧 SVG 可以让用户继续看到"略微过时但完整的图"，等新 SVG 渲染完成无缝替换，
+    // 避免在 SVG 与源码之间来回闪烁
     generationRef.current++
     const currentGen = generationRef.current
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       try {
-        const svg = await renderMermaid(codeRef.current, getThemeOptions())
+        const svg = await renderMermaidSvg(codeRef.current)
         // 只有最新一代的结果才生效，旧的全部丢弃
         if (generationRef.current !== currentGen) return
         if (typeof svg === 'string' && svg.length > 0) {
@@ -139,7 +171,7 @@ export function MermaidBlock({ code }: MermaidBlockProps): React.ReactElement {
       generationRef.current++
       const gen = generationRef.current
       try {
-        const svg = await renderMermaid(codeRef.current, getThemeOptions())
+        const svg = await renderMermaidSvg(codeRef.current)
         if (generationRef.current !== gen) return
         if (typeof svg === 'string' && svg.length > 0) {
           setSvgHtml(svg)

@@ -3,5 +3,5 @@
  */
 
 export { CodeBlock } from './code-block/index.ts'
-export { MermaidBlock } from './mermaid-block/index.ts'
+export { MermaidBlock, renderMermaidSvg } from './mermaid-block/index.ts'
 export { useSmoothStream } from './hooks/index.ts'

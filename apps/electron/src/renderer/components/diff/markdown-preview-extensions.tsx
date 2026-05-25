@@ -12,6 +12,7 @@ import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import { highlightCode, highlightToTokens, getDisplayName } from '@proma/core'
+import { renderMermaidSvg } from '@proma/ui'
 import type { HighlightTokensResult } from '@proma/core'
 import type { FileAccessOptions } from '@proma/shared'
 
@@ -91,6 +92,21 @@ function serializeMathInline(state: MarkdownSerializerLike, node: ProseMirrorNod
 function serializeMathBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
   state.write(`$$\n${stringAttr(node, 'latex')}\n$$`)
   state.closeBlock(node)
+}
+
+function serializeMermaidBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
+  const code = stringAttr(node, 'code')
+  const backticks = code.match(/`{3,}/gm)
+  const fence = backticks ? `${backticks.sort((a, b) => a.length - b.length).slice(-1)[0]}\`` : '```'
+  state.write(`${fence}mermaid\n`)
+  state.text(code, false)
+  state.ensureNewLine()
+  state.write(fence)
+  state.closeBlock(node)
+}
+
+function mermaidCodeFromElement(node: HTMLElement): string {
+  return node.querySelector('[data-mermaid-code]')?.textContent || node.getAttribute('data-code') || ''
 }
 
 function serializeCodeBlock(state: MarkdownSerializerLike, node: ProseMirrorNode): void {
@@ -667,6 +683,151 @@ export function createMarkdownVideo(fileAccessRef: FileAccessRefOrNull): Node {
     },
   })
 }
+
+function isDarkMode(): boolean {
+  return document.documentElement.classList.contains('dark')
+}
+
+function createMermaidBlockView(initialNode: ProseMirrorNode) {
+  const dom = document.createElement('div')
+  dom.contentEditable = 'false'
+  dom.setAttribute('data-type', 'mermaid-block')
+  setClass(dom, 'not-prose my-3 overflow-hidden rounded-md border border-border/40')
+
+  const header = document.createElement('div')
+  setClass(header, 'flex h-8 items-center justify-between bg-muted/60 px-3 text-xs text-muted-foreground')
+  const label = document.createElement('span')
+  label.textContent = 'Mermaid'
+  label.className = 'font-medium select-none'
+  header.appendChild(label)
+
+  const copyBtn = document.createElement('button')
+  copyBtn.type = 'button'
+  copyBtn.className = 'flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-foreground/10 transition-colors text-muted-foreground hover:text-foreground'
+  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>复制</span>'
+  header.appendChild(copyBtn)
+
+  const body = document.createElement('div')
+  setClass(body, 'overflow-auto bg-background')
+  const source = document.createElement('pre')
+  setClass(source, 'm-0 overflow-x-auto bg-muted/30 p-4 font-mono text-[13px] leading-[1.6] text-foreground/80')
+  const sourceCode = document.createElement('code')
+  source.appendChild(sourceCode)
+
+  const svgHost = document.createElement('div')
+  setClass(svgHost, 'flex min-h-[180px] items-center justify-center p-4 [&>svg]:h-auto [&>svg]:max-w-full')
+
+  dom.appendChild(header)
+  dom.appendChild(body)
+
+  let currentCode = stringAttr(initialNode, 'code')
+  let renderTimer: ReturnType<typeof setTimeout> | null = null
+  let copyTimeout: ReturnType<typeof setTimeout> | null = null
+  let generation = 0
+  let destroyed = false
+
+  const showSource = () => {
+    sourceCode.textContent = currentCode
+    if (body.firstElementChild !== source) body.replaceChildren(source)
+  }
+
+  const scheduleRender = () => {
+    generation += 1
+    const currentGeneration = generation
+    if (renderTimer) clearTimeout(renderTimer)
+    showSource()
+    renderTimer = setTimeout(() => {
+      renderTimer = null
+      renderMermaidSvg(currentCode, isDarkMode())
+        .then((svg) => {
+          if (destroyed || generation !== currentGeneration) return
+          svgHost.innerHTML = svg
+          body.replaceChildren(svgHost)
+        })
+        .catch(() => {
+          if (!destroyed && generation === currentGeneration) showSource()
+        })
+    }, 350)
+  }
+
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(currentCode).then(() => {
+      copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>已复制</span>'
+      if (copyTimeout) clearTimeout(copyTimeout)
+      copyTimeout = setTimeout(() => {
+        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>复制</span>'
+      }, 2000)
+    }).catch(() => {})
+  })
+
+  const themeObserver = new MutationObserver(() => scheduleRender())
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  scheduleRender()
+
+  return {
+    dom,
+    update(nextNode: ProseMirrorNode) {
+      if (nextNode.type !== initialNode.type) return false
+      const nextCode = stringAttr(nextNode, 'code')
+      if (nextCode !== currentCode) {
+        currentCode = nextCode
+        scheduleRender()
+      }
+      return true
+    },
+    destroy() {
+      destroyed = true
+      if (renderTimer) clearTimeout(renderTimer)
+      if (copyTimeout) clearTimeout(copyTimeout)
+      themeObserver.disconnect()
+    },
+    ignoreMutation() {
+      return true
+    },
+  }
+}
+
+export const MermaidBlockNode = Node.create({
+  name: 'mermaidBlock',
+  group: 'block',
+  atom: true,
+  draggable: true,
+
+  addAttributes() {
+    return {
+      code: { default: '' },
+    }
+  },
+
+  parseHTML() {
+    return [{
+      tag: 'div[data-type="mermaid-block"]',
+      getAttrs: (node) => node instanceof HTMLElement
+        ? { code: mermaidCodeFromElement(node) }
+        : false,
+    }]
+  },
+
+  renderHTML({ node }) {
+    return [
+      'div',
+      { 'data-type': 'mermaid-block' },
+      ['pre', { 'data-mermaid-code': '' }, ['code', {}, node.attrs.code]],
+    ]
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize: serializeMermaidBlock,
+      },
+    }
+  },
+
+  addNodeView() {
+    return ({ node }) => createMermaidBlockView(node)
+  },
+})
 
 export const RawHtmlBlock = Node.create({
   name: 'rawHtmlBlock',

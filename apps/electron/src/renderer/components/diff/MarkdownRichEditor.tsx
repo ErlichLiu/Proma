@@ -12,6 +12,7 @@ import { MARKDOWN_RENDERER_VERSION, markdownToHtml } from '@/lib/markdown-rich-t
 import {
   MathBlock,
   MathInline,
+  MermaidBlockNode,
   RawHtmlBlock,
   RawHtmlInline,
   TaskItem,
@@ -72,6 +73,7 @@ export function MarkdownRichEditor({
   const extensions = React.useMemo(() => [
     createMarkdownImage(fileAccessRef),
     createMarkdownVideo(fileAccessRef),
+    MermaidBlockNode,
     RawHtmlBlock,
     RawHtmlInline,
     MathBlock,

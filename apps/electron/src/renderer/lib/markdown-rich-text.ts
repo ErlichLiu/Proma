@@ -4,8 +4,9 @@ const VIDEO_EXT_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:[?#].*)?$/i
 const PREVIEW_BLOCK_RE = /^<div\s+[^>]*data-type=(["'])(?:raw-html-block|math-block)\1/i
 const DETAILS_BLOCK_RE = /<details(\s[^>]*)?>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/gi
 const STANDALONE_HTML_MEDIA_RE = /^\s*<(?:img|video)\b[^>]*(?:\/?>|>.*?<\/video>)\s*$/i
+const MERMAID_LANG_RE = /^(?:mermaid|mmd)$/i
 
-export const MARKDOWN_RENDERER_VERSION = 3
+export const MARKDOWN_RENDERER_VERSION = 5
 
 const EMOJI_SHORTCODES: Record<string, string> = {
   '+1': '👍',
@@ -58,8 +59,23 @@ function serializeInlineCode(value: string): string {
   return `${wrapper} ${value} ${wrapper}`
 }
 
+function getCodeFence(code: string): string {
+  const longest = code.match(/`{3,}/g)?.reduce((max, ticks) => Math.max(max, ticks.length), 2) ?? 2
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
+function serializeMermaidFence(code: string): string {
+  const normalizedCode = code.replace(/\r\n?/g, '\n').replace(/\n+$/g, '')
+  const fence = getCodeFence(normalizedCode)
+  return `${fence}mermaid\n${normalizedCode}\n${fence}\n`
+}
+
 function isPreviewBlockHtml(value: string): boolean {
   return PREVIEW_BLOCK_RE.test(value.trim())
+}
+
+function getFenceLanguage(info: string | null | undefined): string {
+  return (info ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? ''
 }
 
 function addMathSupport(md: MarkdownIt): void {
@@ -135,6 +151,19 @@ const markdownIt = new MarkdownIt({
 })
 
 addMathSupport(markdownIt)
+
+markdownIt.renderer.rules.fence = (tokens, idx) => {
+  const token = tokens[idx]
+  if (!token) return ''
+
+  const language = getFenceLanguage(token.info)
+  if (MERMAID_LANG_RE.test(language)) {
+    return `<div data-type="mermaid-block"><pre data-mermaid-code><code>${markdownIt.utils.escapeHtml(token.content)}</code></pre></div>\n`
+  }
+
+  const langAttr = language ? ` class="language-${escapeAttr(language)}"` : ''
+  return `<pre><code${langAttr}>${markdownIt.utils.escapeHtml(token.content)}</code></pre>\n`
+}
 
 markdownIt.core.ruler.after('inline', 'emoji_shortcode', (state: any) => {
   for (const token of state.tokens) {
@@ -308,6 +337,9 @@ export function htmlToMarkdown(html: string): string {
           if (htmlMarkdown !== null) return `${htmlMarkdown}\n`
 
           return `${el.getAttribute('data-html') || ''}\n`
+        }
+        if (el.getAttribute('data-type') === 'mermaid-block') {
+          return serializeMermaidFence(el.querySelector('[data-mermaid-code]')?.textContent || el.getAttribute('data-code') || '')
         }
         if (el.getAttribute('data-type') === 'math-block') {
           return `$$\n${el.getAttribute('data-latex') || ''}\n$$\n`

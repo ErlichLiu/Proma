@@ -30,6 +30,7 @@ import { htmlToMarkdown, markdownToHtml } from '@/lib/markdown-rich-text'
 import {
   MathBlock,
   MathInline,
+  MermaidBlockNode,
   RawHtmlBlock,
   RawHtmlInline,
   TaskItem,
@@ -67,6 +68,7 @@ export function ScratchPadView(): React.ReactElement {
     // ScratchPad 无会话/文件上下文，传 null 跳过路径解析（仅支持 data-URL / 外链 / file: 协议）
     createMarkdownImage(null),
     createMarkdownVideo(null),
+    MermaidBlockNode,
     RawHtmlBlock,
     RawHtmlInline,
     MathBlock,
