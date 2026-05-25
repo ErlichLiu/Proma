@@ -30,7 +30,7 @@ import type {
 } from '@proma/shared'
 import { FEISHU_IPC_CHANNELS, AGENT_IPC_CHANNELS } from '@proma/shared'
 import { getDecryptedBotAppSecret } from './feishu-config'
-import { agentEventBus, runAgentHeadless, stopAgent, isAgentSessionActive } from './agent-service'
+import { agentEventBus, runAgentHeadless, stopAgent } from './agent-service'
 import { createAgentSession, listAgentSessions, getAgentSessionMeta } from './agent-session-manager'
 import {
   listAgentWorkspacesByUpdatedAt,
@@ -160,13 +160,16 @@ class FeishuBridge {
   private readonly runCoordinator = new RunCoordinator(DEFAULT_MAX_CONCURRENT_RUNS)
 
   /**
+   * 每个 sessionId 一个串行执行链：保证同一 sessionId 的 runAgentHeadless
+   * 严格按提交顺序串行执行。Promise.chain 模式天然解决 orchestrator
+   * activeSessions 时序竞态——前一个 await 真完成后下一个才开始。
+   */
+  private readonly sessionRunChains = new Map<string, Promise<void>>()
+
+  /**
    * sessionId → resolver：在 Agent runAgentHeadless 的 onComplete / onError
    * 回调里调用以唤醒 runMergedBatch 的 await，让 RunCoordinator.acquire 拿到
    * 的槽位真正等到 Agent 结束再释放。
-   *
-   * 解决"runAgentHeadless 是 fire-and-forget，handleUserMessage 内部 await
-   * 返回时 Agent 还没真正跑完"导致 release/unblock 提前执行的问题
-   * （PR review code-reviewer 找到的 blocking bug）。
    */
   private readonly runFinishedResolvers = new Map<string, () => void>()
   /** sessionId → 通知模式 */
@@ -322,6 +325,7 @@ class FeishuBridge {
     // resolve 所有 pending run-finished promise，避免 runMergedBatch 阻塞
     for (const resolver of this.runFinishedResolvers.values()) resolver()
     this.runFinishedResolvers.clear()
+    this.sessionRunChains.clear()
     // 关闭所有正在跑的流式卡（不等返回，避免阻塞 stop）
     for (const stream of this.streamingCards.values()) {
       void stream.close().catch(() => {})
@@ -797,27 +801,34 @@ class FeishuBridge {
       console.log(`[飞书 Bridge] 合并 batch: scope=${scope}, 消息数=${batch.length}, textChars=${mergedText.length}`)
     }
 
-    // 先 acquire 全局并发槽位（可能等待）；拿到后 block 该 scope 防止
-    // run 期间新消息触发并行 flush
+    // 全局并发槽位（多 chat 之间）
     const release = await this.runCoordinator.acquire(scope, first.msgCtx.chatId)
     this.messageQueue.block(scope)
     try {
-      // 拿到 binding 才有 sessionId；handleUserMessage 内部会自动建会话
       const binding = await this.ensureBinding(msgCtx)
       if (!binding) return
 
-      // 关键：orchestrator 的并发守卫基于 activeSessions.has(sessionId)。
-      // 上一次 run 即使 onComplete 已触发，orchestrator finally 也可能没走
-      // 完，此时立即调 runAgentHeadless 会撞 "上一条消息仍在处理中" 错误。
-      // 在这里轮询等 activeSessions 真正清空再继续，避免业务层报错。
-      await this.waitUntilSessionIdle(binding.sessionId)
+      // 关键设计：用 sessionRunChains 串行同 sessionId 的 run。
+      // Promise.chain 保证前一个 run 的 finishedPromise 完全 resolve 后，
+      // 下一个 run 才开始。即使 finishedPromise resolve 时 orchestrator
+      // finally 还没走完，也能在 await 期间走完，从而避免撞 activeSessions
+      // 并发守卫。
+      const sessionId = binding.sessionId
+      const previousRun = this.sessionRunChains.get(sessionId) ?? Promise.resolve()
+      const currentRun = previousRun.then(async () => {
+        // 等几个 tick 让 orchestrator finally 走完（防御性）
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        await this.executeRun(sessionId, msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
+      }).catch((err) => {
+        console.error(`[飞书 Bridge] sessionRunChain 异常: ${sessionId}`, err)
+      })
+      this.sessionRunChains.set(sessionId, currentRun)
+      await currentRun
 
-      const finishedPromise = this.makeRunFinishedPromise(binding.sessionId)
-      await this.handleUserMessage(msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
-
-      // handleUserMessage 内部 runAgentHeadless 是 fire-and-forget；这里等
-      // onComplete / onError 回调真正触发再释放并发槽位（block-and-merge 的核心保障）
-      await finishedPromise
+      // 链清理：当前 run 是最后一个时清掉 map 项防泄漏
+      if (this.sessionRunChains.get(sessionId) === currentRun) {
+        this.sessionRunChains.delete(sessionId)
+      }
     } finally {
       release()
       this.messageQueue.unblock(scope)
@@ -825,15 +836,20 @@ class FeishuBridge {
   }
 
   /**
-   * 轮询等待 orchestrator.activeSessions 真正清空（finally 走完）。
-   * 50ms 一次，最多等 10s 兜底。
+   * 实际执行一次 Agent run：调 handleUserMessage 触发 runAgentHeadless，
+   * 然后等 onComplete / onError 回调真正触发后才返回。
    */
-  private async waitUntilSessionIdle(sessionId: string): Promise<void> {
-    for (let i = 0; i < 200; i++) {
-      if (!isAgentSessionActive(sessionId)) return
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    console.warn(`[飞书 Bridge] waitUntilSessionIdle 10s 超时，session 仍活: ${sessionId}`)
+  private async executeRun(
+    sessionId: string,
+    msgCtx: FeishuMessageContext,
+    text: string,
+    imageAttachments: FeishuImageAttachment[],
+    fileAttachments: FeishuFileAttachment[],
+    parentMessageId?: string,
+  ): Promise<void> {
+    const finishedPromise = this.makeRunFinishedPromise(sessionId)
+    await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, parentMessageId)
+    await finishedPromise
   }
 
   /**
