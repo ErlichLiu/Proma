@@ -486,8 +486,15 @@ function FileTreeItem({
     const isAncestor = revealAncestors.has(entry.path)
     const isTarget = revealTarget !== null && entry.path === revealTarget
 
+    const scrollToTarget = (): void => {
+      requestAnimationFrame(() => {
+        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+
     // 自身需要展开：祖先目录 OR 目标本身就是目录（搜到文件夹时让其展开露出内容）
-    if (entry.isDirectory && (isAncestor || isTarget) && !expanded) {
+    const willExpand = entry.isDirectory && (isAncestor || isTarget) && !expanded
+    if (willExpand) {
       let cancelled = false
       const run = async (): Promise<void> => {
         if (!childrenLoaded) {
@@ -502,7 +509,11 @@ function FileTreeItem({
             return
           }
         }
-        if (!cancelled) setExpanded(true)
+        if (cancelled) return
+        setExpanded(true)
+        // 目标自身就是这个目录时，等展开后再滚动，避免子项渲染改变行高使
+        // smooth scroll 的目标位置过时；加载失败路径不会到这里。
+        if (isTarget) scrollToTarget()
       }
       void run()
       cleanups.push(() => { cancelled = true })
@@ -510,9 +521,8 @@ function FileTreeItem({
 
     // 目标行：滚动到可视区中心 + 高亮脉冲
     if (isTarget) {
-      requestAnimationFrame(() => {
-        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      })
+      // 仅在不会通过展开分支异步滚动时立即滚动（即：目标是文件，或已展开的目录）
+      if (!willExpand) scrollToTarget()
       // 用户搜索点击场景（revealSelect=true）会同步把目标置为选中态，
       // flash 动画末关键帧的 transparent 背景会盖掉 bg-accent，造成"先闪一下再变选中"的视觉断层，
       // 因此该路径跳过 flash，仅保留滚动 + 选中态。Agent 自动定位（无 select）仍走 flash。

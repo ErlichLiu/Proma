@@ -939,8 +939,15 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
     const isAncestor = !!revealAncestors && revealAncestors.has(currentPath)
     const isTarget = currentPath === revealTarget
 
+    const scrollToTarget = (): void => {
+      requestAnimationFrame(() => {
+        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+
     // 自身需要展开：祖先目录 OR 目标本身就是目录
-    if (entry.isDirectory && (isAncestor || isTarget) && !expanded) {
+    const willExpand = entry.isDirectory && (isAncestor || isTarget) && !expanded
+    if (willExpand) {
       let cancelled = false
       const run = async (): Promise<void> => {
         if (!loaded) {
@@ -955,24 +962,18 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
             return
           }
         }
-        if (!cancelled) setExpanded(true)
+        if (cancelled) return
+        setExpanded(true)
+        // 目标自身就是这个目录时，等展开成功后再滚动，避免子项渲染改变行高使
+        // smooth scroll 偏离；加载失败路径自然跳过滚动。
+        if (isTarget) scrollToTarget()
       }
       void run()
-      // 同时处理"是目标"的滚动需求
-      if (isTarget) {
-        requestAnimationFrame(() => {
-          rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        })
-      }
       return () => { cancelled = true }
     }
 
     // 目标行：滚动到可视区中心（不打 flash，直接靠选中态高亮）
-    if (isTarget) {
-      requestAnimationFrame(() => {
-        rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      })
-    }
+    if (isTarget) scrollToTarget()
   }, [revealTs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleDir = async (): Promise<void> => {
