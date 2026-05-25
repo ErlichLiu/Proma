@@ -451,10 +451,11 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                       </div>
                       {/* ===== 文件搜索栏 ===== */}
                       <FileSearchBar
-                        workspaceFilesPath={workspaceFilesPath}
+                        workspaceFilesPath={null}
                         sessionPath={sessionPath}
                         sessionAttachedDirs={attachedDirs}
-                        workspaceAttachedDirs={wsAttachedDirs}
+                        workspaceAttachedDirs={[]}
+                        placeholder="搜索会话文件..."
                         onFilePreview={handleFilePreview}
                       />
                       {/* 会话文件内容区（独立滚动） */}
@@ -538,6 +539,15 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                         </Tooltip>
                       )}
                     </div>
+                    {/* ===== 文件搜索栏（工作区） ===== */}
+                    <FileSearchBar
+                      workspaceFilesPath={workspaceFilesPath}
+                      sessionPath={null}
+                      sessionAttachedDirs={[]}
+                      workspaceAttachedDirs={wsAttachedDirs}
+                      placeholder="搜索工作区文件..."
+                      onFilePreview={handleFilePreview}
+                    />
                     {/* 工作区文件内容区（独立滚动） */}
                     <div className="flex-1 min-h-0 overflow-y-auto pb-1 scrollbar-thin">
                       {/* 工作区级附加文件 */}

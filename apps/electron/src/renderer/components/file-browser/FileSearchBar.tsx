@@ -17,6 +17,7 @@ interface FileSearchBarProps {
   sessionPath: string | null
   sessionAttachedDirs: string[]
   workspaceAttachedDirs: string[]
+  placeholder?: string
   onFilePreview?: (filePath: string) => void
 }
 
@@ -25,6 +26,7 @@ export function FileSearchBar({
   sessionPath,
   sessionAttachedDirs,
   workspaceAttachedDirs,
+  placeholder = '搜索文件...',
   onFilePreview,
 }: FileSearchBarProps): React.ReactElement | null {
   const [query, setQuery] = React.useState('')
@@ -177,7 +179,7 @@ export function FileSearchBar({
           ref={inputRef}
           type="text"
           className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/40"
-          placeholder="搜索会话文件..."
+          placeholder={placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => { if (results.length > 0) setIsOpen(true) }}
