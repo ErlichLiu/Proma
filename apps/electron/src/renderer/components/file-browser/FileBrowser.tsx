@@ -117,16 +117,13 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty, onAddT
   const revealTs = revealForThisRoot?.ts ?? 0
 
   // ===== autoReveal 带 select 标记时，将目标文件加入选中态 =====
+  const consumedSelectTsRef = React.useRef(0)
   React.useEffect(() => {
     if (!revealForThisRoot?.select || !revealTarget) return
-    setSelectedPaths((prev) => {
-      if (prev.has(revealTarget)) return prev
-      const next = new Set(prev)
-      // 非 Ctrl/Meta 点击语义：单选
-      next.clear()
-      next.add(revealTarget)
-      return next
-    })
+    // 避免同一个 ts 被重复消费
+    if (revealTs <= consumedSelectTsRef.current) return
+    consumedSelectTsRef.current = revealTs
+    setSelectedPaths(new Set([revealTarget]))
   }, [revealTs, revealForThisRoot?.select, revealTarget])
 
   // ===== 最近修改的文件路径（60s 内显示左侧竖条） =====

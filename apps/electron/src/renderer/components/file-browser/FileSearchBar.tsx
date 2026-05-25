@@ -43,6 +43,8 @@ export function FileSearchBar({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout>>()
   const abortRef = React.useRef<AbortController>()
+  /** 用户手动关闭下拉后置为 true，阻止 focus/渲染等副作用重新弹出 */
+  const dismissedRef = React.useRef(false)
 
   const setAutoReveal = useSetAtom(fileBrowserAutoRevealAtom)
 
@@ -67,6 +69,9 @@ export function FileSearchBar({
       setIsOpen(false)
       return
     }
+
+    // 用户开始输入新内容，取消"已关闭"标记
+    dismissedRef.current = false
 
     const ac = new AbortController()
     abortRef.current = ac
@@ -146,6 +151,7 @@ export function FileSearchBar({
     if (e.key === 'Escape') {
       e.preventDefault()
       setIsOpen(false)
+      dismissedRef.current = true
       inputRef.current?.blur()
       return
     }
@@ -167,6 +173,7 @@ export function FileSearchBar({
         if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
         onFilePreview?.(absPath)
         setIsOpen(false)
+        dismissedRef.current = true
         inputRef.current?.blur()
       }
     }
@@ -175,10 +182,11 @@ export function FileSearchBar({
   const handleClick = React.useCallback((entry: FileIndexEntry) => {
     if (entry.type === 'file') {
       const absPath = resolveAbsolutePath(entry)
-      if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now() })
+      if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
       onFilePreview?.(absPath)
     }
     setIsOpen(false)
+    dismissedRef.current = true
     inputRef.current?.blur()
   }, [onFilePreview, sessionId, setAutoReveal, resolveAbsolutePath])
 
@@ -203,7 +211,10 @@ export function FileSearchBar({
           placeholder={placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onClick={() => { if (results.length > 0 && !isOpen) setIsOpen(true) }}
+          onClick={() => {
+            dismissedRef.current = false
+            if (results.length > 0 && !isOpen) setIsOpen(true)
+          }}
           onKeyDown={handleKeyDown}
         />
         {query && !searching && (
