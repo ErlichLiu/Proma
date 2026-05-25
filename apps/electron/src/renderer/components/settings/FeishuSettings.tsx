@@ -637,6 +637,42 @@ function FeishuBindingsTab(): React.ReactElement {
 
 // ===== 扫码注册 Dialog =====
 
+/** 扫码成功页底部的"下一步推荐"：把 CLI 提示词一键复制，让用户去 Agent 会话里跑 */
+function CliRecommendationCard(): React.ReactElement {
+  const [copied, setCopied] = React.useState(false)
+
+  const handleCopy = React.useCallback(() => {
+    navigator.clipboard.writeText(FEISHU_CLI_PROMPT).then(() => {
+      setCopied(true)
+      toast.success('提示词已复制，前往 Agent 对话粘贴发送')
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      toast.error('复制失败')
+    })
+  }, [])
+
+  return (
+    <div className="w-full rounded-lg border border-dashed border-primary/30 bg-primary/5 px-3 py-3 space-y-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 text-xs text-foreground/80 leading-relaxed">
+          <div className="font-medium text-foreground mb-0.5">想要更完整的飞书生态体验？</div>
+          补全飞书 CLI 后 Proma Agent 还可以直接读写你的文档、查日历、发邮件等。
+          复制下方提示词到任意工作区的新对话发送即可，Agent 会全程引导完成。
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleCopy}
+        className="gap-1.5 w-full"
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+        <span>{copied ? '已复制至剪贴板' : '复制配置提示词'}</span>
+      </Button>
+    </div>
+  )
+}
+
 interface RegisterFeishuDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -762,10 +798,15 @@ function RegisterFeishuDialog({ open, onOpenChange, onSuccess }: RegisterFeishuD
           )}
 
           {phase === 'success' && (
-            <div className="flex flex-col items-center gap-2 py-8 text-sm">
-              <CheckCircle2 size={32} className="text-green-600" />
-              <span className="text-foreground font-medium">应用创建成功</span>
-              <span className="text-xs text-muted-foreground">已自动保存配置，正在启动 Bot…</span>
+            <div className="w-full flex flex-col items-center gap-4 py-2">
+              <div className="flex flex-col items-center gap-2 text-sm">
+                <CheckCircle2 size={32} className="text-green-600" />
+                <span className="text-foreground font-medium">应用创建成功</span>
+                <span className="text-xs text-muted-foreground">已自动保存配置，正在启动 Bot…</span>
+              </div>
+
+              {/* 推荐：补全飞书 CLI 获得完整生态体验 */}
+              <CliRecommendationCard />
             </div>
           )}
 
@@ -1135,7 +1176,6 @@ function FeishuConfigTab(): React.ReactElement {
         onOpenChange={setRegisterOpen}
         onSuccess={handleRegisterSuccess}
       />
->>>>>>> af5b7b0 (feat(feishu): 扫码一键创建飞书 Bot（PersonalAgent 应用）)
 
       {/* Bot 列表 */}
       <SettingsSection
