@@ -456,6 +456,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                         sessionAttachedDirs={attachedDirs}
                         workspaceAttachedDirs={[]}
                         placeholder="搜索会话文件..."
+                        sessionId={sessionId}
                         onFilePreview={handleFilePreview}
                       />
                       {/* 会话文件内容区（独立滚动） */}
@@ -546,6 +547,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                       sessionAttachedDirs={[]}
                       workspaceAttachedDirs={wsAttachedDirs}
                       placeholder="搜索工作区文件..."
+                      sessionId={sessionId}
                       onFilePreview={handleFilePreview}
                     />
                     {/* 工作区文件内容区（独立滚动） */}

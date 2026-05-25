@@ -6,10 +6,12 @@
  */
 
 import * as React from 'react'
+import { useSetAtom } from 'jotai'
 import { Search, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FileTypeIcon } from './FileTypeIcon'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { fileBrowserAutoRevealAtom } from '@/atoms/agent-atoms'
 import type { FileIndexEntry } from '@proma/shared'
 
 interface FileSearchBarProps {
@@ -18,6 +20,8 @@ interface FileSearchBarProps {
   sessionAttachedDirs: string[]
   workspaceAttachedDirs: string[]
   placeholder?: string
+  /** 当前 session ID，用于文件自动定位 */
+  sessionId?: string
   onFilePreview?: (filePath: string) => void
 }
 
@@ -27,6 +31,7 @@ export function FileSearchBar({
   sessionAttachedDirs,
   workspaceAttachedDirs,
   placeholder = '搜索文件...',
+  sessionId,
   onFilePreview,
 }: FileSearchBarProps): React.ReactElement | null {
   const [query, setQuery] = React.useState('')
@@ -39,7 +44,17 @@ export function FileSearchBar({
   const debounceRef = React.useRef<ReturnType<typeof setTimeout>>()
   const abortRef = React.useRef<AbortController>()
 
+  const setAutoReveal = useSetAtom(fileBrowserAutoRevealAtom)
+
   const hasAnyRoot = !!workspaceFilesPath || !!sessionPath
+
+  /** 将搜索结果的相对路径转为绝对路径，供 FileBrowser 自动定位使用 */
+  const resolveAbsolutePath = React.useCallback((entry: FileIndexEntry): string => {
+    if (entry.path.startsWith('/')) return entry.path
+    const base = entry.source === 'workspace' ? workspaceFilesPath : sessionPath
+    if (!base) return entry.path
+    return `${base.replace(/\/$/, '')}/${entry.path}`
+  }, [workspaceFilesPath, sessionPath])
 
   // 防抖搜索 — 分别搜索两个目录
   React.useEffect(() => {
@@ -148,18 +163,24 @@ export function FileSearchBar({
       e.preventDefault()
       const entry = results[selectedIndex]
       if (entry && entry.type === 'file') {
-        onFilePreview?.(entry.path)
+        const absPath = resolveAbsolutePath(entry)
+        if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now() })
+        onFilePreview?.(absPath)
         setIsOpen(false)
+        inputRef.current?.blur()
       }
     }
-  }, [results, selectedIndex, isOpen, onFilePreview])
+  }, [results, selectedIndex, isOpen, onFilePreview, sessionId, setAutoReveal, resolveAbsolutePath])
 
   const handleClick = React.useCallback((entry: FileIndexEntry) => {
     if (entry.type === 'file') {
-      onFilePreview?.(entry.path)
+      const absPath = resolveAbsolutePath(entry)
+      if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now() })
+      onFilePreview?.(absPath)
     }
     setIsOpen(false)
-  }, [onFilePreview])
+    inputRef.current?.blur()
+  }, [onFilePreview, sessionId, setAutoReveal, resolveAbsolutePath])
 
   if (!hasAnyRoot) return null
 
