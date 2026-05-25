@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { FileBrowser, FileDropZone, FileTypeIcon } from '@/components/file-browser'
+import { FileBrowser, FileDropZone, FileTypeIcon, FileSearchBar } from '@/components/file-browser'
 import { DiffPanelTabBar } from '@/components/diff/DiffPanelTabBar'
 import { DiffChangesList } from '@/components/diff/DiffChangesList'
 import {
@@ -449,6 +449,14 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           </TooltipContent>
                         </Tooltip>
                       </div>
+                      {/* ===== 文件搜索栏 ===== */}
+                      <FileSearchBar
+                        workspaceFilesPath={workspaceFilesPath}
+                        sessionPath={sessionPath}
+                        sessionAttachedDirs={attachedDirs}
+                        workspaceAttachedDirs={wsAttachedDirs}
+                        onFilePreview={handleFilePreview}
+                      />
                       {/* 会话文件内容区（独立滚动） */}
                       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
                         {/* 附加文件列表 */}
@@ -492,11 +500,10 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           onFoldersDropped={handleSessionFoldersDropped}
                         />
                       </div>
-                      {/* ===== 分隔线 ===== */}
-                      <div className="mx-3 my-3 border-t border-muted-foreground/20" />
                     </>
                   )}
-
+                  {/* ===== 分隔线 ===== */}
+                  <div className="mx-3 my-3 border-t border-muted-foreground/20" />
 
                   {/* ===== 工作区文件区 ===== */}
                   <div className="flex-1 min-h-0 flex flex-col mx-2 mb-2">
