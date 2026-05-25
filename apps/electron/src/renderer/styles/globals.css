@@ -898,10 +898,11 @@
   animation: file-browser-flash 1.2s ease-out;
 }
 
-/* ===== FileBrowser sticky 目录行：下一个直接子行也是 sticky 时去掉本行阴影 =====
-   DOM 结构：[wrapper] > ([sticky row] + [children-container] > [child-wrapper] > [sticky row])
-   使用 :has() 穿透下一层判定，避免多行 sticky 紧贴时 1px 阴影叠加成实线分割 */
-[data-sticky-row="true"]:has(+ div > div:first-of-type > [data-sticky-row="true"]) {
+/* ===== FileBrowser sticky 目录行：子项区内存在 sticky 后代时去掉本行阴影 =====
+   :has() 不限制子项顺序，只要本行的子项区里任意位置存在其他 sticky 目录，
+   表示该 sticky 后代随时可能被钉上来与本行紧贴，预先去掉本行 1px 底部阴影避免叠加出实线分割。
+   只有叶子 sticky（子项里不含其他 sticky 目录）会保留阴影，作为 sticky 区底部与滚动区的分隔 */
+[data-sticky-row="true"]:has(+ div [data-sticky-row="true"]) {
   box-shadow: none !important;
 }
 
