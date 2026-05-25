@@ -40,6 +40,13 @@ function getPathBasename(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
 }
 
+// 附加目录树布局常量——与 components/file-browser/FileBrowser.tsx 保持一致，
+// 使附加目录与主文件树拥有相同的 sticky 堆叠、铺满、引导线 UI。
+const TREE_ROW_HEIGHT = 32
+const TREE_ROW_HORIZONTAL_MARGIN = 8
+const TREE_INDENT_WIDTH = 16
+const MAX_STICKY_DEPTH = 4
+
 function getMediaTypeFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
   const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'])
@@ -768,10 +775,23 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
     setExpanded(!expanded)
   }
 
+  // depth=0 的根行，与 FileBrowser 保持一致的布局：铺满、无外边距、可 sticky
+  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8
+  const guideLeft = paddingLeft + 7
+  const isSticky = expanded
+
   return (
-    <div>
+    <div className="relative">
       <div
-        className="flex items-center gap-1 py-1 pl-2 pr-2 text-sm cursor-pointer hover:bg-accent/50 group mx-2 rounded-lg"
+        data-sticky-row={isSticky ? 'true' : undefined}
+        className={cn(
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          // sticky：不透明背景 + 底部阴影；多行紧贴时由 globals.css 中的 :has() 规则去除中间阴影
+          isSticky && 'sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSticky ? 'hover:bg-accent' : 'hover:bg-accent/50',
+        )}
+        style={{ paddingLeft }}
         onClick={toggleExpand}
       >
         <ChevronRight
@@ -794,14 +814,26 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
           <X className="size-3" />
         </Button>
       </div>
-      {expanded && children.length === 0 && loaded && (
-        <div className="text-[11px] text-muted-foreground/50 py-1" style={{ paddingLeft: 48 }}>
-          空文件夹
+      {expanded && (
+        <div className="relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+          {children.length === 0 && loaded && (
+            <div
+              className="text-[11px] text-muted-foreground/50 py-1"
+              style={{ paddingLeft: paddingLeft + 24 }}
+            >
+              空文件夹
+            </div>
+          )}
+          {children.map((child) => (
+            <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
+          ))}
         </div>
       )}
-      {expanded && children.map((child) => (
-        <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
-      ))}
     </div>
   )
 }
@@ -916,16 +948,33 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
     }
   }
 
-  const paddingLeft = 8 + depth * 16
+  const paddingLeft = TREE_ROW_HORIZONTAL_MARGIN + 8 + depth * TREE_INDENT_WIDTH
+  const guideLeft = paddingLeft + 7
+  const stickyDepth = Math.min(depth, MAX_STICKY_DEPTH)
+  const stickyTop = stickyDepth * TREE_ROW_HEIGHT
+  const stickyZIndex = Math.max(1, 10 - stickyDepth)
+  const isSticky = entry.isDirectory && expanded
 
   return (
     <>
       <div
+        data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
-          'flex items-center gap-1 py-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg',
-          isSelected ? 'bg-accent' : 'hover:bg-accent/50',
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          // sticky：不透明背景 + 底部阴影；多行紧贴时由 globals.css 中的 :has() 规则去除中间阴影
+          isSticky && 'sticky bg-background shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSelected
+            ? 'bg-accent'
+            : isSticky
+              ? 'hover:bg-accent'
+              : 'hover:bg-accent/50',
         )}
-        style={{ paddingLeft }}
+        style={{
+          paddingLeft,
+          top: isSticky ? stickyTop : undefined,
+          zIndex: isSticky ? stickyZIndex : undefined,
+        }}
         onClick={handleClick}
       >
         {entry.isDirectory ? (
@@ -1029,17 +1078,26 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
           )}
         </div>
       </div>
-      {expanded && children.length === 0 && loaded && (
-        <div
-          className="text-[11px] text-muted-foreground/50 py-1"
-          style={{ paddingLeft: paddingLeft + 24 }}
-        >
-          空文件夹
+      {expanded && (
+        <div className="relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+          {children.length === 0 && loaded && (
+            <div
+              className="text-[11px] text-muted-foreground/50 py-1"
+              style={{ paddingLeft: paddingLeft + 24 }}
+            >
+              空文件夹
+            </div>
+          )}
+          {children.map((child) => (
+            <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
+          ))}
         </div>
       )}
-      {expanded && children.map((child) => (
-        <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
-      ))}
     </>
   )
 }
