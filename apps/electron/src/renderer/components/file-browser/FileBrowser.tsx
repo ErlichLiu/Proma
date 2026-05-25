@@ -665,13 +665,25 @@ function FileTreeItem({
         }}
         onClick={handleClick}
       >
-        {/* sticky 状态下在行内画一条层级竖线，位置与下方子项引导线对齐，实现 VS Code 那种横跨 sticky 区的连续竖线 */}
+        {/* sticky 状态下画两种竖线：
+            1）祖先链竖线：贯穿整行，避免下一层 sticky 行的不透明背景遮挡上一层的子项引导线
+            2）自己的子项引导线：仅从三角中心下方（行中）画到行底，与下方子项容器的引导线无缝接续 */}
         {isSticky && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/70"
-            style={{ left: guideLeft }}
-          />
+          <>
+            {Array.from({ length: depth }).map((_, i) => (
+              <span
+                key={`ancestor-guide-${i}`}
+                aria-hidden="true"
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/70"
+                style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
+              />
+            ))}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-0 w-px bg-border/70"
+              style={{ top: TREE_ROW_HEIGHT / 2, left: guideLeft }}
+            />
+          </>
         )}
         {recentlyModifiedSet.has(entry.path) && (
           <span
