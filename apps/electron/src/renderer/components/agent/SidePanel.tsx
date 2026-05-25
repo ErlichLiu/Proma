@@ -935,8 +935,12 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
   // ===== 自动定位：祖先目录自动展开 + 目标行滚动到中心 =====
   React.useEffect(() => {
     if (revealTs === 0 || !revealTarget) return
-    // 祖先目录：自动展开（必要时加载子项）
-    if (entry.isDirectory && revealAncestors && revealAncestors.has(currentPath) && !expanded) {
+
+    const isAncestor = !!revealAncestors && revealAncestors.has(currentPath)
+    const isTarget = currentPath === revealTarget
+
+    // 自身需要展开：祖先目录 OR 目标本身就是目录
+    if (entry.isDirectory && (isAncestor || isTarget) && !expanded) {
       let cancelled = false
       const run = async (): Promise<void> => {
         if (!loaded) {
@@ -954,10 +958,17 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
         if (!cancelled) setExpanded(true)
       }
       void run()
+      // 同时处理"是目标"的滚动需求
+      if (isTarget) {
+        requestAnimationFrame(() => {
+          rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+      }
       return () => { cancelled = true }
     }
+
     // 目标行：滚动到可视区中心（不打 flash，直接靠选中态高亮）
-    if (currentPath === revealTarget) {
+    if (isTarget) {
       requestAnimationFrame(() => {
         rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       })

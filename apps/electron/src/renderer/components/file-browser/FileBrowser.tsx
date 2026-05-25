@@ -481,8 +481,13 @@ function FileTreeItem({
   // ===== Agent 自动定位：祖先目录自动展开 + 目标行滚动到中心 + 0.8s 高亮脉冲 =====
   React.useEffect(() => {
     if (revealTs === 0) return
-    // 祖先目录：自动展开（必要时加载子项）
-    if (entry.isDirectory && revealAncestors.has(entry.path) && !expanded) {
+
+    const cleanups: Array<() => void> = []
+    const isAncestor = revealAncestors.has(entry.path)
+    const isTarget = revealTarget !== null && entry.path === revealTarget
+
+    // 自身需要展开：祖先目录 OR 目标本身就是目录（搜到文件夹时让其展开露出内容）
+    if (entry.isDirectory && (isAncestor || isTarget) && !expanded) {
       let cancelled = false
       const run = async (): Promise<void> => {
         if (!childrenLoaded) {
@@ -499,12 +504,12 @@ function FileTreeItem({
         }
         if (!cancelled) setExpanded(true)
       }
-      run()
-      return () => { cancelled = true }
+      void run()
+      cleanups.push(() => { cancelled = true })
     }
+
     // 目标行：滚动到可视区中心 + 高亮脉冲
-    if (revealTarget && entry.path === revealTarget) {
-      // 等下一帧渲染稳定后再 scroll
+    if (isTarget) {
       requestAnimationFrame(() => {
         rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       })
@@ -516,9 +521,11 @@ function FileTreeItem({
       if (!revealSelect) {
         setFlash(true)
         const t = setTimeout(() => setFlash(false), 1200)
-        return () => clearTimeout(t)
+        cleanups.push(() => clearTimeout(t))
       }
     }
+
+    if (cleanups.length > 0) return () => { for (const c of cleanups) c() }
   }, [revealTs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 重命名编辑状态

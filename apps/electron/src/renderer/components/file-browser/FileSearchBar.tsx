@@ -189,10 +189,11 @@ export function FileSearchBar({
     if (e.key === 'Enter' && isOpen && results.length > 0) {
       e.preventDefault()
       const entry = results[selectedIndex]
-      if (entry && entry.type === 'file') {
+      if (entry) {
         const absPath = resolveAbsolutePath(entry)
         if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
-        onFilePreview?.(absPath)
+        // 文件才打开预览；文件夹仅在文件树中定位+选中
+        if (entry.type === 'file') onFilePreview?.(absPath)
         setIsOpen(false)
         dismissedRef.current = true
         inputRef.current?.blur()
@@ -201,11 +202,10 @@ export function FileSearchBar({
   }, [results, selectedIndex, isOpen, onFilePreview, sessionId, setAutoReveal, resolveAbsolutePath])
 
   const handleClick = React.useCallback((entry: FileIndexEntry) => {
-    if (entry.type === 'file') {
-      const absPath = resolveAbsolutePath(entry)
-      if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
-      onFilePreview?.(absPath)
-    }
+    const absPath = resolveAbsolutePath(entry)
+    if (sessionId) setAutoReveal({ sessionId, path: absPath, ts: Date.now(), select: true })
+    // 文件才打开预览；文件夹仅在文件树中定位+选中
+    if (entry.type === 'file') onFilePreview?.(absPath)
     setIsOpen(false)
     dismissedRef.current = true
     inputRef.current?.blur()
