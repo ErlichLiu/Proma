@@ -69,6 +69,14 @@ import {
   type RunState,
 } from './feishu/card-run-state'
 import { renderCard as renderRunCard } from './feishu/card-renderer-v2'
+import { ScopedQueue } from './feishu/scoped-queue'
+import { RunCoordinator } from './feishu/run-coordinator'
+import {
+  buildAgentUserMessage,
+  fetchQuotedMessage,
+  type BridgeContext,
+  type QuotedMessage,
+} from './feishu/prompt-builder'
 
 // ===== 类型定义 =====
 
@@ -99,6 +107,19 @@ interface SessionBuffer {
   startedAt: number
 }
 
+/** 进入 ScopedQueue 防抖队列的飞书消息载荷 */
+interface QueuedFeishuMessage {
+  msgCtx: FeishuMessageContext
+  text: string
+  imageAttachments: FeishuImageAttachment[]
+  fileAttachments: FeishuFileAttachment[]
+  /** 用户长按"回复"指向的消息 id（飞书 message.parent_id） */
+  parentMessageId?: string
+}
+
+const MESSAGE_DEBOUNCE_MS = 600
+const DEFAULT_MAX_CONCURRENT_RUNS = 3
+
 // ===== Bridge =====
 
 class FeishuBridge {
@@ -128,6 +149,26 @@ class FeishuBridge {
   private streamingCards = new Map<string, CardStream>()
   /** 用过流式卡的 sessionId 集合（complete 时判定是否需要降级回复卡） */
   private streamingCardsUsedSessions = new Set<string>()
+
+  /** 防抖队列：scope → 累积的待处理消息（合并 batch 触发一次 Agent） */
+  private readonly messageQueue = new ScopedQueue<QueuedFeishuMessage>(
+    MESSAGE_DEBOUNCE_MS,
+    (scope, batch) => this.flushMessageBatch(scope, batch),
+  )
+
+  /** Run 协调：per-scope 串行 + 全局并发上限 */
+  private readonly runCoordinator = new RunCoordinator(DEFAULT_MAX_CONCURRENT_RUNS)
+
+  /**
+   * sessionId → resolver：在 Agent runAgentHeadless 的 onComplete / onError
+   * 回调里调用以唤醒 runMergedBatch 的 await，让 RunCoordinator.acquire 拿到
+   * 的槽位真正等到 Agent 结束再释放。
+   *
+   * 解决"runAgentHeadless 是 fire-and-forget，handleUserMessage 内部 await
+   * 返回时 Agent 还没真正跑完"导致 release/unblock 提前执行的问题
+   * （PR review code-reviewer 找到的 blocking bug）。
+   */
+  private readonly runFinishedResolvers = new Map<string, () => void>()
   /** sessionId → 通知模式 */
   private sessionNotifyModes = new Map<string, FeishuNotifyMode>()
   /** 默认通知目标 chatId（最后一个与 Bot 交互的飞书聊天） */
@@ -275,6 +316,12 @@ class FeishuBridge {
     this.chatBindings.clear()
     this.sessionToChat.clear()
     this.sessionBuffers.clear()
+    // 清空防抖队列与 run 协调状态
+    this.messageQueue.cancelAll()
+    this.runCoordinator.abortAll()
+    // resolve 所有 pending run-finished promise，避免 runMergedBatch 阻塞
+    for (const resolver of this.runFinishedResolvers.values()) resolver()
+    this.runFinishedResolvers.clear()
     // 关闭所有正在跑的流式卡（不等返回，避免阻塞 stop）
     for (const stream of this.streamingCards.values()) {
       void stream.close().catch(() => {})
@@ -678,17 +725,159 @@ class FeishuBridge {
     if (this.processingChats.has(chatId)) return
     this.processingChats.add(chatId)
     try {
-      // 命令路由
+      // 命令路由：命令跳过防抖立即执行；同时取消该 scope 累积的普通消息
       if (text.startsWith('/')) {
+        this.messageQueue.cancel(this.resolveScope(chatId))
         await this.handleCommand(msgCtx, text)
         return
       }
 
-      // 普通消息（文本/图片/文件）→ 转发到会话
-      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments)
+      // 普通消息：push 到防抖队列，600ms quiet window 后合并 batch 触发 Agent
+      // 取出用户长按"回复"指向的消息 id（用于 PromptBuilder 拉取被引消息）
+      const parentMessageId = (message.parent_id as string | undefined) || undefined
+
+      const scope = this.resolveScope(chatId)
+      const queued = this.messageQueue.push(scope, {
+        msgCtx,
+        text,
+        imageAttachments,
+        fileAttachments,
+        parentMessageId,
+      })
+      console.log(`[飞书 Bridge] 消息入队: scope=${scope}, 队列长度=${queued}`)
     } finally {
       this.processingChats.delete(chatId)
     }
+  }
+
+  /**
+   * 解析飞书 scope（与 ScopedQueue + RunCoordinator 共享 scope 语义）。
+   * 当前飞书桥不区分话题群 thread，全部按 chatId 处理；未来若支持话题群
+   * 再扩展为 `chatId:threadId`。
+   */
+  private resolveScope(chatId: string): string {
+    return chatId
+  }
+
+  /**
+   * ScopedQueue.onFlush 回调：把 batch 内多条消息合并为单次 Agent 调用。
+   * 这里执行：
+   *   1. 申请并发槽位（runCoordinator.acquire）
+   *   2. 在 messageQueue 上 block 该 scope（run 期间新消息只累积不 flush）
+   *   3. 合并 batch 的 text / attachments / parentMessageId
+   *   4. 调用原有的 handleUserMessage 走完所有现有流程
+   *   5. finally 释放槽位 + unblock 队列（重新 arm quiet window）
+   *
+   * fire-and-forget：onFlush 不能阻塞 ScopedQueue 的内部 timer。
+   */
+  private flushMessageBatch(scope: string, batch: QueuedFeishuMessage[]): void {
+    if (batch.length === 0) return
+    void this.runMergedBatch(scope, batch).catch((error) => {
+      console.error('[飞书 Bridge] flushMessageBatch 异常', { scope, err: error })
+    })
+  }
+
+  private async runMergedBatch(scope: string, batch: QueuedFeishuMessage[]): Promise<void> {
+    const first = batch[0]!
+    const last = batch[batch.length - 1]!
+
+    // 合并：text 用空行拼接；attachments 数组连接；parentMessageId 取最新一条
+    const mergedText = batch
+      .map((m) => m.text.trim())
+      .filter((t) => t.length > 0)
+      .join('\n\n')
+    const mergedImages = batch.flatMap((m) => m.imageAttachments)
+    const mergedFiles = batch.flatMap((m) => m.fileAttachments)
+    const parentMessageId = [...batch].reverse().find((m) => m.parentMessageId)?.parentMessageId
+
+    // batch 内的 msgCtx 取最新一条（messageId 用于 thread reply，senderName 等也用最新值）
+    const msgCtx: FeishuMessageContext = { ...last.msgCtx }
+
+    if (batch.length > 1) {
+      console.log(`[飞书 Bridge] 合并 batch: scope=${scope}, 消息数=${batch.length}, textChars=${mergedText.length}`)
+    }
+
+    // 先 acquire 全局并发槽位（可能等待）；拿到后 block 该 scope 防止
+    // run 期间新消息触发并行 flush
+    const release = await this.runCoordinator.acquire(scope, first.msgCtx.chatId)
+    this.messageQueue.block(scope)
+    try {
+      // 拿到 binding 才有 sessionId；handleUserMessage 内部会自动建会话
+      // 这里先去拿 binding（可能触发 createNewSession 异步），再创建 finished
+      // promise 绑定到该 sessionId
+      const binding = await this.ensureBinding(msgCtx)
+      if (!binding) return
+      const finishedPromise = this.makeRunFinishedPromise(binding.sessionId)
+
+      await this.handleUserMessage(msgCtx, mergedText, mergedImages, mergedFiles, parentMessageId)
+
+      // handleUserMessage 内部 runAgentHeadless 是 fire-and-forget；这里等
+      // onComplete / onError 回调真正触发再释放并发槽位（block-and-merge 的核心保障）
+      await finishedPromise
+    } finally {
+      release()
+      this.messageQueue.unblock(scope)
+    }
+  }
+
+  /**
+   * 确保 chatId 已有 chatBinding；若没有就先创建会话。
+   * 单独抽出来让 runMergedBatch 能在创建 finishedPromise 前拿到 sessionId。
+   */
+  private async ensureBinding(msgCtx: FeishuMessageContext): Promise<FeishuChatBinding | undefined> {
+    const existing = this.chatBindings.get(msgCtx.chatId)
+    if (existing) return existing
+    await this.createNewSession(msgCtx, 'agent')
+    return this.chatBindings.get(msgCtx.chatId)
+  }
+
+  /**
+   * 注册一个 finished promise，由 runAgentHeadless 的 onComplete / onError
+   * 回调（通过 notifyAgentRunFinished）触发 resolve。
+   *
+   * 兜底：30s 内若回调没触发自动 resolve，避免 runCoordinator 死锁。
+   */
+  private makeRunFinishedPromise(sessionId: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      // 同 sessionId 已有 pending resolver 是异常状态（说明前一个 batch 的 run
+      // 还没结束就被另一个 batch 抢入）。绝不能调用旧 resolver——会让前一个
+      // batch 提前 release/unblock 并发槽位，相当于把原 blocking bug 引回来。
+      // 正确处置：警告 + 跳过本次注册（让前 batch 走自己的超时兜底自然清理）。
+      if (this.runFinishedResolvers.has(sessionId)) {
+        console.warn(`[飞书 Bridge] makeRunFinishedPromise: sessionId ${sessionId} 已有 pending resolver，跳过本次注册（让本批次仅靠超时兜底）`)
+        // 直接给本次注册一个 30s 超时 resolver，不进 Map 防覆盖
+        setTimeout(() => resolve(), 30_000)
+        return
+      }
+
+      let resolved = false
+      let timer: NodeJS.Timeout | undefined
+      const finalize = (): void => {
+        if (resolved) return
+        resolved = true
+        if (timer) clearTimeout(timer)
+        this.runFinishedResolvers.delete(sessionId)
+        resolve()
+      }
+      this.runFinishedResolvers.set(sessionId, finalize)
+
+      // 兜底超时：30s 内 Agent 没结束（极端场景），强制释放并发槽位
+      timer = setTimeout(() => {
+        if (!resolved) {
+          console.warn(`[飞书 Bridge] Agent run finished promise 30s 超时，强制释放: ${sessionId}`)
+          finalize()
+        }
+      }, 30_000)
+    })
+  }
+
+  /**
+   * 由 runAgentHeadless 的 onComplete / onError 回调调用，唤醒 runMergedBatch 的 await。
+   * 多次调用幂等（同一 sessionId 只第一次生效）。
+   */
+  private notifyAgentRunFinished(sessionId: string): void {
+    const resolver = this.runFinishedResolvers.get(sessionId)
+    if (resolver) resolver()
   }
 
   private async handleCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
@@ -1088,25 +1277,23 @@ class FeishuBridge {
     text: string,
     imageAttachments: FeishuImageAttachment[] = [],
     fileAttachments: FeishuFileAttachment[] = [],
+    parentMessageId?: string,
   ): Promise<void> {
     const { chatId } = msgCtx
     let binding = this.chatBindings.get(chatId)
 
-    // 自动创建会话
+    // 自动创建会话（runMergedBatch 已通过 ensureBinding 预建，此分支仅作兜底）
     if (!binding) {
       await this.createNewSession(msgCtx, 'agent')
       binding = this.chatBindings.get(chatId)
       if (!binding) return
     }
 
-    // 并发保护：如果该会话的 Agent 仍在运行，直接拒绝，不要触碰 buffer
+    // 兜底并发保护：理论上 RunCoordinator + ScopedQueue.block 已避免 batch
+    // flush 时 session 仍活着，这里 silent skip 防极端竞态（错过的消息会在
+    // unblock 后的下一波 quiet window 里被重新 flush）
     if (isAgentSessionActive(binding.sessionId)) {
-      try {
-        const prefix = this.resolveContextPrefix(chatId)
-        await this.sendCardMessage(chatId, buildErrorCard(`${prefix}上一条消息仍在处理中，请稍候再试`))
-      } catch (error) {
-        console.error(`[飞书 Bridge] 发送忙碌错误卡片失败:`, error)
-      }
+      console.warn(`[飞书 Bridge] handleUserMessage 时 session 仍活，已跳过: ${binding.sessionId}`)
       return
     }
 
@@ -1169,41 +1356,54 @@ class FeishuBridge {
       // 构建消息：附件引用 + 文本
       const hasAnyAttachment = imageAttachments.length > 0 || fileAttachments.length > 0
       const userText = text || (hasAnyAttachment ? '请查看上面附加的文件。' : '')
-      let agentMessage = fileReferences + userText
 
-      // 群聊时注入发送者、群组上下文以及聊天历史到消息
+      // 拉取被引用消息（用户长按"回复"触发；parent_id 由 handleFeishuMessage 透传）
+      let quoted: QuotedMessage | undefined
+      if (parentMessageId && this.client) {
+        quoted = await fetchQuotedMessage(this.client, parentMessageId)
+        if (quoted) {
+          console.log(`[飞书 Bridge] 引用消息已注入: type=${quoted.contentType}, chars=${quoted.content.length}`)
+        }
+      }
+
+      // 群聊上下文 + 历史摘要（保留原 Phase 1 逻辑，作为 group_extra 块）
+      let groupExtraBlock: string | undefined
       if (msgCtx.chatType === 'group') {
         const contextParts: string[] = []
-        if (msgCtx.groupName) {
-          contextParts.push(`[群聊: ${msgCtx.groupName}]`)
-        }
-        if (msgCtx.senderName) {
-          contextParts.push(`[发送者: ${msgCtx.senderName}]`)
-        }
+        if (msgCtx.groupName) contextParts.push(`[群聊: ${msgCtx.groupName}]`)
+        if (msgCtx.senderName) contextParts.push(`[发送者: ${msgCtx.senderName}]`)
 
-        // 注入群成员列表（方便 Agent @某人）
         const groupInfo = this.groupInfoCache.get(chatId)
         if (groupInfo?.members && groupInfo.members.length > 0) {
-          const membersExceptBot = groupInfo.members
-            .filter((m) => m.openId !== this.botOpenId)
-          const memberList = membersExceptBot
-            .map((m) => `${m.name}(${m.openId})`)
-            .join(', ')
+          const membersExceptBot = groupInfo.members.filter((m) => m.openId !== this.botOpenId)
+          const memberList = membersExceptBot.map((m) => `${m.name}(${m.openId})`).join(', ')
           contextParts.push(`[群成员: ${memberList}]`)
           contextParts.push('[提示: 如需 @某人，请直接使用 @姓名 格式，如 @Alice，系统会自动转换为飞书 @mention]')
         }
 
-        // 获取群聊历史消息作为上下文
         const chatHistory = await this.fetchChatHistory(chatId)
         const historyContext = this.formatChatHistoryContext(chatHistory)
 
         const parts: string[] = []
         if (contextParts.length > 0) parts.push(contextParts.join(' '))
         if (historyContext) parts.push(historyContext)
-        if (fileReferences) parts.push(fileReferences.trimEnd())
-        parts.push(userText)
-        agentMessage = parts.join('\n')
+        groupExtraBlock = parts.length > 0 ? parts.join('\n') : undefined
       }
+
+      const bridgeContext: BridgeContext = {
+        chatId: msgCtx.chatId,
+        chatType: msgCtx.chatType,
+        senderOpenId: msgCtx.senderOpenId,
+        senderName: msgCtx.senderName,
+      }
+
+      const agentMessage = buildAgentUserMessage({
+        userText,
+        context: bridgeContext,
+        quoted,
+        attachedFilesBlock: fileReferences.trim() || undefined,
+        groupExtraBlock,
+      })
 
       // Agent 模式 — fire-and-forget，不阻塞事件回调
       // 群聊时注入动态 MCP 工具（允许 Agent 主动拉取更多群聊历史）
@@ -1241,9 +1441,13 @@ class FeishuBridge {
           }
           this.sessionBuffers.delete(binding!.sessionId)
           this.streamingCardsUsedSessions.delete(binding!.sessionId)
+          // 释放 runCoordinator 槽位 + unblock 防抖队列（不依赖 onComplete，
+          // 因为出错路径 Proma orchestrator 也会调 onComplete，但保险起见两端都触发）
+          this.notifyAgentRunFinished(binding!.sessionId)
         },
         onComplete: () => {
-          // complete 事件由 EventBus listener 处理
+          // 真正释放 runCoordinator 槽位的位置：Agent SDK 已结束本轮 query
+          this.notifyAgentRunFinished(binding!.sessionId)
         },
         onTitleUpdated: (_title) => {
           // 标题更新可选通知
