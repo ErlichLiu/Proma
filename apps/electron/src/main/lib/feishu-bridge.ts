@@ -57,6 +57,16 @@ import {
   splitLongContent,
 } from './feishu-message'
 import type { ToolSummary, FormattedAgentResult, WorkspaceListItem } from './feishu-message'
+import { CardStream } from './feishu/card-stream'
+import {
+  createInitialState,
+  finalizeIfRunning,
+  markError,
+  markInterrupted,
+  reduce as reduceRunState,
+  type RunState,
+} from './feishu/card-run-state'
+import { renderCard as renderRunCard } from './feishu/card-renderer-v2'
 
 // ===== 类型定义 =====
 
@@ -108,8 +118,14 @@ class FeishuBridge {
   private chatBindings = new Map<string, FeishuChatBinding>()
   /** sessionId → chatId（反向索引） */
   private sessionToChat = new Map<string, string>()
-  /** sessionId → 文本累积缓冲 */
+  /** sessionId → 文本累积缓冲（桌面通知场景仍依赖） */
   private sessionBuffers = new Map<string, SessionBuffer>()
+  /** sessionId → 流式卡片状态（飞书发起的会话才有） */
+  private streamingRunStates = new Map<string, RunState>()
+  /** sessionId → 流式卡片句柄（飞书发起的会话才有） */
+  private streamingCards = new Map<string, CardStream>()
+  /** 用过流式卡的 sessionId 集合（complete 时判定是否需要降级回复卡） */
+  private streamingCardsUsedSessions = new Set<string>()
   /** sessionId → 通知模式 */
   private sessionNotifyModes = new Map<string, FeishuNotifyMode>()
   /** 默认通知目标 chatId（最后一个与 Bot 交互的飞书聊天） */
@@ -201,6 +217,12 @@ class FeishuBridge {
             console.error('[飞书 Bridge] 处理消息异常:', error)
           })
         },
+        'card.action.trigger': (data: Record<string, unknown>) => {
+          this.handleCardAction(data).catch((error) => {
+            console.error('[飞书 Bridge] 处理卡片回调异常:', error)
+          })
+          return {} // 飞书要求回调返回，空对象即可
+        },
       })
 
       // 创建 WebSocket 长连接
@@ -249,6 +271,13 @@ class FeishuBridge {
     this.chatBindings.clear()
     this.sessionToChat.clear()
     this.sessionBuffers.clear()
+    // 关闭所有正在跑的流式卡（不等返回，避免阻塞 stop）
+    for (const stream of this.streamingCards.values()) {
+      void stream.close().catch(() => {})
+    }
+    this.streamingCards.clear()
+    this.streamingRunStates.clear()
+    this.streamingCardsUsedSessions.clear()
     this.sessionNotifyModes.clear()
     this.recentMessageIds.clear()
     this.recentEventIds.clear()
@@ -1098,16 +1127,37 @@ class FeishuBridge {
       ? `<attached_files>\n${attachedRefs.join('\n')}\n</attached_files>\n\n`
       : ''
 
-    // 初始化缓冲
+    // 初始化缓冲（保留供桌面通知/降级路径使用）
     this.sessionBuffers.set(binding.sessionId, {
       text: '',
       toolSummaries: new Map(),
       startedAt: Date.now(),
     })
 
-    // 发送思考中指示
+    // 初始化流式卡片：发送一张"思考中"骨架卡，后续 handleAgentPayload 持续 update
     const prefix = this.resolveContextPrefix(chatId)
-    await this.sendMessage(chatId, `${prefix}⏳ Agent 处理中...`)
+    const headerTitle = prefix ? `${prefix.trim()} · Agent 处理中` : 'Agent 处理中'
+    const initialState = createInitialState()
+    this.streamingRunStates.set(binding.sessionId, initialState)
+    try {
+      const cardStream = await CardStream.open(
+        this.client!,
+        chatId,
+        renderRunCard(initialState, {
+          stopActionValue: { cmd: 'stop', sessionId: binding.sessionId },
+          header: headerTitle,
+        }),
+        {
+          replyToMessageId: msgCtx.chatType === 'group' ? msgCtx.messageId : undefined,
+        },
+      )
+      this.streamingCards.set(binding.sessionId, cardStream)
+      this.streamingCardsUsedSessions.add(binding.sessionId)
+    } catch (error) {
+      console.error('[飞书 Bridge] 流式卡片创建失败，降级为文本进度提示:', error)
+      // 降级：保留原"⏳ 处理中..."提示，最终走 sendAgentReply 兜底
+      await this.sendMessage(chatId, `${prefix}⏳ Agent 处理中...`)
+    }
 
     if (binding.mode === 'agent') {
       // 构建消息：附件引用 + 文本
@@ -1177,8 +1227,14 @@ class FeishuBridge {
       runAgentHeadless(input, {
         onError: (error) => {
           const errPrefix = this.resolveContextPrefix(chatId)
-          this.sendCardMessage(chatId, buildErrorCard(`${errPrefix}${error}`)).catch(console.error)
+          // 优先把错误显示到流式卡上；没有流式卡才发独立错误卡
+          if (this.streamingCards.has(binding!.sessionId)) {
+            this.markStreamingError(binding!.sessionId, error)
+          } else {
+            this.sendCardMessage(chatId, buildErrorCard(`${errPrefix}${error}`)).catch(console.error)
+          }
           this.sessionBuffers.delete(binding!.sessionId)
+          this.streamingCardsUsedSessions.delete(binding!.sessionId)
         },
         onComplete: () => {
           // complete 事件由 EventBus listener 处理
@@ -1196,12 +1252,81 @@ class FeishuBridge {
     }
   }
 
+  // ===== 卡片回调处理 =====
+
+  /**
+   * 处理飞书卡片按钮点击（card.action.trigger 事件）。
+   *
+   * 路由约定：button.behaviors[0].value 必须是 `{ cmd: string, ... }`
+   * 当前支持的 cmd：
+   * - 'stop': 终止流式卡片对应的 Agent 会话（payload.sessionId 必传）
+   *
+   * 后续 Phase 3/4 会扩展 'permission.respond'、'ask_user.respond' 等。
+   */
+  private async handleCardAction(data: Record<string, unknown>): Promise<void> {
+    const event = (data?.event ?? data) as Record<string, unknown>
+    const action = event?.action as { value?: unknown; tag?: string } | undefined
+    const value = action?.value
+    if (!value || typeof value !== 'object') return
+    const payload = value as Record<string, unknown>
+    const cmd = typeof payload.cmd === 'string' ? payload.cmd : ''
+    if (!cmd) return
+
+    const operator = event?.operator as { open_id?: string } | undefined
+    const operatorOpenId = operator?.open_id ?? ''
+
+    if (cmd === 'stop') {
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      if (!sessionId) return
+      console.log(`[飞书 Bridge] 收到 stop 卡片回调: sessionId=${sessionId.slice(-8)}, operator=${operatorOpenId.slice(-6)}`)
+      try {
+        await stopAgent(sessionId)
+        // 标记流式卡为 interrupted 终态（防止 Agent stop 不及时让用户疑惑）
+        this.markStreamingInterrupted(sessionId)
+      } catch (error) {
+        console.error('[飞书 Bridge] stop Agent 失败:', error)
+      }
+      return
+    }
+
+    console.warn(`[飞书 Bridge] 未识别的卡片回调 cmd: ${cmd}`)
+  }
+
   // ===== EventBus 事件处理 =====
 
   private handleAgentPayload(sessionId: string, payload: AgentStreamPayload): void {
     // 对于飞书发起的会话，缓冲由 handleUserMessage 初始化
     // 对于桌面发起的会话，complete 事件时检查是否需要通知
     const buffer = this.sessionBuffers.get(sessionId)
+
+    // 流式卡片更新（飞书发起的会话才有）
+    const runState = this.streamingRunStates.get(sessionId)
+    const cardStream = this.streamingCards.get(sessionId)
+    if (runState && cardStream) {
+      const nextState = reduceRunState(runState, payload)
+      if (nextState !== runState) {
+        this.streamingRunStates.set(sessionId, nextState)
+        const header = this.resolveContextPrefix(this.sessionToChat.get(sessionId) ?? '')
+        const headerTitle = (header ? `${header.trim()} · ` : '') +
+          (nextState.terminal === 'running' ? 'Agent 处理中' : 'Agent 已完成')
+        const card = renderRunCard(nextState, {
+          stopActionValue: nextState.terminal === 'running'
+            ? { cmd: 'stop', sessionId }
+            : undefined,
+          header: headerTitle,
+        })
+        if (nextState.terminal === 'running') {
+          cardStream.update(card)
+        } else {
+          // 终态：强制 flush 然后 close
+          void cardStream.flush(card).then(() => cardStream.close()).catch((err) => {
+            console.error('[飞书 Bridge] 流式卡片终态刷新失败:', err)
+          })
+          this.streamingRunStates.delete(sessionId)
+          this.streamingCards.delete(sessionId)
+        }
+      }
+    }
 
     if (buffer && payload.kind === 'sdk_message') {
       const msg = payload.message
@@ -1232,15 +1357,17 @@ class FeishuBridge {
           }
         }
       }
-      // result 消息 → 会话完成
-      if (msg.type === 'result') {
-        if (buffer) {
-          this.handleFeishuSessionComplete(sessionId)
-        } else {
-          this.handleDesktopSessionComplete(sessionId)
-        }
-        return
+    }
+
+    // result 路由要放在 buffer 守卫外：桌面发起的会话本来就没 buffer，
+    // 需要走 handleDesktopSessionComplete 检查是否发飞书通知
+    if (payload.kind === 'sdk_message' && payload.message.type === 'result') {
+      if (buffer) {
+        this.handleFeishuSessionComplete(sessionId)
+      } else {
+        this.handleDesktopSessionComplete(sessionId)
       }
+      return
     }
 
     // Proma 内部事件处理：错误等
@@ -1253,14 +1380,54 @@ class FeishuBridge {
           this.sendCardMessage(chatId, buildErrorCard(`${prefix}${aMsg.error.message}`)).catch(console.error)
         }
         this.sessionBuffers.delete(sessionId)
+        // 流式卡片同步标记 error
+        this.markStreamingError(sessionId, aMsg.error.message)
       }
     }
+  }
+
+  /** 给流式卡片打上 error 终态，立即 flush + close。 */
+  private markStreamingError(sessionId: string, message: string): void {
+    const runState = this.streamingRunStates.get(sessionId)
+    const cardStream = this.streamingCards.get(sessionId)
+    if (!runState || !cardStream) return
+    const nextState = markError(runState, message)
+    const header = this.resolveContextPrefix(this.sessionToChat.get(sessionId) ?? '')
+    const headerTitle = (header ? `${header.trim()} · ` : '') + 'Agent 出错'
+    void cardStream
+      .flush(renderRunCard(nextState, { header: headerTitle }))
+      .then(() => cardStream.close())
+      .catch((err) => console.error('[飞书 Bridge] error 终态刷新失败:', err))
+    this.streamingRunStates.delete(sessionId)
+    this.streamingCards.delete(sessionId)
+  }
+
+  /** 给流式卡片打上 interrupted 终态。用于用户主动 /stop 或终止按钮触发。 */
+  private markStreamingInterrupted(sessionId: string): void {
+    const runState = this.streamingRunStates.get(sessionId)
+    const cardStream = this.streamingCards.get(sessionId)
+    if (!runState || !cardStream) return
+    const nextState = markInterrupted(runState)
+    const header = this.resolveContextPrefix(this.sessionToChat.get(sessionId) ?? '')
+    const headerTitle = (header ? `${header.trim()} · ` : '') + 'Agent 已中断'
+    void cardStream
+      .flush(renderRunCard(nextState, { header: headerTitle }))
+      .then(() => cardStream.close())
+      .catch((err) => console.error('[飞书 Bridge] interrupted 终态刷新失败:', err))
+    this.streamingRunStates.delete(sessionId)
+    this.streamingCards.delete(sessionId)
+    // stop 后 Agent 仍可能推 result，需清掉 buffer 与 used 标志避免后续触发 sendAgentReply
+    this.sessionBuffers.delete(sessionId)
+    this.streamingCardsUsedSessions.delete(sessionId)
   }
 
   /** 飞书发起的会话完成：发送完整回复到飞书 */
   private handleFeishuSessionComplete(sessionId: string): void {
     const buffer = this.sessionBuffers.get(sessionId)
     if (!buffer) return
+
+    const usedStreamingCard = this.streamingCardsUsedSessions.has(sessionId)
+    this.streamingCardsUsedSessions.delete(sessionId)
 
     const duration = (Date.now() - buffer.startedAt) / 1000
     const toolSummaries = Array.from(buffer.toolSummaries.values())
@@ -1271,7 +1438,8 @@ class FeishuBridge {
     }
 
     const chatId = this.sessionToChat.get(sessionId)
-    if (chatId) {
+    // 用过流式卡时跳过 sendAgentReply：流式卡已经把完整内容呈现给用户
+    if (chatId && !usedStreamingCard) {
       this.sendAgentReply(chatId, result).catch(console.error)
     }
 
