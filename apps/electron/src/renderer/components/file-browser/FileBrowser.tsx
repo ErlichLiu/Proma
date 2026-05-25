@@ -665,11 +665,11 @@ function FileTreeItem({
         }}
         onClick={handleClick}
       >
-        {/* sticky 状态下画两种竖线：
-            1）祖先链竖线：贯穿整行，避免下一层 sticky 行的不透明背景遮挡上一层的子项引导线
-            2）自己的子项引导线：仅从三角中心下方（行中）画到行底，与下方子项容器的引导线无缝接续
+        {/* sticky 行内仅绘制祖先链竖线，贯穿整行；
+            自己的子项引导线交给下方子项容器（或下一层 sticky 子行的祖先线）负责，
+            使每个文件夹自身行内不会出现从三角下方延伸出的线，符合 VS Code 行为。
             选中态下 bg-accent 不透明背景会盖住原本的 border 色，换成 accent-foreground 以保证对比度 */}
-        {isSticky && (
+        {isSticky && depth > 0 && (
           <>
             {Array.from({ length: depth }).map((_, i) => (
               <span
@@ -682,14 +682,6 @@ function FileTreeItem({
                 style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
               />
             ))}
-            <span
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none absolute bottom-0 w-px',
-                isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
-              )}
-              style={{ top: TREE_ROW_HEIGHT / 2, left: guideLeft }}
-            />
           </>
         )}
         {recentlyModifiedSet.has(entry.path) && (
