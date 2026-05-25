@@ -667,20 +667,27 @@ function FileTreeItem({
       >
         {/* sticky 状态下画两种竖线：
             1）祖先链竖线：贯穿整行，避免下一层 sticky 行的不透明背景遮挡上一层的子项引导线
-            2）自己的子项引导线：仅从三角中心下方（行中）画到行底，与下方子项容器的引导线无缝接续 */}
+            2）自己的子项引导线：仅从三角中心下方（行中）画到行底，与下方子项容器的引导线无缝接续
+            选中态下 bg-accent 不透明背景会盖住原本的 border 色，换成 accent-foreground 以保证对比度 */}
         {isSticky && (
           <>
             {Array.from({ length: depth }).map((_, i) => (
               <span
                 key={`ancestor-guide-${i}`}
                 aria-hidden="true"
-                className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/70"
+                className={cn(
+                  'pointer-events-none absolute top-0 bottom-0 w-px',
+                  isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
+                )}
                 style={{ left: TREE_ROW_HORIZONTAL_MARGIN + 8 + i * TREE_INDENT_WIDTH + 7 }}
               />
             ))}
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-0 w-px bg-border/70"
+              className={cn(
+                'pointer-events-none absolute bottom-0 w-px',
+                isSelected ? 'bg-accent-foreground/30' : 'bg-border/70',
+              )}
               style={{ top: TREE_ROW_HEIGHT / 2, left: guideLeft }}
             />
           </>
