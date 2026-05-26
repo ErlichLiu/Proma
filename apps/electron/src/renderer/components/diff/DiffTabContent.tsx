@@ -194,6 +194,9 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const [markdownSourceMode, setMarkdownSourceMode] = React.useState(false)
   const [markdownDraft, setMarkdownDraft] = React.useState('')
   const [markdownSaving, setMarkdownSaving] = React.useState(false)
+  const [autosaveStatus, setAutosaveStatus] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const lastSavedDraftRef = React.useRef('')
+  const autosaveTimerRef = React.useRef<number | null>(null)
   const [docxHtml, setDocxHtml] = React.useState('')
   const [officeHtml, setOfficeHtml] = React.useState('')
   const [officeText, setOfficeText] = React.useState('')
@@ -733,44 +736,83 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const startMarkdownEdit = React.useCallback(() => {
     if (!isMarkdown) return
     setMarkdownDraft(newContent)
+    lastSavedDraftRef.current = newContent
+    setAutosaveStatus('idle')
     setMarkdownSourceMode(false)
     setMarkdownEditing(true)
   }, [isMarkdown, newContent])
 
-  const cancelMarkdownEdit = React.useCallback(() => {
-    setMarkdownDraft(newContent)
+  // ref 形式的 persist：避免 callback / effect 因 refreshVersion 频繁变化而重建
+  const persistRef = React.useRef<(draft: string, fp: string, fa: typeof fileAccess) => Promise<boolean>>(async () => false)
+
+  const exitMarkdownEdit = React.useCallback(() => {
+    // 退出前 flush 待保存的草稿，避免用户在 debounce 窗口内退出时丢失输入
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+    if (markdownDraft !== lastSavedDraftRef.current && markdownDraft !== '') {
+      void persistRef.current(markdownDraft, filePath, fileAccess)
+    }
     setMarkdownSourceMode(false)
     setMarkdownEditing(false)
-  }, [newContent])
+    setAutosaveStatus('idle')
+  }, [markdownDraft, filePath, fileAccess])
+
+  // 写盘核心：不退出编辑模式，被 autosave、saveMarkdownEdit、flush 共用。
+  // 接收显式参数（不依赖闭包），保证切换文件后 flush 用旧文件路径。
+  const persistMarkdownDraft = React.useCallback(async (
+    draft: string,
+    fp: string,
+    fa: typeof fileAccess,
+  ): Promise<boolean> => {
+    if (draft === lastSavedDraftRef.current) return true
+    setAutosaveStatus('saving')
+    try {
+      const ok = await window.electronAPI.writeTextFile(fp, draft, fa)
+      if (!ok) {
+        setAutosaveStatus('error')
+        return false
+      }
+      lastSavedDraftRef.current = draft
+      // 仅当当前展示的仍是这个文件时，才同步 UI state，避免覆盖刚切到的新文件
+      if (fp === filePathRef.current) {
+        lastNewContentRef.current = draft
+        lastOldContentRef.current = ''
+        setOldContent('')
+        setNewContent(draft)
+        cacheSet(getContentCacheKey('preview', refreshVersion + 1), { oldContent: '', newContent: draft })
+        setRefreshVersionMap((prev) => {
+          const m = new Map(prev)
+          m.set(sessionId, (prev.get(sessionId) ?? 0) + 1)
+          return m
+        })
+        setAutosaveStatus('saved')
+      }
+      return true
+    } catch (err) {
+      console.error('[DiffTabContent] Markdown save failed:', err)
+      setAutosaveStatus('error')
+      return false
+    }
+  }, [getContentCacheKey, refreshVersion, sessionId, setRefreshVersionMap])
 
   const saveMarkdownEdit = React.useCallback(async () => {
     if (!isMarkdown || markdownSaving) return
-    setMarkdownSaving(true)
-    try {
-      const ok = await window.electronAPI.writeTextFile(filePath, markdownDraft, fileAccess)
-      if (!ok) {
-        window.alert('保存失败：没有写入权限或文件不存在')
-        return
-      }
-      lastNewContentRef.current = markdownDraft
-      lastOldContentRef.current = ''
-      setOldContent('')
-      setNewContent(markdownDraft)
-      cacheSet(getContentCacheKey('preview', refreshVersion + 1), { oldContent: '', newContent: markdownDraft })
-      setRefreshVersionMap((prev) => {
-        const m = new Map(prev)
-        m.set(sessionId, (prev.get(sessionId) ?? 0) + 1)
-        return m
-      })
-      setMarkdownSourceMode(false)
-      setMarkdownEditing(false)
-    } catch (err) {
-      console.error('[DiffTabContent] Markdown save failed:', err)
-      window.alert('保存失败')
-    } finally {
-      setMarkdownSaving(false)
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
     }
-  }, [fileAccess, filePath, getContentCacheKey, isMarkdown, markdownDraft, markdownSaving, refreshVersion, sessionId, setRefreshVersionMap])
+    setMarkdownSaving(true)
+    const ok = await persistMarkdownDraft(markdownDraft, filePath, fileAccess)
+    setMarkdownSaving(false)
+    if (!ok) {
+      window.alert('保存失败：没有写入权限或文件不存在')
+      return
+    }
+    setMarkdownSourceMode(false)
+    setMarkdownEditing(false)
+  }, [fileAccess, filePath, isMarkdown, markdownDraft, markdownSaving, persistMarkdownDraft])
 
   const handleManualRefresh = React.useCallback(() => {
     setRefreshVersionMap((prev) => {
@@ -779,6 +821,55 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       return m
     })
   }, [sessionId, setRefreshVersionMap])
+
+  // 自动保存：编辑模式下停止输入 1.5s 后写盘
+  persistRef.current = persistMarkdownDraft
+  React.useEffect(() => {
+    if (!markdownEditing || !isMarkdown) return
+    if (markdownDraft === lastSavedDraftRef.current) return
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current)
+    }
+    const draftSnapshot = markdownDraft
+    const fpSnapshot = filePath
+    const faSnapshot = fileAccess
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null
+      void persistRef.current(draftSnapshot, fpSnapshot, faSnapshot)
+    }, 1500)
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = null
+      }
+    }
+  }, [markdownDraft, markdownEditing, isMarkdown, filePath, fileAccess])
+
+  // saved → 1.5s 后回到 idle，避免指示器一直停在"已保存"
+  React.useEffect(() => {
+    if (autosaveStatus !== 'saved') return
+    const id = window.setTimeout(() => setAutosaveStatus('idle'), 1500)
+    return () => window.clearTimeout(id)
+  }, [autosaveStatus])
+
+  // 切换文件 / 卸载：若有未保存的 draft，fire-and-forget flush 到旧文件
+  const flushStateRef = React.useRef({ draft: '', editing: false, filePath, fileAccess })
+  flushStateRef.current = { draft: markdownDraft, editing: markdownEditing, filePath, fileAccess }
+  React.useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = null
+      }
+      const { draft, editing, filePath: fp, fileAccess: fa } = flushStateRef.current
+      if (editing && isMarkdown && draft !== lastSavedDraftRef.current && draft !== '') {
+        void persistRef.current(draft, fp, fa)
+      }
+    }
+    // 仅依赖 filePath/sessionId：切文件时执行 cleanup 触发 flush；
+    // draft/editing/fileAccess 通过 ref 读取最新值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filePath, sessionId])
 
   return (
     <div className="flex flex-col h-full">
@@ -808,6 +899,21 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
         {previewOnly && isMarkdown && !readOnly && (
           markdownEditing ? (
             <div className="ml-auto flex items-center gap-1">
+              {autosaveStatus !== 'idle' && (
+                <span
+                  className={cn(
+                    'text-[11px] mr-1 select-none transition-opacity',
+                    autosaveStatus === 'saving' && 'text-foreground/40',
+                    autosaveStatus === 'saved' && 'text-foreground/40',
+                    autosaveStatus === 'error' && 'text-red-500',
+                  )}
+                  title={autosaveStatus === 'error' ? '保存失败，点击保存按钮重试' : undefined}
+                >
+                  {autosaveStatus === 'saving' && '保存中…'}
+                  {autosaveStatus === 'saved' && '已保存'}
+                  {autosaveStatus === 'error' && '保存失败'}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => setMarkdownSourceMode((v) => !v)}
@@ -819,10 +925,10 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
               </button>
               <button
                 type="button"
-                onClick={cancelMarkdownEdit}
+                onClick={exitMarkdownEdit}
                 disabled={markdownSaving}
                 className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 disabled:opacity-50 shrink-0"
-                title="取消编辑"
+                title="退出编辑"
               >
                 <X className="size-3.5" />
               </button>
@@ -831,7 +937,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 onClick={() => void saveMarkdownEdit()}
                 disabled={markdownSaving}
                 className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 disabled:opacity-50 shrink-0"
-                title="保存"
+                title="立即保存并退出"
               >
                 <Save className="size-3.5" />
               </button>
@@ -970,7 +1076,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     e.preventDefault()
-                    cancelMarkdownEdit()
+                    exitMarkdownEdit()
                   }
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
@@ -987,7 +1093,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 editing={markdownEditing}
                 onChange={setMarkdownDraft}
                 onSave={() => void saveMarkdownEdit()}
-                onCancel={cancelMarkdownEdit}
+                onCancel={exitMarkdownEdit}
                 onRequestEdit={startMarkdownEdit}
                 disabled={markdownSaving}
                 fileAccess={markdownFileAccess}
