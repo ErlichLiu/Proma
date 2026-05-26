@@ -452,14 +452,85 @@ async function runCmd(
   })
 }
 
+function parseWindowsRegistryValue(stdout: string): string {
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = line.match(/\s+REG_\w+\s+(.+)$/)
+    if (match?.[1]) return match[1].trim()
+  }
+  return ''
+}
+
+function expandWindowsEnvPath(filePath: string): string {
+  return filePath.replace(/%([^%]+)%/g, (token, name: string) => {
+    const foundKey = Object.keys(process.env).find((key) => key.toLowerCase() === name.toLowerCase())
+    return foundKey ? process.env[foundKey] ?? token : token
+  })
+}
+
+function parseWindowsExecutablePath(command: string): string {
+  const match = command.match(/"([^"]+\.exe)"|([^\s"]+\.exe)/i)
+  return expandWindowsEnvPath((match?.[1] || match?.[2] || '').trim())
+}
+
+function isSafeWindowsProgId(progId: string): boolean {
+  return /^[\w.+\\-]+$/.test(progId)
+}
+
+async function getWindowsDefaultAppCommand(progId: string): Promise<string> {
+  if (!isSafeWindowsProgId(progId)) return ''
+
+  const registryResult = await runCmd('reg', [
+    'query',
+    `HKCR\\${progId}\\shell\\open\\command`,
+    '/ve',
+  ])
+  const registryCommand = parseWindowsRegistryValue(registryResult.stdout)
+  if (registryCommand) return registryCommand
+
+  const ftypeResult = await runCmd('cmd', ['/c', `ftype ${progId}`])
+  return (ftypeResult.stdout || '').split('=').slice(1).join('=').trim()
+}
+
+async function getWindowsDefaultAppInfo(filePath: string): Promise<{ appPath: string; appName: string } | null> {
+  const ext = extOf(filePath)
+  // ext 来自渲染进程的 filePath，必须严格校验：cmd /c "assoc ${ext}" 中 & | > < 等会触发命令链
+  if (!/^\.[a-zA-Z0-9]+$/.test(ext)) return null
+
+  const userChoiceResult = await runCmd('reg', [
+    'query',
+    `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\UserChoice`,
+    '/v',
+    'ProgId',
+  ])
+  let progId = parseWindowsRegistryValue(userChoiceResult.stdout)
+
+  if (!progId) {
+    const assoc = await runCmd('cmd', ['/c', `assoc ${ext}`])
+    progId = (assoc.stdout || '').split('=')[1]?.trim() ?? ''
+  }
+  if (!progId || !isSafeWindowsProgId(progId)) return null
+
+  const command = await getWindowsDefaultAppCommand(progId)
+  const appPath = parseWindowsExecutablePath(command)
+  if (!appPath) return null
+
+  const base = appPath.split(/[\\/]/).pop() || ''
+  return { appPath, appName: base.replace(/\.exe$/i, '') }
+}
+
 async function getDefaultAppInfoForFile(
   filePath: string,
+  options?: FileAccessOptions,
 ): Promise<import('@proma/shared').DefaultAppInfo | null> {
-  const cacheKey = `${process.platform}:${extOf(filePath) || filePath}`
-  if (defaultAppCache.has(cacheKey)) return defaultAppCache.get(cacheKey) ?? null
-
   const { resolve } = await import('node:path')
   const absPath = resolve(filePath)
+  if (!isPathAllowed(absPath, options)) {
+    console.warn('[IPC] shell:get-default-app-for-file 拒绝越界路径:', absPath)
+    return null
+  }
+
+  const cacheKey = `${process.platform}:${extOf(filePath) || filePath}`
+  if (defaultAppCache.has(cacheKey)) return defaultAppCache.get(cacheKey) ?? null
 
   let appPath = ''
   let appName = ''
@@ -487,20 +558,10 @@ if let appUrl = NSWorkspace.shared.urlForApplication(toOpen: url) {
       appName = base.replace(/\.app$/, '')
     }
   } else if (process.platform === 'win32') {
-    const ext = extOf(filePath)
-    // ext 来自渲染进程的 filePath，必须严格校验：cmd /c "assoc ${ext}" 中 & | > < 等会触发命令链
-    if (!/^\.[a-zA-Z0-9]+$/.test(ext)) return cacheNull(cacheKey)
-    const assoc = await runCmd('cmd', ['/c', `assoc ${ext}`])
-    const progId = (assoc.stdout || '').split('=')[1]?.trim()
-    if (!progId || !/^[\w.+-]+$/.test(progId)) return cacheNull(cacheKey)
-    const ftype = await runCmd('cmd', ['/c', `ftype ${progId}`])
-    const cmd = (ftype.stdout || '').split('=').slice(1).join('=').trim()
-    const m = cmd.match(/"([^"]+\.exe)"|(\S+\.exe)/i)
-    appPath = (m?.[1] || m?.[2] || '').trim()
-    if (appPath) {
-      const base = appPath.split(/[\\/]/).pop() || ''
-      appName = base.replace(/\.exe$/i, '')
-    }
+    const info = await getWindowsDefaultAppInfo(filePath)
+    if (!info) return cacheNull(cacheKey)
+    appPath = info.appPath
+    appName = info.appName
   } else {
     const mimeRes = await runCmd('xdg-mime', ['query', 'filetype', absPath])
     const mime = mimeRes.stdout.trim()
@@ -766,10 +827,10 @@ export function registerIpcHandlers(): void {
   // 查询某个文件在本机的默认打开应用信息（带图标）
   ipcMain.handle(
     IPC_CHANNELS.GET_DEFAULT_APP_FOR_FILE,
-    async (_, filePath: string): Promise<import('@proma/shared').DefaultAppInfo | null> => {
+    async (_, filePath: string, access?: FileAccessOptions | string[]): Promise<import('@proma/shared').DefaultAppInfo | null> => {
       if (!filePath || typeof filePath !== 'string') return null
       try {
-        return await getDefaultAppInfoForFile(filePath)
+        return await getDefaultAppInfoForFile(filePath, normalizeFileAccessOptions(access))
       } catch (err) {
         console.warn('[IPC] shell:get-default-app-for-file 失败:', err)
         return null

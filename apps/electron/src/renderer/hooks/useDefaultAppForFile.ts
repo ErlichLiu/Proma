@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import type { DefaultAppInfo } from '@proma/shared'
+import type { DefaultAppInfo, FileAccessOptions } from '@proma/shared'
 
 const rendererCache = new Map<string, DefaultAppInfo | null>()
 
@@ -16,7 +16,10 @@ function extKeyOf(filePath: string): string {
   return dot > 0 ? base.slice(dot).toLowerCase() : filePath
 }
 
-export function useDefaultAppForFile(filePath: string | null | undefined): DefaultAppInfo | null {
+export function useDefaultAppForFile(
+  filePath: string | null | undefined,
+  access?: FileAccessOptions,
+): DefaultAppInfo | null {
   const [info, setInfo] = React.useState<DefaultAppInfo | null>(() => {
     if (!filePath) return null
     return rendererCache.get(extKeyOf(filePath)) ?? null
@@ -35,7 +38,7 @@ export function useDefaultAppForFile(filePath: string | null | undefined): Defau
       return
     }
     window.electronAPI
-      .getDefaultAppForFile(filePath)
+      .getDefaultAppForFile(filePath, access)
       .then((result) => {
         if (cancelled) return
         rendererCache.set(key, result)
@@ -49,7 +52,7 @@ export function useDefaultAppForFile(filePath: string | null | undefined): Defau
     return () => {
       cancelled = true
     }
-  }, [filePath])
+  }, [filePath, access])
 
   return info
 }
