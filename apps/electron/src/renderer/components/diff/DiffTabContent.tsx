@@ -746,12 +746,15 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const persistRef = React.useRef<(draft: string, fp: string, fa: typeof fileAccess) => Promise<boolean>>(async () => false)
 
   const exitMarkdownEdit = React.useCallback(() => {
-    // 退出前 flush 待保存的草稿，避免用户在 debounce 窗口内退出时丢失输入
+    // 退出前 flush 待保存的草稿，避免用户在 debounce 窗口内退出时丢失输入。
+    // 不再用 `draft !== ''` 过滤：清空整个文件也是合法编辑，依靠
+    // `draft !== lastSavedDraftRef.current` 已能避免初次进入时无意义写盘
+    // （startMarkdownEdit 时 lastSavedDraftRef = newContent）。
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current)
       autosaveTimerRef.current = null
     }
-    if (markdownDraft !== lastSavedDraftRef.current && markdownDraft !== '') {
+    if (markdownDraft !== lastSavedDraftRef.current) {
       void persistRef.current(markdownDraft, filePath, fileAccess)
     }
     setMarkdownSourceMode(false)
@@ -761,6 +764,8 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
 
   // 写盘核心：不退出编辑模式，被 autosave、saveMarkdownEdit、flush 共用。
   // 接收显式参数（不依赖闭包），保证切换文件后 flush 用旧文件路径。
+  // 同一份 draft 重复触发会被 `draft === lastSavedDraftRef.current` 短路，
+  // 因此 autosave timer 与 unmount cleanup 偶发的双重 fire 不会真的写两次。
   const persistMarkdownDraft = React.useCallback(async (
     draft: string,
     fp: string,
@@ -799,6 +804,9 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
 
   const saveMarkdownEdit = React.useCallback(async () => {
     if (!isMarkdown || markdownSaving) return
+    // autosaveTimerRef 由 autosave effect 创建；这里手动清是为了避免
+    // "立即保存"返回后 effect cleanup 再次清掉一个已经 null 的句柄（无害但冗余），
+    // 同时也确保不会在 await 期间触发延迟回调
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current)
       autosaveTimerRef.current = null
@@ -822,8 +830,15 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     })
   }, [sessionId, setRefreshVersionMap])
 
-  // 自动保存：编辑模式下停止输入 1.5s 后写盘
-  persistRef.current = persistMarkdownDraft
+  // persistRef 始终持有最新 persistMarkdownDraft，供 setTimeout / unmount cleanup 调用。
+  // 用 effect 而非渲染期赋值，避免 React 19 严格模式下并发渲染中途读到中间态。
+  React.useEffect(() => {
+    persistRef.current = persistMarkdownDraft
+  }, [persistMarkdownDraft])
+
+  // 自动保存：编辑模式下停止输入 1.5s 后写盘。
+  // timer 所有权：autosave effect 创建并在 cleanup 中清；saveMarkdownEdit / exitMarkdownEdit
+  // 也会主动清以抢占 debounce。多处清理都是幂等的（设 null 后再清是 no-op）。
   React.useEffect(() => {
     if (!markdownEditing || !isMarkdown) return
     if (markdownDraft === lastSavedDraftRef.current) return
@@ -852,7 +867,9 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     return () => window.clearTimeout(id)
   }, [autosaveStatus])
 
-  // 切换文件 / 卸载：若有未保存的 draft，fire-and-forget flush 到旧文件
+  // 切换文件 / 卸载：若有未保存的 draft，fire-and-forget flush 到旧文件。
+  // persistMarkdownDraft 内的 short-circuit 保证即便 autosave timer 刚 fire 过、
+  // 这里又 flush 一次，也不会真的写两次盘。
   const flushStateRef = React.useRef({ draft: '', editing: false, filePath, fileAccess })
   flushStateRef.current = { draft: markdownDraft, editing: markdownEditing, filePath, fileAccess }
   React.useEffect(() => {
@@ -862,7 +879,9 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
         autosaveTimerRef.current = null
       }
       const { draft, editing, filePath: fp, fileAccess: fa } = flushStateRef.current
-      if (editing && isMarkdown && draft !== lastSavedDraftRef.current && draft !== '') {
+      // 不过滤空 draft：startMarkdownEdit 已把 lastSavedDraftRef 设为 newContent，
+      // 因此"原本就空、未编辑"的情况会被 dirty 比较自动跳过；而"非空清空"是合法操作必须落盘。
+      if (editing && isMarkdown && draft !== lastSavedDraftRef.current) {
         void persistRef.current(draft, fp, fa)
       }
     }
