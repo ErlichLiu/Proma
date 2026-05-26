@@ -513,6 +513,53 @@ async function getWindowsDefaultAppInfo(filePath: string): Promise<{ appPath: st
     progId = (assoc.stdout || '').split('=')[1]?.trim() ?? ''
     console.log('[DefaultApp] assoc fallback progId=%s', progId)
   }
+  // 第三 fallback：HKCU OpenWithList MRU（取最近使用的 exe，与 Windows 设置显示一致）
+  if (!progId) {
+    const mruResult = await runCmd('reg', [
+      'query',
+      `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\OpenWithList`,
+    ])
+    const mruLine = mruResult.stdout.split(/\r?\n/).find((l) => /\s+MRUList\s+REG_SZ\s+/.test(l))
+    const mruOrder = mruLine?.split(/\s+REG_SZ\s+/)[1]?.trim() ?? ''
+    if (mruOrder) {
+      const firstKey = mruOrder[0]
+      const exeLine = mruResult.stdout.split(/\r?\n/).find((l) => new RegExp(`\\s+${firstKey}\\s+REG_SZ\\s+`).test(l))
+      const exeName = exeLine?.split(/\s+REG_SZ\s+/)[1]?.trim() ?? ''
+      if (exeName) {
+        // 从 App Paths 把 exe 名转成 progId（取 exe 对应的 HKCR 下注册的 ProgId）
+        // 直接用 exe 名（去掉 .exe）当 appName，appPath 从 App Paths 查
+        const appName = exeName.replace(/\.exe$/i, '')
+        const apResult = await runCmd('reg', [
+          'query', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`, '/ve',
+        ])
+        let exePath = parseWindowsRegistryValue(apResult.stdout)
+        if (!exePath) {
+          const apResult2 = await runCmd('reg', [
+            'query', `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`, '/ve',
+          ])
+          exePath = parseWindowsRegistryValue(apResult2.stdout)
+        }
+        console.log('[DefaultApp] OpenWithList MRU fallback: exe=%s path=%s', exeName, exePath)
+        if (exePath) return { appPath: exePath, appName }
+      }
+    }
+  }
+  // 第四 fallback：HKCU OpenWithProgids（无 UserChoice 但有文件类型关联时）
+  if (!progId) {
+    const owpResult = await runCmd('reg', [
+      'query',
+      `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\OpenWithProgids`,
+    ])
+    // 取第一个非空值名（跳过空行和路径行）
+    for (const line of owpResult.stdout.split(/\r?\n/)) {
+      const m = line.match(/^\s+(\S+)\s+REG_/)
+      if (m && m[1] && isSafeWindowsProgId(m[1])) {
+        progId = m[1]
+        console.log('[DefaultApp] OpenWithProgids fallback progId=%s', progId)
+        break
+      }
+    }
+  }
   if (!progId || !isSafeWindowsProgId(progId)) {
     console.log('[DefaultApp] progId 无效或不安全:', progId)
     return null
