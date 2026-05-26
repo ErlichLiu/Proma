@@ -899,21 +899,6 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
         {previewOnly && isMarkdown && !readOnly && (
           markdownEditing ? (
             <div className="ml-auto flex items-center gap-1">
-              {autosaveStatus !== 'idle' && (
-                <span
-                  className={cn(
-                    'text-[11px] mr-1 select-none transition-opacity',
-                    autosaveStatus === 'saving' && 'text-foreground/40',
-                    autosaveStatus === 'saved' && 'text-foreground/40',
-                    autosaveStatus === 'error' && 'text-red-500',
-                  )}
-                  title={autosaveStatus === 'error' ? '保存失败，点击保存按钮重试' : undefined}
-                >
-                  {autosaveStatus === 'saving' && '保存中…'}
-                  {autosaveStatus === 'saved' && '已保存'}
-                  {autosaveStatus === 'error' && '保存失败'}
-                </span>
-              )}
               <button
                 type="button"
                 onClick={() => setMarkdownSourceMode((v) => !v)}
@@ -936,8 +921,19 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 type="button"
                 onClick={() => void saveMarkdownEdit()}
                 disabled={markdownSaving}
-                className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 disabled:opacity-50 shrink-0"
-                title="立即保存并退出"
+                className={cn(
+                  'p-1 rounded hover:bg-foreground/[0.06] disabled:opacity-50 shrink-0 transition-colors duration-300',
+                  autosaveStatus === 'saved' && 'text-green-500 hover:text-green-500',
+                  autosaveStatus === 'error' && 'text-red-500 hover:text-red-500',
+                  autosaveStatus !== 'saved' && autosaveStatus !== 'error' && 'text-foreground/40 hover:text-foreground/60',
+                )}
+                title={
+                  autosaveStatus === 'error'
+                    ? '自动保存失败，点击重试'
+                    : autosaveStatus === 'saved'
+                      ? '已保存'
+                      : '立即保存并退出'
+                }
               >
                 <Save className="size-3.5" />
               </button>
