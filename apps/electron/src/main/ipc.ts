@@ -473,7 +473,7 @@ function parseWindowsExecutablePath(command: string): string {
 }
 
 function isSafeWindowsProgId(progId: string): boolean {
-  return /^[\w.+\\-]+$/.test(progId)
+  return /^[a-zA-Z0-9_.+-]+$/.test(progId)
 }
 
 async function getWindowsDefaultAppCommand(progId: string): Promise<string> {
@@ -510,7 +510,7 @@ async function getWindowsDefaultAppInfo(filePath: string): Promise<{ appPath: st
 
   if (!progId) {
     const assoc = await runCmd('cmd', ['/c', `assoc ${ext}`])
-    progId = (assoc.stdout || '').split('=')[1]?.trim() ?? ''
+    progId = (assoc.stdout || '').split('=').slice(1).join('=').trim()
     console.log('[DefaultApp] assoc fallback progId=%s', progId)
   }
   // 第三 fallback：HKCU OpenWithList MRU（取最近使用的 exe，与 Windows 设置显示一致）
@@ -525,7 +525,7 @@ async function getWindowsDefaultAppInfo(filePath: string): Promise<{ appPath: st
       const firstKey = mruOrder[0]
       const exeLine = mruResult.stdout.split(/\r?\n/).find((l) => new RegExp(`\\s+${firstKey}\\s+REG_SZ\\s+`).test(l))
       const exeName = exeLine?.split(/\s+REG_SZ\s+/)[1]?.trim() ?? ''
-      if (exeName) {
+      if (exeName && /^[a-zA-Z0-9 _.+()-]+\.exe$/i.test(exeName)) {
         // 从 App Paths 把 exe 名转成 progId（取 exe 对应的 HKCR 下注册的 ProgId）
         // 直接用 exe 名（去掉 .exe）当 appName，appPath 从 App Paths 查
         const appName = exeName.replace(/\.exe$/i, '')
@@ -599,7 +599,7 @@ async function getWindowsDefaultAppInfo(filePath: string): Promise<{ appPath: st
     const appModelResult = await runCmd('reg', ['query', `HKCR\\${progId}`, '/v', 'AppUserModelId'])
     const appModelId = parseWindowsRegistryValue(appModelResult.stdout)
     const candidateAppName = (appModelId || rootName || '').replace(/\s+(HTML?\s+)?(Document|File)$/i, '').trim()
-    if (!candidateAppName) return null
+    if (!candidateAppName || !/^[a-zA-Z0-9 _.+-]+$/.test(candidateAppName)) return null
     // 从 App Paths 找 exe（应用注册了 App Paths 就能找到）
     const appPathsResult = await runCmd('reg', [
       'query', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${candidateAppName}.exe`, '/ve',
