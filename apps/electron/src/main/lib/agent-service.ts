@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path'
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
-import { AGENT_IPC_CHANNELS, MAX_ATTACHMENT_SIZE } from '@proma/shared'
+import { AGENT_IPC_CHANNELS, MAX_ATTACHMENT_SIZE, ProviderType } from '@proma/shared'
 import type {
   AgentSendInput,
   AgentGenerateTitleInput,
@@ -25,11 +25,29 @@ import type {
   AgentStreamPayload,
   AgentQueueMessageInput,
   PromaPermissionMode,
+  AgentProviderAdapter,
 } from '@proma/shared'
 import { ClaudeAgentAdapter, scanAndKillOrphanedClaudeSubprocesses } from './adapters/claude-agent-adapter'
+import { OpenAIAgentAdapter } from './adapters/openai-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
 import { AgentOrchestrator } from './agent-orchestrator'
 import { getAgentSessionWorkspacePath, getWorkspaceFilesDir } from './config-paths'
+import { getChannelById } from './channel-manager'
+
+// ===== 适配器工厂 =====
+
+function createAdapter(providerType: ProviderType): AgentProviderAdapter {
+  switch (providerType) {
+    case 'openai':
+    case 'zhipu':
+    case 'doubao':
+    case 'qwen':
+    case 'custom':
+      return new OpenAIAgentAdapter()
+    default:
+      return new ClaudeAgentAdapter()
+  }
+}
 
 // ===== 实例创建 =====
 
