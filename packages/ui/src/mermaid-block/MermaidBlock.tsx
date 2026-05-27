@@ -51,6 +51,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
+/**
+ * 判断 mermaid 渲染结果是否无效（图表类型不支持、解析失败等）
+ *
+ * beautiful-mermaid 0.1.x 在不支持的图表类型（block-beta、mindmap、timeline 等）
+ * 上不会抛错，而是返回带 -Infinity 尺寸的空 SVG，注入 DOM 后会触发 React
+ * "<svg> attribute viewBox: Expected number" 报错。检测到无效 SVG 时直接
+ * 不切到 SVG 层，让源码层继续展示。
+ */
+function isInvalidMermaidSvg(svg: string): boolean {
+  return svg.includes('-Infinity')
+    || svg.includes('aria-roledescription="error"')
+    || svg.includes('class="error-text"')
+}
+
 // ===== 图标（与 CodeBlock 一致） =====
 
 const ICON_ATTRS = {
@@ -119,7 +133,7 @@ export function MermaidBlock({ code }: MermaidBlockProps): React.ReactElement {
         const svg = await renderMermaid(codeRef.current, getThemeOptions())
         // 只有最新一代的结果才生效，旧的全部丢弃
         if (generationRef.current !== currentGen) return
-        if (typeof svg === 'string' && svg.length > 0) {
+        if (typeof svg === 'string' && svg.length > 0 && !isInvalidMermaidSvg(svg)) {
           setSvgHtml(svg)
           requestAnimationFrame(() => setSvgVisible(true))
         }
@@ -141,7 +155,7 @@ export function MermaidBlock({ code }: MermaidBlockProps): React.ReactElement {
       try {
         const svg = await renderMermaid(codeRef.current, getThemeOptions())
         if (generationRef.current !== gen) return
-        if (typeof svg === 'string' && svg.length > 0) {
+        if (typeof svg === 'string' && svg.length > 0 && !isInvalidMermaidSvg(svg)) {
           setSvgHtml(svg)
           setSvgVisible(true)
         }
