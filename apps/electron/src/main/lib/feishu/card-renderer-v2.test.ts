@@ -9,7 +9,9 @@ interface CardNode {
   body?: { elements?: unknown[] }
 }
 
-const EMOJI_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u
+// Extended_Pictographic 比手写的范围数组更完整：覆盖国旗、Dingbats 扩展、
+// Symbols-and-Pictographs 等所有官方分类的 emoji 字符（不含修饰符与 ZWJ）。
+const EMOJI_PATTERN = /\p{Extended_Pictographic}/u
 
 function tool(id: string, status: ToolEntry['status']): ToolEntry {
   return {

@@ -48,39 +48,6 @@ export function buildAgentReplyCard(result: FormattedAgentResult, subtitle?: str
 }
 
 /**
- * 构建桌面端通知的飞书摘要卡片（非飞书发起的会话）
- */
-export function buildNotificationCard(
-  sessionTitle: string,
-  preview: string,
-  toolSummaries: ToolSummary[],
-  duration: number,
-): Record<string, unknown> {
-  const toolLine = formatToolSummaryLine(toolSummaries, duration)
-
-  return {
-    config: { wide_screen_mode: true },
-    header: {
-      title: { tag: 'plain_text', content: 'Proma 任务完成' },
-      template: 'green',
-    },
-    elements: [
-      {
-        tag: 'markdown',
-        content: `**会话**: ${sessionTitle}\n\n${preview.slice(0, 200)}${preview.length > 200 ? '...' : ''}`,
-      },
-      ...(toolLine ? [
-        { tag: 'hr' },
-        {
-          tag: 'note',
-          elements: [{ tag: 'plain_text', content: `${toolLine} | 在 Proma 中查看完整回复` }],
-        },
-      ] : []),
-    ],
-  }
-}
-
-/**
  * 构建错误卡片
  */
 export function buildErrorCard(errorMessage: string): Record<string, unknown> {

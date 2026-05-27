@@ -16,7 +16,6 @@ import type {
   FeishuBridgeState,
   FeishuChatBinding,
   FeishuTestResult,
-  FeishuNotifyMode,
   FeishuMention,
   FeishuGroupInfo,
   FeishuGroupMember,
@@ -37,7 +36,7 @@ import {
   getAgentWorkspace,
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
-import { getFeishuBotBindingsPath } from './config-paths'
+import { getFeishuBotBindingsPath, getFeishuBotMetadataPath } from './config-paths'
 import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import {
   inferImageMediaType as inferImageMediaTypeShared,
@@ -148,8 +147,10 @@ class FeishuBridge {
   private streamingCards = new Map<string, CardStream>()
   /** 用过流式卡的 sessionId 集合（complete 时判定是否需要降级回复卡） */
   private streamingCardsUsedSessions = new Set<string>()
-  /** 已经由飞书流式卡处理过终态的 session，后续 result 不再重复通知。 */
-  private streamingTerminalHandledSessions = new Set<string>()
+  /** 已经由飞书流式卡处理过终态的 session → 标记时间戳。
+   *  收到 result 时 delete 即可；如果 Agent 异常退出 result 不到达，
+   *  下次写入会顺手回收 5 分钟前的过期条目，避免长尾泄漏。 */
+  private streamingTerminalHandledSessions = new Map<string, number>()
 
   /** 防抖队列：scope → 累积的待处理消息（合并 batch 触发一次 Agent） */
   private readonly messageQueue = new ScopedQueue<QueuedFeishuMessage>(
@@ -276,6 +277,8 @@ class FeishuBridge {
 
       // 恢复之前的聊天绑定
       this.loadBindings()
+      // 恢复运行时元数据（最近交互用户等）
+      this.loadMetadata()
 
       this.updateStatus({ status: 'connected', connectedAt: Date.now() })
       console.log('[飞书 Bridge] 已连接')
@@ -321,7 +324,8 @@ class FeishuBridge {
     this.lastUserMessageId.clear()
     this.groupInfoCache.clear()
     this.userNameCache.clear()
-    this.lastInteractedUserOpenId = null
+    // 注意：lastInteractedUserOpenId 不在 stop 中清空——它代表"用户曾经与该 Bot 互动过"的事实，
+    // 重启后仍需用来给桌面 Session 镜像建群。完整重置请删除 ~/.proma/feishu-metadata-{botId}.json。
     this.botOpenId = null
 
     this.updateStatus({ status: 'disconnected', activeBindings: 0 })
@@ -380,6 +384,44 @@ class FeishuBridge {
     }
   }
 
+  /**
+   * 加载 Bot 级运行时元数据（如最近交互用户的 open_id）。
+   *
+   * 之所以用独立文件而非合入 bindings：bindings 是数组，元数据是对象，
+   * 形态不同；并且元数据需要在 disconnect/stop 时仍然保留，被显式
+   * 重置才会清空。
+   */
+  private loadMetadata(): void {
+    const metaPath = getFeishuBotMetadataPath(this.botConfig.id)
+    if (!existsSync(metaPath)) return
+
+    try {
+      const raw = readFileSync(metaPath, 'utf-8')
+      const data = JSON.parse(raw) as { lastInteractedUserOpenId?: string }
+      if (data.lastInteractedUserOpenId && data.lastInteractedUserOpenId !== 'unknown') {
+        this.lastInteractedUserOpenId = data.lastInteractedUserOpenId
+      }
+    } catch (error) {
+      console.error('[飞书 Bridge] 加载元数据失败:', error)
+    }
+  }
+
+  private saveMetadata(): void {
+    try {
+      const metaPath = getFeishuBotMetadataPath(this.botConfig.id)
+      const data = { lastInteractedUserOpenId: this.lastInteractedUserOpenId }
+      writeFileSync(metaPath, JSON.stringify(data, null, 2), 'utf-8')
+    } catch (error) {
+      console.error('[飞书 Bridge] 保存元数据失败:', error)
+    }
+  }
+
+  private setLastInteractedUserOpenId(openId: string | null): void {
+    if (this.lastInteractedUserOpenId === openId) return
+    this.lastInteractedUserOpenId = openId
+    this.saveMetadata()
+  }
+
   // ===== 状态查询 =====
 
   getStatus(): FeishuBridgeState {
@@ -415,14 +457,11 @@ class FeishuBridge {
     if (!binding) return false
 
     this.sessionToChat.delete(binding.sessionId)
+    this.streamingTerminalHandledSessions.delete(binding.sessionId)
     this.chatBindings.delete(chatId)
     this.updateStatus({ activeBindings: this.chatBindings.size })
     this.saveBindings()
     return true
-  }
-
-  setSessionNotifyMode(sessionId: string, mode: FeishuNotifyMode): void {
-    console.warn(`[飞书 Bridge] setSessionNotifyMode 已废弃，忽略 session=${sessionId}, mode=${mode}`)
   }
 
   /**
@@ -663,8 +702,10 @@ class FeishuBridge {
       this.lastUserMessageId.set(chatId, messageId)
     }
 
-    // 记录最近交互用户，用于桌面 Session 镜像建群。
-    this.lastInteractedUserOpenId = userId
+    // 记录最近交互用户，用于桌面 Session 镜像建群（持久化以跨进程重启）。
+    if (userId && userId !== 'unknown') {
+      this.setLastInteractedUserOpenId(userId)
+    }
 
     // 仅处理文本、图片、富文本和文件消息
     const supportedTypes = new Set(['text', 'image', 'post', 'file'])
@@ -1034,25 +1075,22 @@ class FeishuBridge {
     if (!this.client) return null
 
     try {
-      const resp = await this.client.request<{
-        code?: number
-        msg?: string
-        data?: {
-          chat_id?: string
-          chat?: { chat_id?: string }
-        }
-      }>({
-        method: 'POST',
-        url: 'https://open.feishu.cn/open-apis/im/v1/chats?user_id_type=open_id',
+      const resp = await this.client.im.chat.create({
         data: {
           name,
           chat_mode: 'group',
           chat_type: 'private',
           user_id_list: [userOpenId],
         },
+        params: { user_id_type: 'open_id' },
       })
 
-      const chatId = resp.data?.chat_id ?? resp.data?.chat?.chat_id
+      if (resp.code && resp.code !== 0) {
+        console.error('[飞书 Session 镜像] 创建群返回非 0 code:', resp.code, resp.msg)
+        return null
+      }
+
+      const chatId = resp.data?.chat_id
       if (!chatId) {
         console.error('[飞书 Session 镜像] 创建群未返回 chat_id:', JSON.stringify(resp).slice(0, 300))
         return null
@@ -1216,7 +1254,7 @@ class FeishuBridge {
     this.updateStatus({ activeBindings: this.chatBindings.size })
     this.saveBindings()
 
-        await this.sendMessage(chatId, `已切换到会话: ${match.title} (${match.id.slice(0, 8)})`)
+    await this.sendMessage(chatId, `已切换到会话: ${match.title} (${match.id.slice(0, 8)})`)
   }
 
   private async handleWorkspaceCommand(msgCtx: FeishuMessageContext, arg?: string): Promise<void> {
@@ -1645,8 +1683,8 @@ class FeishuBridge {
       }
     }
 
-    // result 路由要放在 buffer 守卫外：桌面发起的会话本来就没 buffer，
-    // 需要走 handleDesktopSessionComplete 检查是否发飞书通知
+    // result 路由要放在 buffer 守卫外：桌面发起且未启用 Session 镜像时
+    // 没有任何状态需要清理，直接 no-op；启用镜像时由流式卡分支兜住。
     if (payload.kind === 'sdk_message' && payload.message.type === 'result') {
       if (buffer) {
         this.handleFeishuSessionComplete(sessionId)
@@ -1655,8 +1693,6 @@ class FeishuBridge {
       } else if (this.streamingCardsUsedSessions.has(sessionId)) {
         // 桌面 Session 镜像已经在流式卡片里完成终态展示，避免重复处理。
         this.streamingCardsUsedSessions.delete(sessionId)
-      } else {
-        this.handleDesktopSessionComplete(sessionId)
       }
       return
     }
@@ -1715,7 +1751,20 @@ class FeishuBridge {
     // stop 后 Agent 仍可能推 result，需清掉 buffer 与 used 标志避免后续触发 sendAgentReply
     this.sessionBuffers.delete(sessionId)
     this.streamingCardsUsedSessions.delete(sessionId)
-    this.streamingTerminalHandledSessions.add(sessionId)
+    this.markTerminalHandled(sessionId)
+  }
+
+  /** 懒回收的 5 分钟兜底（防御 Agent 异常退出导致 result 不到达）。 */
+  private static readonly TERMINAL_HANDLED_TTL_MS = 5 * 60 * 1000
+
+  private markTerminalHandled(sessionId: string): void {
+    const now = Date.now()
+    for (const [sid, ts] of this.streamingTerminalHandledSessions) {
+      if (now - ts > FeishuBridge.TERMINAL_HANDLED_TTL_MS) {
+        this.streamingTerminalHandledSessions.delete(sid)
+      }
+    }
+    this.streamingTerminalHandledSessions.set(sessionId, now)
   }
 
   /** 飞书发起的会话完成：发送完整回复到飞书 */
@@ -1741,13 +1790,6 @@ class FeishuBridge {
     }
 
     this.sessionBuffers.delete(sessionId)
-  }
-
-  /** 桌面发起的会话完成：实时同步模式由流式卡负责，关闭模式不发送任何飞书消息。 */
-  private handleDesktopSessionComplete(sessionId: string): void {
-    const globalMode = getSettings().feishuSessionMirror?.mode ?? 'off'
-    if (globalMode === 'off' || globalMode === 'stream') return
-    console.warn(`[飞书 Session 镜像] 未知同步模式，忽略 session=${sessionId}, mode=${globalMode}`)
   }
 
   private async sendAgentReply(chatId: string, result: FormattedAgentResult): Promise<void> {

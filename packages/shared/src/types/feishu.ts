@@ -159,11 +159,6 @@ export interface FeishuChatBinding {
   createdAt: number
 }
 
-// ===== 通知模式 =====
-
-/** 飞书通知模式（per-session） */
-export type FeishuNotifyMode = 'auto' | 'always' | 'off'
-
 // ===== 连接测试 =====
 
 /** 飞书连接测试结果 */
@@ -182,13 +177,6 @@ export interface FeishuPresenceReport {
   activeSessionId: string | null
   /** 最后交互时间戳 */
   lastInteractionAt: number
-}
-
-/** 飞书通知已发送的事件载荷 */
-export interface FeishuNotificationSentPayload {
-  sessionId: string
-  sessionTitle: string
-  preview: string
 }
 
 // ===== 群聊相关类型 =====
@@ -290,10 +278,6 @@ export const FEISHU_IPC_CHANNELS = {
   REMOVE_BINDING: 'feishu:remove-binding',
   /** 渲染进程 → 主进程：上报用户在场状态 */
   REPORT_PRESENCE: 'feishu:report-presence',
-  /** 渲染进程 → 主进程：设置某会话的通知模式 */
-  SET_SESSION_NOTIFY: 'feishu:set-session-notify',
-  /** 主进程 → 渲染进程：飞书通知已发送 */
-  NOTIFICATION_SENT: 'feishu:notification-sent',
 
   // ===== 多 Bot（v2）=====
 

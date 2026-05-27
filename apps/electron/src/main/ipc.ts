@@ -91,7 +91,6 @@ import type {
   FeishuTestResult,
   FeishuChatBinding,
   FeishuPresenceReport,
-  FeishuNotifyMode,
   FeishuUpdateBindingInput,
   FeishuRegisterAppQRCode,
   FeishuRegisterAppStatus,
@@ -3304,17 +3303,6 @@ export function registerIpcHandlers(): void {
     FEISHU_IPC_CHANNELS.REPORT_PRESENCE,
     async (_, report: FeishuPresenceReport): Promise<void> => {
       presenceService.updatePresence(report)
-    }
-  )
-
-  // 设置会话通知模式
-  ipcMain.handle(
-    FEISHU_IPC_CHANNELS.SET_SESSION_NOTIFY,
-    async (_, sessionId: string, mode: FeishuNotifyMode): Promise<void> => {
-      // 通知模式需要发到所有 Bridge（不确定哪个 Bridge 持有该 session）
-      for (const bridge of feishuBridgeManager.getAllBridges().values()) {
-        bridge.setSessionNotifyMode(sessionId, mode)
-      }
     }
   )
 
