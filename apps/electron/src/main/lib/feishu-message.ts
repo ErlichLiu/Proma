@@ -116,7 +116,7 @@ export function buildSessionListCard(
 
   for (const ws of workspaces) {
     const isCurrent = ws.id === currentWorkspaceId
-    const wsLabel = isCurrent ? `📂 **${ws.name}**（当前）` : `📁 ${ws.name}`
+    const wsLabel = isCurrent ? `**${ws.name}**（当前）` : ws.name
 
     if (ws.sessions.length === 0) {
       elements.push({
@@ -176,7 +176,7 @@ export function buildWorkspaceSwitchedCard(
 
   elements.push({
     tag: 'markdown',
-    content: `📂 已切换到工作区: **${workspaceName}**`,
+    content: `已切换到工作区: **${workspaceName}**`,
   })
 
   if (sessions.length > 0) {
@@ -286,11 +286,11 @@ function formatToolSummaryLine(summaries: ToolSummary[], durationSeconds: number
 
   if (summaries.length > 0) {
     const toolParts = summaries.map((s) => `${s.toolName} x${s.count}`)
-    parts.push(`🔧 ${toolParts.join(', ')}`)
+    parts.push(`工具 ${toolParts.join(', ')}`)
   }
 
   if (durationSeconds > 0) {
-    parts.push(`⏱ ${Math.round(durationSeconds)}s`)
+    parts.push(`${Math.round(durationSeconds)}s`)
   }
 
   return parts.join(' | ')

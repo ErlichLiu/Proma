@@ -76,6 +76,19 @@ export interface FeishuBotConfigInput {
   defaultModelId?: string
 }
 
+// ===== Session 镜像 =====
+
+/** 飞书 Session 同步模式 */
+export type FeishuSessionSyncMode = 'off' | 'stream'
+
+/** 飞书 Session 镜像设置：多个 Bot 中只能选择一个作为同步 Bot */
+export interface FeishuSessionMirrorSettings {
+  /** 同步模式：关闭 / 实时同步 */
+  mode: FeishuSessionSyncMode
+  /** 负责创建 Session 镜像群与更新卡片的 Bot ID */
+  botId?: string
+}
+
 // ===== Bridge 连接状态 =====
 
 /** 飞书 Bridge 连接状态 */
@@ -136,6 +149,8 @@ export interface FeishuChatBinding {
   modelId?: string
   /** 会话模式 */
   mode: 'agent' | 'chat'
+  /** 绑定来源：飞书主动绑定或 Proma 桌面 Session 镜像 */
+  source?: 'feishu' | 'session-mirror'
   /** 聊天类型（单聊或群聊） */
   chatType?: 'p2p' | 'group'
   /** 群名称（群聊时） */
