@@ -70,14 +70,18 @@ function areToolsBeforeIndexCompleted(
 ): boolean {
   if (!completedToolResultIds) return false
 
+  let hasToolUse = false
   for (let index = 0; index < endIndex; index++) {
     const block = blocks[index]
     if (block?.type !== 'tool_use') continue
+    hasToolUse = true
     const toolBlock = block as SDKToolUseBlock
     if (!completedToolResultIds.has(toolBlock.id)) return false
   }
 
-  return true
+  // 没有 tool_use 时不认为"工具已完成"——避免流式中只有 thinking + 尾部 text
+  // 时把还可能变成中间过程的 text 提前外置。
+  return hasToolUse
 }
 
 export function buildAssistantTurnRenderItems(
@@ -180,6 +184,10 @@ export function ProcessBlockGroup({ blocks, isStreaming, keepExpandedAfterComple
 
     if (isStreaming || keepExpandedAfterComplete) {
       setCollapseCountdown(null)
+      // 新一轮流式开始时复位用户手动 toggle 状态，使本轮完成后仍能走自动收起。
+      if (isStreaming && !wasStreamingRef.current) {
+        userToggledRef.current = false
+      }
       if (!userToggledRef.current) {
         setExpanded(true)
       }

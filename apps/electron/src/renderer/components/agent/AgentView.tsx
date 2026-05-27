@@ -255,6 +255,22 @@ function DisplayOptionsPopover({
 }: DisplayOptionsPopoverProps): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const hasEnabledOption = autoPreviewEnabled || processGroupsKeepExpanded
+  const hoverTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current)
+    setOpen(true)
+  }, [])
+
+  const handleMouseLeave = React.useCallback(() => {
+    hoverTimeout.current = setTimeout(() => setOpen(false), 150)
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimeout.current) clearTimeout(hoverTimeout.current)
+    }
+  }, [])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -268,6 +284,8 @@ function DisplayOptionsPopover({
             hasEnabledOption ? 'text-green-500' : 'text-foreground/60 hover:text-foreground'
           )}
           aria-label="显示选项"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
         >
           <Eye className="size-5" />
         </Button>
@@ -278,6 +296,8 @@ function DisplayOptionsPopover({
         sideOffset={8}
         className="w-auto min-w-[190px] p-2 px-2.5"
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-4">
