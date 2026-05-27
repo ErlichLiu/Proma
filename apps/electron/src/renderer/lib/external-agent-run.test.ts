@@ -64,4 +64,33 @@ describe('外部 Agent 运行激活', () => {
     expect(result.streamState.content).toBe('已有输出')
     expect(result.streamState.startedAt).toBe(200)
   })
+
+  test('Given 会话不在本地 sessions 列表中 When 激活 Then 使用 fallback 标题', () => {
+    const result = buildExternalAgentRunActivation({
+      tabs: [],
+      sessions: [],
+      sessionId: 'unknown-session',
+      startedAt: 300,
+    })
+
+    expect(result.title).toBe('新 Agent 会话')
+    expect(result.tabs[0]!.title).toBe('新 Agent 会话')
+    expect(result.activeTabId).toBe('unknown-session')
+    expect(result.workspaceId).toBeUndefined()
+  })
+
+  test('Given 无 currentStreamState When 激活 Then streamState 使用空默认值', () => {
+    const result = buildExternalAgentRunActivation({
+      tabs: [],
+      sessions: [session],
+      sessionId: session.id,
+      startedAt: 400,
+    })
+
+    expect(result.streamState.running).toBe(true)
+    expect(result.streamState.content).toBe('')
+    expect(result.streamState.toolActivities).toEqual([])
+    expect(result.streamState.model).toBeUndefined()
+    expect(result.streamState.startedAt).toBe(400)
+  })
 })
