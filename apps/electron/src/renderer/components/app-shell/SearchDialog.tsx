@@ -242,10 +242,6 @@ export function SearchDialog(): React.ReactElement {
     }
   }, [query, conversations, agentSessions])
 
-  /**
-   * Agent 搜索：组装 prompt 后在新会话中让 Agent 自动搜索整个会话空间。
-   * 优先使用 deepseek-v4-flash 渠道（速度快、成本低），找不到则回退到用户当前 Agent 渠道。
-   */
   const handleAgentSearch = React.useCallback(async () => {
     const q = query.trim()
     if (!q) return
@@ -255,13 +251,14 @@ export function SearchDialog(): React.ReactElement {
     )
     const channelId = deepseekChannel?.id ?? currentAgentChannelId ?? undefined
 
+    const configDir = import.meta.env.DEV ? '.proma-dev' : '.proma'
     const prompt = `请帮我在 Proma 的全部会话历史中搜索与以下描述相关的内容：
 
 "${q}"
 
 搜索范围：
-- Chat 会话消息文件：~/.proma/conversations/ 目录下所有 .jsonl 文件
-- Agent 会话消息文件：~/.proma/agent-sessions/ 目录下所有 .jsonl 文件
+- Chat 会话消息文件：~/${configDir}/conversations/ 目录下所有 .jsonl 文件
+- Agent 会话消息文件：~/${configDir}/agent-sessions/ 目录下所有 .jsonl 文件
 
 要求：
 1. 理解用户描述的语义，不要求关键词完全匹配，根据内容相关性判断
