@@ -203,18 +203,24 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
   const inputRef = React.useRef<HTMLInputElement>(null)
   const marksRef = React.useRef<HTMLElement[]>([])
   const activeIndexRef = React.useRef(-1)
-  const applyingRef = React.useRef(false)
-  const applyingResetTimerRef = React.useRef<number | null>(null)
+  const observerRef = React.useRef<MutationObserver | null>(null)
 
-  const finishApplyingAfterObserver = React.useCallback(() => {
-    if (applyingResetTimerRef.current !== null) {
-      window.clearTimeout(applyingResetTimerRef.current)
+  /**
+   * 在执行 DOM 改动期间临时暂停 MutationObserver，避免自反触发回调。
+   * disconnect 期间的 mutation 不会进入 observer 队列，结束后直接 reconnect 即可。
+   */
+  const withObserverPaused = React.useCallback((fn: () => void) => {
+    const obs = observerRef.current
+    const root = rootRef.current
+    obs?.disconnect()
+    try {
+      fn()
+    } finally {
+      if (obs && root) {
+        obs.observe(root, { childList: true, subtree: true, characterData: true })
+      }
     }
-    applyingResetTimerRef.current = window.setTimeout(() => {
-      applyingRef.current = false
-      applyingResetTimerRef.current = null
-    }, 0)
-  }, [])
+  }, [rootRef])
 
   const options = React.useMemo<FindOptions>(() => ({
     caseSensitive,
@@ -223,15 +229,15 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
   }), [caseSensitive, wholeWord, regex])
 
   const clearMarks = React.useCallback(() => {
-    const root = rootRef.current
-    applyingRef.current = true
-    if (root) cleanupHighlights(root)
-    finishApplyingAfterObserver()
+    withObserverPaused(() => {
+      const root = rootRef.current
+      if (root) cleanupHighlights(root)
+    })
     marksRef.current = []
     activeIndexRef.current = -1
     setMatchCount(0)
     setActiveIndex(-1)
-  }, [finishApplyingAfterObserver, rootRef])
+  }, [rootRef, withObserverPaused])
 
   const runSearch = React.useCallback(() => {
     const root = rootRef.current
@@ -250,22 +256,23 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
       return
     }
 
-    applyingRef.current = true
-    const marks = applyHighlights(root, trimmed, options)
+    let marks: HTMLElement[] = []
+    withObserverPaused(() => {
+      marks = applyHighlights(root, trimmed, options)
+    })
     const nextActiveIndex = marks.length === 0
       ? -1
       : activeIndexRef.current >= 0
         ? Math.min(activeIndexRef.current, marks.length - 1)
         : 0
     if (nextActiveIndex >= 0) {
-      setActiveMatch(marks, nextActiveIndex)
+      withObserverPaused(() => setActiveMatch(marks, nextActiveIndex))
     }
-    finishApplyingAfterObserver()
     marksRef.current = marks
     activeIndexRef.current = nextActiveIndex
     setMatchCount(marks.length)
     setActiveIndex(nextActiveIndex)
-  }, [clearMarks, finishApplyingAfterObserver, open, options, query, rootRef, unsupportedReason])
+  }, [clearMarks, open, options, query, rootRef, unsupportedReason, withObserverPaused])
 
   React.useEffect(() => {
     if (!open) {
@@ -276,8 +283,7 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
       clearMarks()
       return
     }
-    const ids = [40, 160, 400].map((delay) => window.setTimeout(runSearch, delay))
-    return () => ids.forEach((id) => window.clearTimeout(id))
+    runSearch()
   }, [open, runSearch, clearMarks, contentKey, unsupportedReason])
 
   React.useEffect(() => {
@@ -287,13 +293,14 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
 
     let timer = 0
     const observer = new MutationObserver(() => {
-      if (applyingRef.current) return
       window.clearTimeout(timer)
       timer = window.setTimeout(runSearch, 80)
     })
     observer.observe(root, { childList: true, subtree: true, characterData: true })
+    observerRef.current = observer
     return () => {
       observer.disconnect()
+      observerRef.current = null
       window.clearTimeout(timer)
     }
   }, [open, rootRef, runSearch, unsupportedReason])
@@ -307,8 +314,8 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
   React.useEffect(() => {
     if (activeIndex < 0 || activeIndex >= marksRef.current.length) return
     activeIndexRef.current = activeIndex
-    setActiveMatch(marksRef.current, activeIndex)
-  }, [activeIndex, matchCount])
+    withObserverPaused(() => setActiveMatch(marksRef.current, activeIndex))
+  }, [activeIndex, matchCount, withObserverPaused])
 
   React.useEffect(() => {
     return () => clearMarks()
@@ -365,15 +372,18 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
   return (
     <div
       data-proma-find-ignore
+      role="search"
+      aria-label="文件内查找"
       className="absolute right-3 top-2 z-30 flex max-w-[min(390px,calc(100%-24px))] items-center gap-0.5 rounded-lg bg-popover/95 px-1.5 py-1 text-popover-foreground shadow-lg ring-1 ring-border/40 backdrop-blur"
     >
-      <Search className="size-3 shrink-0 text-muted-foreground" />
+      <Search className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
       <input
         ref={inputRef}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="查找"
+        aria-label="查找关键词"
         disabled={Boolean(unsupportedReason)}
         spellCheck={false}
         className="h-5 w-[145px] min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -384,6 +394,8 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
         disabled={Boolean(unsupportedReason)}
         className={cn('h-5 rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground', caseSensitive && 'bg-primary/15 text-primary')}
         title="区分大小写"
+        aria-label="区分大小写"
+        aria-pressed={caseSensitive}
       >
         Aa
       </button>
@@ -393,6 +405,8 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
         disabled={Boolean(unsupportedReason)}
         className={cn('h-5 rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground', wholeWord && 'bg-primary/15 text-primary')}
         title="全词匹配"
+        aria-label="全词匹配"
+        aria-pressed={wholeWord}
       >
         ab
       </button>
@@ -402,10 +416,16 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
         disabled={Boolean(unsupportedReason)}
         className={cn('h-5 rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground', regex && 'bg-primary/15 text-primary')}
         title="使用正则表达式"
+        aria-label="使用正则表达式"
+        aria-pressed={regex}
       >
         .*
       </button>
-      <span className={cn('min-w-[38px] text-center text-[12px] text-muted-foreground', unsupportedReason && 'min-w-[112px] text-left', regexInvalid && 'text-destructive')}>
+      <span
+        role="status"
+        aria-live="polite"
+        className={cn('min-w-[38px] text-center text-[12px] text-muted-foreground', unsupportedReason && 'min-w-[112px] text-left', regexInvalid && 'text-destructive')}
+      >
         {statusText}
       </span>
       <button
@@ -414,8 +434,9 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
         disabled={Boolean(unsupportedReason) || matchCount === 0}
         className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
         title="上一个匹配"
+        aria-label="上一个匹配"
       >
-        <ChevronUp className="size-3.5" />
+        <ChevronUp className="size-3.5" aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -423,16 +444,18 @@ export function PreviewFindBar({ open, rootRef, contentKey, unsupportedReason, o
         disabled={Boolean(unsupportedReason) || matchCount === 0}
         className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
         title="下一个匹配"
+        aria-label="下一个匹配"
       >
-        <ChevronDown className="size-3.5" />
+        <ChevronDown className="size-3.5" aria-hidden="true" />
       </button>
       <button
         type="button"
         onClick={close}
         className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
         title="关闭查找"
+        aria-label="关闭查找"
       >
-        <X className="size-3.5" />
+        <X className="size-3.5" aria-hidden="true" />
       </button>
     </div>
   )

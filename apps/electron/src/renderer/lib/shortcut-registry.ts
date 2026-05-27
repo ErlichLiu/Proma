@@ -16,7 +16,11 @@ const isMac =
 // ===== 注册表状态 =====
 
 export interface ShortcutRegistrationOptions {
-  /** 同一快捷键存在多个独占 handler 时，仅执行最后注册的一个 */
+  /**
+   * 独占模式。若同一快捷键的任一注册项设置了 exclusive=true，
+   * 则仅执行**最后注册的** exclusive handler，其余 handler（无论是否 exclusive）均被跳过。
+   * 用于在嵌套场景中让"最内层"组件捕获快捷键，避免触发外层全局逻辑。
+   */
   exclusive?: boolean
 }
 
@@ -164,7 +168,13 @@ function dispatchShortcut(e: KeyboardEvent): void {
         e.preventDefault()
         e.stopPropagation()
         const handlerEntries = Array.from(handlerSet)
-        const exclusiveEntry = handlerEntries.findLast((entry) => entry.options.exclusive)
+        let exclusiveEntry: ShortcutHandlerEntry | undefined
+        for (let i = handlerEntries.length - 1; i >= 0; i--) {
+          if (handlerEntries[i]!.options.exclusive) {
+            exclusiveEntry = handlerEntries[i]
+            break
+          }
+        }
         if (exclusiveEntry) {
           exclusiveEntry.callback()
         } else {
