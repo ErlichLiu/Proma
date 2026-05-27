@@ -14,12 +14,10 @@ import { cn } from '@/lib/utils'
 
 interface PreviewOpenButtonProps {
   filePath: string
-  /** 保留给调用方表达展开态，按钮本身始终可见 */
-  expanded?: boolean
   className?: string
 }
 
-export function PreviewOpenButton({ filePath, expanded: _expanded = false, className }: PreviewOpenButtonProps): React.ReactElement | null {
+export function PreviewOpenButton({ filePath, className }: PreviewOpenButtonProps): React.ReactElement | null {
   const sessionId = useAtomValue(currentAgentSessionIdAtom)
   const setPreviewFile = useSetAtom(previewFileMapAtom)
   const setPreviewOpen = useSetAtom(previewPanelOpenMapAtom)

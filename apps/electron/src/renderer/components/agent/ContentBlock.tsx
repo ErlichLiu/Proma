@@ -533,7 +533,7 @@ function ToolUseBlock({ block, allMessages, animate = false, index = 0, dimmed =
         />
 
         {isPreviewable && (
-          <PreviewOpenButton filePath={filePath} expanded={expanded} />
+          <PreviewOpenButton filePath={filePath} />
         )}
       </button>
 
