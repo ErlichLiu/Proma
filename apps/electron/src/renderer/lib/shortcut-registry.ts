@@ -15,8 +15,18 @@ const isMac =
 
 // ===== 注册表状态 =====
 
+export interface ShortcutRegistrationOptions {
+  /** 同一快捷键存在多个独占 handler 时，仅执行最后注册的一个 */
+  exclusive?: boolean
+}
+
+interface ShortcutHandlerEntry {
+  callback: () => void
+  options: ShortcutRegistrationOptions
+}
+
 /** shortcutId → handler 集合 */
-const handlers = new Map<string, Set<() => void>>()
+const handlers = new Map<string, Set<ShortcutHandlerEntry>>()
 
 /** 当前用户自定义配置 */
 let currentOverrides: ShortcutOverrides = {}
@@ -153,9 +163,15 @@ function dispatchShortcut(e: KeyboardEvent): void {
       if (handlerSet && handlerSet.size > 0) {
         e.preventDefault()
         e.stopPropagation()
-        // 执行所有注册的 handler
-        for (const handler of handlerSet) {
-          handler()
+        const handlerEntries = Array.from(handlerSet)
+        const exclusiveEntry = handlerEntries.findLast((entry) => entry.options.exclusive)
+        if (exclusiveEntry) {
+          exclusiveEntry.callback()
+        } else {
+          // 执行所有注册的 handler
+          for (const entry of handlerEntries) {
+            entry.callback()
+          }
         }
       }
       return // 匹配一个即停止
@@ -185,16 +201,18 @@ export function initShortcutRegistry(): void {
 export function registerShortcut(
   id: string,
   callback: () => void,
+  options: ShortcutRegistrationOptions = {},
 ): () => void {
   if (!handlers.has(id)) {
     handlers.set(id, new Set())
   }
-  handlers.get(id)!.add(callback)
+  const entry: ShortcutHandlerEntry = { callback, options }
+  handlers.get(id)!.add(entry)
 
   return () => {
     const set = handlers.get(id)
     if (set) {
-      set.delete(callback)
+      set.delete(entry)
       if (set.size === 0) handlers.delete(id)
     }
   }
