@@ -86,7 +86,7 @@ export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
     id: 'global-search',
     name: '全局搜索',
     description: '搜索对话和会话',
-    defaultMac: 'Ctrl+F',
+    defaultMac: 'Cmd+Shift+F',
     defaultWin: 'Ctrl+Shift+F',
     category: 'navigation',
   },
