@@ -2,9 +2,12 @@
  * OpenAI 兼容 Agent 适配器
  *
  * 实现 AgentProviderAdapter 接口，使用 OpenAI 规范的 API。
- * 将 SDKMessage 格式转换为 OpenAI 格式，反之亦然。
- * 
- * 参考 cc-switch 设计模式，提供 Anthropic SDK 到 OpenAI API 的适配层。
+ * 基于 format-converter 的 Anthropic ↔ OpenAI 双向格式转换，
+ * 让 Claude Code 透明地调用 OpenAI（或兼容）后端。
+ *
+ * 支持两种 OpenAI 目标格式：
+ * - Chat Completions API（经典 messages/choices 结构）
+ * - Responses API（2025 新一代扁平 input/output 结构）
  */
 
 import type {
@@ -14,77 +17,34 @@ import type {
   TypedError,
   SDKMessage,
   SDKAssistantMessage,
-  SDKUserMessage,
   SDKResultMessage,
-  SDKSystemMessage,
   SDKContentBlock,
   SDKToolUseBlock,
-  SDKToolResultBlock,
-  SDKTextBlock,
 } from '@proma/shared'
+import {
+  anthropicToOpenai,
+  anthropicToResponses,
+  openaiToAnthropic,
+  responsesToAnthropic,
+  createChatSseState,
+  createAnthropicSseStream,
+  createAnthropicSseStreamFromResponses,
+  createResponsesSseState,
+  getClaudeApiFormat,
+  buildAuthHeaders,
+  takeSseBlock,
+  type ApiFormat,
+  type AnthropicRequestBody,
+  type AnthropicContentBlock,
+  type AnthropicMessage,
+  type AnthropicTool,
+  type ChatSseState,
+  type ResponsesSseState,
+} from '@proma/core/providers'
 import { getFetchFn } from '../proxy-fetch'
 import { getEffectiveProxyUrl } from '../proxy-settings-service'
 import { TRANSIENT_NETWORK_PATTERN } from '../error-patterns'
 
-/** OpenAI 内容块 */
-interface OpenAIContentBlock {
-  type: 'text' | 'image_url'
-  text?: string
-  image_url?: { url: string }
-}
-
-/** OpenAI tool_call 格式 */
-interface OpenAIToolCall {
-  id: string
-  type: 'function'
-  function: { name: string; arguments: string }
-}
-
-/** OpenAI 消息格式 */
-interface OpenAIMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | OpenAIContentBlock[] | null
-  tool_calls?: OpenAIToolCall[]
-  tool_call_id?: string
-}
-
-/** OpenAI SSE 数据块 */
-interface OpenAIChunkData {
-  id?: string
-  object?: string
-  created?: number
-  model?: string
-  choices?: Array<{
-    delta?: {
-      role?: string
-      content?: string
-      reasoning_content?: string
-      tool_calls?: Array<{
-        index?: number
-        id?: string
-        function?: { name?: string; arguments?: string }
-      }>
-    }
-    finish_reason?: string | null
-  }>
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    total_tokens?: number
-  }
-}
-
-/** OpenAI 工具定义格式 */
-interface OpenAIToolDefinition {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: Record<string, unknown>
-  }
-}
-
-/** OpenAI Agent 查询选项 */
 export interface OpenAIAgentQueryOptions extends AgentQueryInput {
   apiKey: string
   baseUrl: string
@@ -95,106 +55,95 @@ export interface OpenAIAgentQueryOptions extends AgentQueryInput {
     description: string
     parameters: Record<string, unknown>
   }>
-  /** 是否启用思考模式 */
   thinkingEnabled?: boolean
-  /** 历史消息（用于多轮对话） */
   history?: SDKMessage[]
-  /** 环境变量 */
   env?: Record<string, string | undefined>
+  apiFormat?: ApiFormat
+  isCodexOAuth?: boolean
+  codexFastMode?: boolean
+  providerType?: string
 }
 
-/** 活跃的 AbortController 映射 */
 const activeControllers = new Map<string, AbortController>()
-
-/** 活跃的请求映射 */
 const activeRequests = new Map<string, () => void>()
 
-/** 错误消息最大保留长度 */
 const MAX_ERROR_MESSAGE_LENGTH = 5000
 
-/**
- * 将 SDKContentBlock 转换为 OpenAI 格式
- */
-function sdkContentBlockToOpenAI(block: SDKContentBlock): OpenAIContentBlock | { type: string; text?: string } {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: (block as SDKTextBlock).text }
-    case 'tool_use':
-      return { type: 'text', text: JSON.stringify(block) }
-    case 'tool_result':
-      return { type: 'text', text: JSON.stringify(block) }
-    case 'thinking':
-      return { type: 'text', text: (block as { thinking: string }).thinking }
-    default:
-      return { type: 'text', text: JSON.stringify(block) }
-  }
-}
+function buildAnthropicBody(options: OpenAIAgentQueryOptions): AnthropicRequestBody {
+  const messages: AnthropicMessage[] = []
 
-/**
- * 将 SDKMessage 转换为 OpenAI 消息格式
- */
-function sdkMessageToOpenAI(message: SDKMessage): OpenAIMessage | null {
-  if (message.type === 'assistant') {
-    const assistantMsg = message as SDKAssistantMessage
-    const content = assistantMsg.message.content
-      ? assistantMsg.message.content.map(sdkContentBlockToOpenAI)
-      : null
-    
-    const toolCalls: OpenAIToolCall[] = []
-    assistantMsg.message.content?.forEach((block) => {
-      if (block.type === 'tool_use') {
-        const toolBlock = block as SDKToolUseBlock
-        toolCalls.push({
-          id: toolBlock.id,
-          type: 'function',
-          function: {
-            name: toolBlock.name,
-            arguments: JSON.stringify(toolBlock.input),
-          },
-        })
+  if (options.history) {
+    for (const msg of options.history) {
+      if (msg.type === 'assistant') {
+        const assistantMsg = msg as SDKAssistantMessage
+        const content: AnthropicContentBlock[] = []
+        for (const block of assistantMsg.message.content) {
+          if (block.type === 'text') {
+            content.push({ type: 'text', text: (block as { text: string }).text })
+          } else if (block.type === 'tool_use') {
+            const tb = block as SDKToolUseBlock
+            content.push({ type: 'tool_use', id: tb.id, name: tb.name, input: tb.input })
+          } else if (block.type === 'thinking') {
+            content.push({ type: 'thinking', thinking: (block as { thinking: string }).thinking })
+          }
+        }
+        messages.push({ role: 'assistant', content })
+      } else if (msg.type === 'user') {
+        const userMsg = msg as { type: 'user'; message?: { content?: Array<{ type: string; text?: string; tool_use_id?: string; content?: string; is_error?: boolean }> } }
+        if (userMsg.message?.content) {
+          const content: AnthropicContentBlock[] = []
+          for (const block of userMsg.message.content) {
+            if (block.type === 'text' && block.text) {
+              content.push({ type: 'text', text: block.text })
+            } else if (block.type === 'tool_result') {
+              content.push({
+                type: 'tool_result',
+                tool_use_id: block.tool_use_id || '',
+                content: block.content || '',
+                is_error: block.is_error,
+              })
+            }
+          }
+          if (content.length > 0) {
+            messages.push({ role: 'user', content })
+          }
+        }
       }
-    })
-
-    return {
-      role: 'assistant',
-      content: content?.length === 1 && content[0].type === 'text' 
-        ? content[0].text || '' 
-        : (content || null),
-      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     }
   }
 
-  if (message.type === 'user') {
-    const userMsg = message as SDKUserMessage
-    const content = userMsg.message?.content
-      ? userMsg.message.content.map(sdkContentBlockToOpenAI)
-      : []
-    
-    return {
-      role: 'user',
-      content: content.length === 1 && content[0].type === 'text'
-        ? content[0].text || ''
-        : content.length > 0 ? content : null,
-    }
+  messages.push({
+    role: 'user',
+    content: options.prompt,
+  })
+
+  const body: AnthropicRequestBody = {
+    model: options.model,
+    messages,
+    stream: true,
+    max_tokens: 16384,
   }
 
-  return null
-}
-
-/**
- * 将工具调用结果转换为 OpenAI 格式
- */
-function toolResultToOpenAI(toolUseId: string, result: string, isError: boolean): OpenAIMessage {
-  return {
-    role: 'tool',
-    content: isError ? `Error: ${result}` : result,
-    tool_call_id: toolUseId,
+  if (options.systemPrompt) {
+    body.system = options.systemPrompt
   }
+
+  if (options.tools && options.tools.length > 0) {
+    body.tools = options.tools.map((t): AnthropicTool => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters,
+    }))
+    body.tool_choice = 'auto'
+  }
+
+  if (options.thinkingEnabled) {
+    body.thinking = { type: 'enabled', budget_tokens: 16384 }
+  }
+
+  return body
 }
 
-/**
- * 从 OpenAI 响应构建 SDKMessage
- */
 function buildSDKAssistantMessage(
   contentBlocks: SDKContentBlock[],
   model?: string,
@@ -215,13 +164,10 @@ function buildSDKAssistantMessage(
   }
 }
 
-/**
- * 从 OpenAI 响应构建 SDKResultMessage
- */
 function buildSDKResultMessage(
   sessionId?: string,
-  inputTokens: number = 0,
-  outputTokens: number = 0,
+  inputTokens = 0,
+  outputTokens = 0,
 ): SDKResultMessage {
   return {
     type: 'result',
@@ -234,9 +180,6 @@ function buildSDKResultMessage(
   }
 }
 
-/**
- * 将错误映射为 TypedError
- */
 function mapErrorToTypedError(errorCode: string, message: string): TypedError {
   const errorMap: Record<string, { code: string; title: string; message: string; canRetry: boolean }> = {
     'invalid_api_key': {
@@ -295,7 +238,7 @@ function mapErrorToTypedError(errorCode: string, message: string): TypedError {
   }
 
   return {
-    code: mapped.code as any,
+    code: mapped.code as TypedError['code'],
     title: mapped.title,
     message: mapped.message,
     actions: [
@@ -309,6 +252,360 @@ function mapErrorToTypedError(errorCode: string, message: string): TypedError {
   }
 }
 
+function resolveApiFormat(options: OpenAIAgentQueryOptions): ApiFormat {
+  if (options.apiFormat) return options.apiFormat
+  return getClaudeApiFormat({
+    meta: {
+      providerType: options.providerType,
+      apiFormat: undefined,
+    },
+  })
+}
+
+async function* handleNonStreamChat(
+  response: Response,
+  options: OpenAIAgentQueryOptions,
+  model: string,
+): AsyncIterable<SDKMessage> {
+  const data = await response.json()
+  const anthropicResp = openaiToAnthropic(data)
+  const content = (anthropicResp.content as Array<Record<string, unknown>>) || []
+
+  const contentBlocks: SDKContentBlock[] = content.map((block): SDKContentBlock => {
+    if (block.type === 'thinking') {
+      return { type: 'thinking', thinking: block.thinking as string }
+    }
+    if (block.type === 'tool_use') {
+      return { type: 'tool_use', id: block.id as string, name: block.name as string, input: (block.input || {}) as Record<string, unknown> }
+    }
+    return { type: 'text', text: (block.text || '') as string }
+  })
+
+  const usage = anthropicResp.usage as { input_tokens?: number; output_tokens?: number } | undefined
+  yield buildSDKAssistantMessage(contentBlocks, model, anthropicResp.stop_reason as string, options.sessionId)
+  yield buildSDKResultMessage(options.sessionId, usage?.input_tokens, usage?.output_tokens)
+}
+
+async function* handleNonStreamResponses(
+  response: Response,
+  options: OpenAIAgentQueryOptions,
+  model: string,
+): AsyncIterable<SDKMessage> {
+  const data = await response.json()
+  const anthropicResp = responsesToAnthropic(data)
+  const content = (anthropicResp.content as Array<Record<string, unknown>>) || []
+
+  const contentBlocks: SDKContentBlock[] = content.map((block): SDKContentBlock => {
+    if (block.type === 'thinking') {
+      return { type: 'thinking', thinking: block.thinking as string }
+    }
+    if (block.type === 'tool_use') {
+      return { type: 'tool_use', id: block.id as string, name: block.name as string, input: (block.input || {}) as Record<string, unknown> }
+    }
+    return { type: 'text', text: (block.text || '') as string }
+  })
+
+  const usage = anthropicResp.usage as { input_tokens?: number; output_tokens?: number } | undefined
+  yield buildSDKAssistantMessage(contentBlocks, model, anthropicResp.stop_reason as string, options.sessionId)
+  yield buildSDKResultMessage(options.sessionId, usage?.input_tokens, usage?.output_tokens)
+}
+
+async function* handleStreamChat(
+  response: Response,
+  options: OpenAIAgentQueryOptions,
+): AsyncIterable<SDKMessage> {
+  if (!response.body) throw new Error('响应体为空')
+
+  const state = createChatSseState()
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  const reader = response.body.getReader()
+  let buffer = ''
+
+  let inputTokens = 0
+  let outputTokens = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      while (true) {
+        const { block, remaining } = takeSseBlock(buffer)
+        if (!block) break
+        buffer = remaining
+
+        if (!block.data || block.data === '[DONE]') {
+          if (block.data === '[DONE]') {
+            const finalEvents = finalizeChatStream(state)
+            for (const msg of finalEvents) yield msg
+            yield buildSDKResultMessage(options.sessionId, inputTokens, outputTokens)
+            return
+          }
+          continue
+        }
+
+        try {
+          const chunk = JSON.parse(block.data)
+          const events = processChatChunkSimple(chunk, state)
+          for (const msg of events) yield msg
+
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens || inputTokens
+            outputTokens = chunk.usage.completion_tokens || outputTokens
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+
+    const finalEvents = finalizeChatStream(state)
+    for (const msg of finalEvents) yield msg
+    yield buildSDKResultMessage(options.sessionId, inputTokens, outputTokens)
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+function processChatChunkSimple(
+  chunk: { id?: string; model?: string; choices?: Array<{ delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }> }; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number } },
+  state: ChatSseState,
+): SDKMessage[] {
+  const messages: SDKMessage[] = []
+
+  if (chunk.id) state.messageId = chunk.id
+  if (chunk.model) state.currentModel = chunk.model
+
+  const delta = chunk.choices?.[0]?.delta
+
+  if (!state.hasSentMessageStart) {
+    state.hasSentMessageStart = true
+  }
+
+  if (delta?.reasoning_content) {
+    if (state.currentNonToolBlockType !== 'thinking') {
+      if (state.currentNonToolBlockType) {
+        // close previous block
+      }
+      state.currentNonToolBlockType = 'thinking'
+      state.currentNonToolBlockIndex = state.nextContentIndex++
+    }
+    messages.push(buildSDKAssistantMessage(
+      [{ type: 'thinking', thinking: delta.reasoning_content }],
+      state.currentModel,
+    ))
+  }
+
+  if (delta?.content) {
+    if (state.currentNonToolBlockType !== 'text') {
+      if (state.currentNonToolBlockType) {
+        // close previous block
+      }
+      state.currentNonToolBlockType = 'text'
+      state.currentNonToolBlockIndex = state.nextContentIndex++
+    }
+    messages.push(buildSDKAssistantMessage(
+      [{ type: 'text', text: delta.content }],
+      state.currentModel,
+    ))
+  }
+
+  if (delta?.tool_calls) {
+    for (const tc of delta.tool_calls) {
+      const idx = tc.index ?? 0
+      let toolBlock = state.toolBlocksByIndex.get(idx)
+
+      if (!toolBlock) {
+        toolBlock = {
+          anthropicIndex: state.nextContentIndex++,
+          id: tc.id || '',
+          name: tc.function?.name || '',
+          started: false,
+          pendingArgs: '',
+          aborted: false,
+        }
+        state.toolBlocksByIndex.set(idx, toolBlock)
+      }
+
+      if (tc.id) toolBlock.id = tc.id
+      if (tc.function?.name) toolBlock.name = tc.function.name
+
+      if (!toolBlock.started && toolBlock.id && toolBlock.name) {
+        if (state.currentNonToolBlockType) {
+          state.currentNonToolBlockType = null
+        }
+        toolBlock.started = true
+      }
+
+      if (tc.function?.arguments && toolBlock.started && !toolBlock.aborted) {
+        toolBlock.pendingArgs += tc.function.arguments
+      }
+    }
+  }
+
+  const finishReason = chunk.choices?.[0]?.finish_reason
+  if (finishReason && !state.hasEmittedMessageDelta) {
+    state.hasEmittedMessageDelta = true
+    let stopReason: string
+    switch (finishReason) {
+      case 'stop': stopReason = 'end_turn'; break
+      case 'length': stopReason = 'max_tokens'; break
+      case 'tool_calls': stopReason = 'tool_use'; break
+      default: stopReason = 'end_turn'
+    }
+    state.pendingMessageDelta = { stop_reason: stopReason }
+
+    if (finishReason === 'tool_calls') {
+      for (const [, toolBlock] of state.toolBlocksByIndex) {
+        if (toolBlock.started && !toolBlock.aborted) {
+          let input: Record<string, unknown> = {}
+          try {
+            input = JSON.parse(toolBlock.pendingArgs)
+          } catch {
+            input = {}
+          }
+          messages.push(buildSDKAssistantMessage(
+            [{ type: 'tool_use', id: toolBlock.id, name: toolBlock.name, input }],
+            state.currentModel,
+            'tool_use',
+          ))
+        }
+      }
+    }
+  }
+
+  return messages
+}
+
+function finalizeChatStream(state: ChatSseState): SDKMessage[] {
+  const messages: SDKMessage[] = []
+
+  if (state.pendingMessageDelta && state.pendingMessageDelta.stop_reason !== 'tool_use') {
+    // Already handled in processChatChunkSimple
+  }
+
+  return messages
+}
+
+async function* handleStreamResponses(
+  response: Response,
+  options: OpenAIAgentQueryOptions,
+): AsyncIterable<SDKMessage> {
+  if (!response.body) throw new Error('响应体为空')
+
+  const state = createResponsesSseState()
+  const decoder = new TextDecoder()
+  const reader = response.body.getReader()
+  let buffer = ''
+
+  let inputTokens = 0
+  let outputTokens = 0
+  let currentText = ''
+  let currentThinking = ''
+  const toolCalls: Array<{ id: string; name: string; arguments: string }> = []
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      while (true) {
+        const { block, remaining } = takeSseBlock(buffer)
+        if (!block) break
+        buffer = remaining
+
+        if (!block.data) continue
+
+        try {
+          const data = JSON.parse(block.data)
+          const eventName = block.event || ''
+
+          if (eventName === 'response.created') {
+            const resp = data.response as Record<string, unknown> | undefined
+            if (resp?.id) state.messageId = resp.id as string
+            if (resp?.model) state.currentModel = resp.model as string
+          }
+
+          if (eventName === 'response.output_text.delta') {
+            const textDelta = data.delta as string || ''
+            currentText += textDelta
+            yield buildSDKAssistantMessage(
+              [{ type: 'text', text: textDelta }],
+              state.currentModel,
+            )
+          }
+
+          if (eventName === 'response.reasoning_summary_text.delta') {
+            const thinkingDelta = data.delta as string || ''
+            currentThinking += thinkingDelta
+            yield buildSDKAssistantMessage(
+              [{ type: 'thinking', thinking: thinkingDelta }],
+              state.currentModel,
+            )
+          }
+
+          if (eventName === 'response.output_item.added') {
+            const item = data.item as Record<string, unknown> | undefined
+            if (item?.type === 'function_call') {
+              state.hasToolUse = true
+              toolCalls.push({
+                id: (item.call_id || item.id || '') as string,
+                name: (item.name || '') as string,
+                arguments: '',
+              })
+            }
+          }
+
+          if (eventName === 'response.function_call_arguments.delta') {
+            const argsDelta = data.delta as string || ''
+            const itemId = (data.item_id ?? '') as string
+            const tc = toolCalls[toolCalls.length - 1]
+            if (tc) {
+              tc.arguments += argsDelta
+            }
+          }
+
+          if (eventName === 'response.completed') {
+            const resp = data.response as Record<string, unknown> | undefined
+            const respUsage = (resp?.usage ?? data.usage) as { input_tokens?: number; output_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
+            inputTokens = respUsage?.input_tokens ?? respUsage?.prompt_tokens ?? 0
+            outputTokens = respUsage?.output_tokens ?? respUsage?.completion_tokens ?? 0
+
+            let stopReason = 'end_turn'
+            if (state.hasToolUse) {
+              stopReason = 'tool_use'
+            }
+
+            if (state.hasToolUse && toolCalls.length > 0) {
+              const contentBlocks: SDKToolUseBlock[] = toolCalls.map(tc => {
+                let input: Record<string, unknown> = {}
+                try {
+                  input = JSON.parse(tc.arguments)
+                } catch {
+                  input = {}
+                }
+                return { type: 'tool_use', id: tc.id, name: tc.name, input }
+              })
+              yield buildSDKAssistantMessage(contentBlocks, state.currentModel, 'tool_use', options.sessionId)
+            }
+
+            yield buildSDKResultMessage(options.sessionId, inputTokens, outputTokens)
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export class OpenAIAgentAdapter implements AgentProviderAdapter {
   async *query(input: AgentQueryInput): AsyncIterable<SDKMessage> {
     const options = input as OpenAIAgentQueryOptions
@@ -318,82 +615,42 @@ export class OpenAIAgentAdapter implements AgentProviderAdapter {
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)
 
-    // 取消请求的回调
-    const abortCallback = () => {
-      controller.abort()
-    }
+    const abortCallback = () => { controller.abort() }
     activeRequests.set(options.sessionId, abortCallback)
 
     try {
-      const messages: OpenAIMessage[] = []
-
-      // 添加系统提示
-      if (options.systemPrompt) {
-        messages.push({ role: 'system', content: options.systemPrompt })
-      }
-
-      // 添加历史消息
-      if (options.history) {
-        for (const msg of options.history) {
-          const openAIMsg = sdkMessageToOpenAI(msg)
-          if (openAIMsg) {
-            messages.push(openAIMsg)
-          }
-        }
-      }
-
-      // 添加当前用户消息
-      messages.push({
-        role: 'user',
-        content: options.prompt,
-      })
-
-      // 构建请求体
-      const body: Record<string, unknown> = {
-        model: options.model,
-        messages,
-        stream: true,
-        max_tokens: 8192,
-      }
-
-      // 添加工具定义
-      if (options.tools && options.tools.length > 0) {
-        body.tools = options.tools.map((tool): OpenAIToolDefinition => ({
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-          },
-        }))
-        body.tool_choice = 'auto'
-      }
-
-      // 思考模式支持
-      if (options.thinkingEnabled) {
-        body.reasoning_enabled = true
-      }
-
-      // 构建请求 URL
+      const apiFormat = resolveApiFormat(options)
+      const anthropicBody = buildAnthropicBody(options)
+      const authConfig = buildAuthHeaders(options.providerType || 'openai', options.apiKey)
       const baseUrl = options.baseUrl.replace(/\/$/, '')
-      const url = `${baseUrl}/chat/completions`
 
-      // 发送请求
+      let url: string
+      let requestBody: Record<string, unknown>
+
+      if (apiFormat === 'openai_responses') {
+        url = `${baseUrl}/responses`
+        requestBody = anthropicToResponses(
+          anthropicBody,
+          undefined,
+          options.isCodexOAuth ?? false,
+          options.codexFastMode ?? false,
+        )
+      } else {
+        url = `${baseUrl}/chat/completions`
+        requestBody = anthropicToOpenai(anthropicBody)
+      }
+
       const response = await fetchFn(url, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${options.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
+        headers: authConfig.headers,
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       })
 
-      // 处理 HTTP 错误
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         const truncatedText = text.length > MAX_ERROR_MESSAGE_LENGTH
-          ? text.slice(0, MAX_ERROR_MESSAGE_LENGTH) + `\n\n[错误详情过长 (${(text.length / 1024).toFixed(0)}KB)，已截断]`
+          ? text.slice(0, MAX_ERROR_MESSAGE_LENGTH)
           : text
 
         let errorCode = 'service_error'
@@ -408,7 +665,7 @@ export class OpenAIAgentAdapter implements AgentProviderAdapter {
             }
           }
         } catch {
-          // 不是 JSON 格式，使用原始文本
+          // not JSON
         }
 
         const typedError = mapErrorToTypedError(errorCode, errorMessage)
@@ -416,156 +673,24 @@ export class OpenAIAgentAdapter implements AgentProviderAdapter {
         return
       }
 
-      if (!response.body) {
-        throw new Error('响应体为空')
-      }
+      const isStream = requestBody.stream === true
 
-      // 处理流式响应
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let currentToolCalls: OpenAIToolCall[] = []
-      let currentContent = ''
-      let currentReasoning = ''
-      let model: string | undefined
-      let inputTokens = 0
-      let outputTokens = 0
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            // 过滤非 data 行
-            let data: string
-            if (line.startsWith('data: ')) {
-              data = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              data = line.slice(5).trim()
-            } else {
-              continue
-            }
-
-            // 跳过空数据和 [DONE]
-            if (data === '[DONE]' || !data) continue
-
-            try {
-              const chunk = JSON.parse(data) as OpenAIChunkData
-              
-              // 更新模型信息
-              if (chunk.model) {
-                model = chunk.model
-              }
-
-              // 更新 token 用量
-              if (chunk.usage) {
-                inputTokens = chunk.usage.prompt_tokens || inputTokens
-                outputTokens = chunk.usage.completion_tokens || outputTokens
-              }
-
-              const delta = chunk.choices?.[0]?.delta
-
-              // 处理文本内容
-              if (delta?.content) {
-                currentContent += delta.content
-
-                const contentBlocks: SDKContentBlock[] = [{
-                  type: 'text',
-                  text: delta.content,
-                }]
-
-                yield buildSDKAssistantMessage(contentBlocks, model, undefined, options.sessionId)
-              }
-
-              // 处理推理内容 (DeepSeek 等供应商)
-              if (delta?.reasoning_content) {
-                currentReasoning += delta.reasoning_content
-
-                const contentBlocks: SDKContentBlock[] = [{
-                  type: 'thinking',
-                  thinking: delta.reasoning_content,
-                }]
-
-                yield buildSDKAssistantMessage(contentBlocks, model, undefined, options.sessionId)
-              }
-
-              // 处理工具调用
-              if (delta?.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  const toolCallId = tc.id || `tc_${tc.index ?? 0}`
-
-                  // 创建或更新工具调用
-                  if (tc.function?.name) {
-                    let existingCall = currentToolCalls.find(call => call.id === toolCallId)
-                    if (!existingCall) {
-                      existingCall = {
-                        id: toolCallId,
-                        type: 'function',
-                        function: {
-                          name: tc.function.name,
-                          arguments: '',
-                        },
-                      }
-                      currentToolCalls.push(existingCall)
-                    }
-                  }
-
-                  // 累积工具参数
-                  if (tc.function?.arguments) {
-                    const existingCall = currentToolCalls.find(call => call.id === toolCallId)
-                    if (existingCall) {
-                      existingCall.function.arguments += tc.function.arguments
-                    }
-                  }
-                }
-              }
-
-              // 处理结束原因
-              const finishReason = chunk.choices?.[0]?.finish_reason
-              if (finishReason) {
-                // 工具调用完成
-                if (finishReason === 'tool_calls' && currentToolCalls.length > 0) {
-                  const contentBlocks: SDKContentBlock[] = currentToolCalls.map((tc): SDKToolUseBlock => {
-                    let input: Record<string, unknown> = {}
-                    try {
-                      input = tc.function.arguments ? JSON.parse(tc.function.arguments) : {}
-                    } catch {
-                      input = {}
-                    }
-                    return {
-                      type: 'tool_use',
-                      id: tc.id,
-                      name: tc.function.name,
-                      input,
-                    }
-                  })
-
-                  yield buildSDKAssistantMessage(contentBlocks, model, 'tool_use', options.sessionId)
-                }
-              }
-            } catch (parseError) {
-              console.warn('[OpenAI 适配器] SSE 解析失败:', parseError)
-            }
-          }
+      if (apiFormat === 'openai_responses') {
+        if (isStream) {
+          yield* handleStreamResponses(response, options)
+        } else {
+          yield* handleNonStreamResponses(response, options, options.model)
         }
-      } finally {
-        reader.releaseLock()
+      } else {
+        if (isStream) {
+          yield* handleStreamChat(response, options)
+        } else {
+          yield* handleNonStreamChat(response, options, options.model)
+        }
       }
-
-      // 发送最终结果消息
-      if (currentContent.length > 0 || currentToolCalls.length === 0) {
-        yield buildSDKResultMessage(options.sessionId, inputTokens, outputTokens)
-      }
-
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误'
       const typedError = mapErrorToTypedError('network_error', message)
-
       yield buildSDKAssistantMessage([], options.model, undefined, options.sessionId, { message: typedError.message })
     } finally {
       activeControllers.delete(options.sessionId)
