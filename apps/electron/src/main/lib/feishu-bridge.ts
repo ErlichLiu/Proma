@@ -67,6 +67,7 @@ import {
 } from './feishu/card-run-state'
 import { renderCard as renderRunCard } from './feishu/card-renderer-v2'
 import { buildSessionMirrorGroupName } from './feishu/session-mirror'
+import { resolveGroupMessageAccess } from './feishu/group-message-policy'
 import { ScopedQueue } from './feishu/scoped-queue'
 import { RunCoordinator } from './feishu/run-coordinator'
 import {
@@ -690,10 +691,24 @@ class FeishuBridge {
     const existingBinding = this.chatBindings.get(chatId)
     const isSessionMirrorGroup = existingBinding?.source === 'session-mirror'
 
-    // 普通群聊中仅处理 @Bot；Session 镜像群只包含用户与 Bot，可以直接回复。
-    if (chatType === 'group' && !isSessionMirrorGroup) {
-      if (!(await this.isBotMentioned(mentions))) {
+    if (chatType === 'group') {
+      const isMentioned = await this.isBotMentioned(mentions)
+      const groupInfo = isSessionMirrorGroup || isMentioned ? null : await this.getGroupInfo(chatId)
+      const access = resolveGroupMessageAccess({
+        isSessionMirrorGroup,
+        isBotMentioned: isMentioned,
+        groupInfo,
+        senderOpenId: userId,
+        botOpenId: this.botOpenId,
+        binding: existingBinding,
+      })
+
+      if (!access.accepted) {
         return
+      }
+
+      if (access.reason === 'single-user-group') {
+        console.log('[飞书 Bridge] 检测到单用户群聊，允许免 @ 续聊:', chatId)
       }
     }
 
