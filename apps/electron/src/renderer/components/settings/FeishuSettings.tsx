@@ -295,7 +295,7 @@ function PermissionsStep(): React.ReactElement {
             <div><span className="text-foreground/70">im:message:send_as_bot</span> — 以机器人身份发送消息</div>
             <div><span className="text-foreground/70">im:message.p2p_msg:readonly</span> — 接收用户发给机器人的单聊消息</div>
             <div><span className="text-foreground/70">im:message.group_at_msg:readonly</span> — 接收群聊中 @机器人 的消息</div>
-            <div><span className="text-foreground/70">im:message.group_msg</span> — 接收群聊所有用户消息（两人群免 @ 续聊、群聊上下文）</div>
+            <div><span className="text-foreground/70">im:message.group_msg</span> — 接收群聊所有用户消息（仅你和 Bot 的群免 @ 续聊、群聊上下文）</div>
             <div><span className="text-foreground/70">im:message.reactions:write_only</span> — 为消息添加状态表情（如⌨️/✅），让用户感知 Bot 正在处理 / 已完成</div>
             <div><span className="text-foreground/70">im:chat</span> — 创建群 + 读取/更新群基础信息（群名、简介、邀请链接等）</div>
             <div><span className="text-foreground/70">im:chat.members:read</span> — 获取群成员列表（支持 @某人）</div>
@@ -906,7 +906,7 @@ function SessionMirrorSection({ bots }: { bots: FeishuBotConfig[] }): React.Reac
   return (
     <SettingsSection
       title="同步到飞书"
-      description="开启后，每个新的 Proma Agent Session 会创建一个仅包含你和指定 Bot 的飞书群，并把输出同步到群内卡片。借此可以实现几乎完整的 Proma 移动端体验，可以脱离电脑随时在飞书上继续完成工作。"
+      description="开启后，每个新的 Proma Agent Session 会创建一个仅包含你和指定 Bot 的飞书群，并把输出同步到群内卡片，同时默认阻止电脑自动休眠，方便你脱离电脑在飞书上继续完成工作。"
     >
       <SettingsCard divided={false}>
         <div className="px-4 py-4 space-y-4">
@@ -951,7 +951,7 @@ function SessionMirrorSection({ bots }: { bots: FeishuBotConfig[] }): React.Reac
           <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-3 text-xs text-amber-800 dark:text-amber-300">
             <AlertTriangle size={15} className="mt-0.5 flex-shrink-0" />
             <div className="space-y-1 leading-relaxed">
-              <div className="font-medium text-amber-900 dark:text-amber-200">想在两人群里不 @Bot 也能继续发送消息，需要额外申请敏感权限。</div>
+              <div className="font-medium text-amber-900 dark:text-amber-200">想在仅你和 Bot 的群里不 @Bot 也能继续发送消息，需要额外申请敏感权限。</div>
               <div>
                 请在飞书开放平台为同步 Bot 申请并发布
                 {' '}

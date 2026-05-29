@@ -69,6 +69,8 @@ export interface SessionCallbacks {
   onComplete: (messages?: AgentMessage[], opts?: { stoppedByUser?: boolean; startedAt?: number; resultSubtype?: string }) => void
   /** 发送标题更新 */
   onTitleUpdated: (title: string) => void
+  /** 用户消息已持久化，外部入口可据此通知前端切到实时会话 */
+  onRunStarted?: (opts: { startedAt: number }) => void
 }
 
 // ===== 工具函数 =====
@@ -213,6 +215,7 @@ function getRetryDelayMs(attempt: number, elapsedRetryDelayMs: number): number {
  */
 function resolveSDKCliPath(): string {
   const subpkg = `claude-agent-sdk-${process.platform}-${process.arch}`
+  const scopedSubpkg = `@anthropic-ai/${subpkg}`
   const binaryName = process.platform === 'win32' ? 'claude.exe' : 'claude'
   let binaryPath: string | null = null
 
@@ -225,18 +228,29 @@ function resolveSDKCliPath(): string {
     const anthropicDir = dirname(dirname(sdkEntryPath))
     binaryPath = join(anthropicDir, subpkg, binaryName)
     console.log(`[Agent 编排] SDK binary 路径 (createRequire): ${binaryPath}`)
+    if (!existsSync(binaryPath)) {
+      const subpkgPackagePath = cjsRequire.resolve(`${scopedSubpkg}/package.json`)
+      binaryPath = join(dirname(subpkgPackagePath), binaryName)
+      console.log(`[Agent 编排] SDK binary 路径 (platform package): ${binaryPath}`)
+    }
   } catch (e) {
     console.warn('[Agent 编排] createRequire 解析 SDK 路径失败:', e)
   }
 
   // 策略 2：全局 require（esbuild CJS bundle 可能保留）
-  if (!binaryPath) {
+  if (!binaryPath || !existsSync(binaryPath)) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const sdkEntryPath = require.resolve('@anthropic-ai/claude-agent-sdk')
       const anthropicDir = dirname(dirname(sdkEntryPath))
       binaryPath = join(anthropicDir, subpkg, binaryName)
       console.log(`[Agent 编排] SDK binary 路径 (require.resolve): ${binaryPath}`)
+      if (!existsSync(binaryPath)) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const subpkgPackagePath = require.resolve(`${scopedSubpkg}/package.json`)
+        binaryPath = join(dirname(subpkgPackagePath), binaryName)
+        console.log(`[Agent 编排] SDK binary 路径 (require platform package): ${binaryPath}`)
+      }
     } catch (e) {
       console.warn('[Agent 编排] require.resolve 解析 SDK 路径失败:', e)
     }
@@ -245,7 +259,7 @@ function resolveSDKCliPath(): string {
   // 策略 3：从当前模块目录手动查找（打包后 __dirname 指向 app/dist/，上一级即 app/）
   // 注意：不使用 process.cwd()，因为打包后的 Electron 应用 cwd 通常是 '/'
   // 或用户主目录，与 app 安装目录无关。
-  if (!binaryPath) {
+  if (!binaryPath || !existsSync(binaryPath)) {
     binaryPath = join(__dirname, '..', 'node_modules', '@anthropic-ai', subpkg, binaryName)
     console.log(`[Agent 编排] SDK binary 路径 (手动): ${binaryPath}`)
   }
@@ -995,6 +1009,30 @@ export class AgentOrchestrator {
     // 否则用本地 runGeneration 作为回退（headless 模式等无渲染进程场景）
     const streamStartedAt = input.startedAt ?? runGeneration
     this.activeSessions.set(sessionId, runGeneration)
+    const releaseActiveRun = (): void => {
+      // 在发送 STREAM_COMPLETE 前释放 active slot，避免渲染进程已进入空闲态、
+      // 主进程仍在 finally 前短暂拒绝下一条消息。
+      if (this.activeSessions.get(sessionId) !== runGeneration) return
+      this.activeSessions.delete(sessionId)
+      this.sessionPermissionModes.delete(sessionId)
+      this.queuedMessageUuids.delete(sessionId)
+    }
+    const completeRun = (
+      messages?: AgentMessage[],
+      opts?: { stoppedByUser?: boolean; startedAt?: number; resultSubtype?: string },
+    ): void => {
+      releaseActiveRun()
+      callbacks.onComplete(messages, opts)
+    }
+    const failRun = (
+      error: string,
+      messages?: AgentMessage[],
+      opts?: { stoppedByUser?: boolean; startedAt?: number; resultSubtype?: string },
+    ): void => {
+      releaseActiveRun()
+      callbacks.onError(error)
+      callbacks.onComplete(messages, opts)
+    }
 
     // 3. 构建环境变量
     // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）
@@ -1045,6 +1083,7 @@ export class AgentOrchestrator {
       _createdAt: Date.now(),
     } as unknown as SDKMessage
     appendSDKMessages(sessionId, [userSDKMsg])
+    callbacks.onRunStarted?.({ startedAt: streamStartedAt })
 
     // 6. 状态初始化
     const accumulatedMessages: SDKMessage[] = []
@@ -1285,6 +1324,10 @@ export class AgentOrchestrator {
         'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
         'ListMcpResourcesTool', 'ReadMcpResourceTool',
       ])
+      const DEFERRED_OR_PROACTIVE_TOOLS = new Set([
+        'REPL', 'Workflow', 'ScheduleWakeup', 'Monitor', 'PushNotification',
+        'CronCreate', 'CronDelete', 'RemoteTrigger',
+      ])
 
       /** Plan 模式是否已被 Agent 进入（初始 plan 模式时天然为 true，其他模式需 EnterPlanMode 触发） */
       let planModeEntered = initialPermissionMode === 'plan'
@@ -1390,6 +1433,9 @@ export class AgentOrchestrator {
             // MCP 工具（以 mcp__ 开头）允许调用（调研用）
             if (toolName.startsWith('mcp__')) {
               return { behavior: 'allow' as const, updatedInput: input }
+            }
+            if (DEFERRED_OR_PROACTIVE_TOOLS.has(toolName)) {
+              return { behavior: 'deny' as const, message: '计划模式下不允许启动后台、定时、通知或脚本执行能力，请在计划审批通过后再执行' }
             }
             // 其余工具拒绝
             return { behavior: 'deny' as const, message: '计划模式下不允许执行写操作，请在计划审批通过后再执行' }
@@ -1567,7 +1613,7 @@ export class AgentOrchestrator {
             // 等待期间如果会话被中止，退出
             if (!this.activeSessions.has(sessionId)) {
               this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
-              callbacks.onComplete(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
+              completeRun(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
               return
             }
           }
@@ -1713,7 +1759,7 @@ export class AgentOrchestrator {
                 // 透传归一化后的错误消息到前端，避免 SDK 原始 API Error 直接暴露给用户。
                 this.eventBus.emit(sessionId, { kind: 'sdk_message', message: errorSDKMsg })
                 try { updateAgentSessionMeta(sessionId, {}) } catch { /* 忽略 */ }
-                callbacks.onComplete(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
+                completeRun(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
                 return
               }
             }
@@ -1819,7 +1865,7 @@ export class AgentOrchestrator {
           }
 
           // 发送完成信号
-          callbacks.onComplete(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt, resultSubtype: capturedResultSubtype })
+          completeRun(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt, resultSubtype: capturedResultSubtype })
 
           break  // 成功完成，退出重试循环
 
@@ -1840,7 +1886,7 @@ export class AgentOrchestrator {
             this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
             // 持久化中断状态到会话 meta
             try { updateAgentSessionMeta(sessionId, { stoppedByUser: wasStoppedByUser }) } catch { /* 会话可能已删除 */ }
-            callbacks.onComplete(getAgentSessionMessages(sessionId), { stoppedByUser: wasStoppedByUser, startedAt: streamStartedAt })
+            completeRun(getAgentSessionMessages(sessionId), { stoppedByUser: wasStoppedByUser, startedAt: streamStartedAt })
             return
           }
 
@@ -1980,8 +2026,7 @@ export class AgentOrchestrator {
             })
           }
 
-          callbacks.onError(userFacingError)
-          callbacks.onComplete(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
+          failRun(userFacingError, getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
 
           // 根据错误类型决定是否保留 sdkSessionId
           const shouldClearSession = !apiError || apiError.statusCode >= 500
@@ -2023,17 +2068,12 @@ export class AgentOrchestrator {
         } as unknown as SDKMessage
         appendSDKMessages(sessionId, [retryErrorSDKMsg])
 
-        callbacks.onError(`${retryFailureMessage}: ${lastRetryableError}`)
-        callbacks.onComplete(getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
+        failRun(`${retryFailureMessage}: ${lastRetryableError}`, getAgentSessionMessages(sessionId), { startedAt: streamStartedAt })
       }
 
     } finally {
       // 只在 generation 匹配时才清理，防止旧流的 finally 误删新流的注册
-      if (this.activeSessions.get(sessionId) === runGeneration) {
-        this.activeSessions.delete(sessionId)
-        this.sessionPermissionModes.delete(sessionId)
-        this.queuedMessageUuids.delete(sessionId)
-      }
+      releaseActiveRun()
       permissionService.clearSessionPending(sessionId)
       // askUserService 不在 turn 结束时清理——AskUserQuestion 的生命周期由用户交互决定，
       // 仅在会话真正删除时（DELETE_SESSION IPC）才清理。
