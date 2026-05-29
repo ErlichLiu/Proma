@@ -1014,7 +1014,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       const text = new TextDecoder('utf-8').decode(bytes)
       const tmpPath = await window.electronAPI.writeClipboardPreview(file.filename, text)
       setPendingFiles((prev) => prev.map((item) => (
-        item.id === file.id ? { ...item, sourcePath: tmpPath } : item
+        item.id === file.id ? { ...item, sourcePath: tmpPath, isClipboardDraft: true } : item
       )))
       window.__pendingAgentFileData?.delete(file.id)
       openClipboardPreviewFile(tmpPath)
@@ -1277,8 +1277,13 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         return
       }
 
-      // 区分：已有 sourcePath 的文件（从侧面板添加）直接引用，其余需要保存
-      const existingFiles = pendingFilesSnapshot.filter((f) => f.sourcePath)
+      // 区分三类：
+      // - 剪贴板临时草稿（isClipboardDraft）：sourcePath 指向 os.tmpdir，可能被系统清理，
+      //   需读取最新内容（含预览面板 autosave 的编辑）拷贝进 session 目录持久化
+      // - 侧面板真实文件（仅 sourcePath）：原地引用，不复制
+      // - 新上传文件（无 sourcePath）：从内存数据保存到 session 目录
+      const existingFiles = pendingFilesSnapshot.filter((f) => f.sourcePath && !f.isClipboardDraft)
+      const clipboardDrafts = pendingFilesSnapshot.filter((f) => f.sourcePath && f.isClipboardDraft)
       const newFiles = pendingFilesSnapshot.filter((f) => !f.sourcePath)
 
       const allRefs: Array<{ filename: string; targetPath: string }> = []
@@ -1291,20 +1296,50 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         if (parentPath) additionalDirectoriesForRun.add(parentPath)
       }
 
-      // 新上传的文件保存到 session 目录
-      if (newFiles.length > 0) {
-        const filesToSave = newFiles.map((f) => ({
-          filename: f.filename,
-          data: window.__pendingAgentFileData?.get(f.id) || '',
-        }))
-        const missingDataFiles = filesToSave.filter((f) => !f.data).map((f) => f.filename)
-        if (missingDataFiles.length > 0) {
-          toast.error('附件数据已失效', {
-            description: `请移除后重新添加文件：${missingDataFiles.join('、')}`,
+      // 剪贴板草稿：读取临时文件最新内容，转为待保存数据
+      const draftFilesToSave: Array<{ filename: string; data: string }> = []
+      const staleDraftFiles: string[] = []
+      for (const f of clipboardDrafts) {
+        const sourcePath = f.sourcePath!
+        const parentPath = getFileParentPath(sourcePath)
+        try {
+          const read = await window.electronAPI.resolveAndReadFile(sourcePath, {
+            sessionId,
+            candidateBasePaths: parentPath ? [parentPath] : undefined,
           })
-          return
+          if (!read) {
+            staleDraftFiles.push(f.filename)
+            continue
+          }
+          const data = await fileToBase64(new File([read.content], f.filename, { type: f.mediaType }))
+          draftFilesToSave.push({ filename: f.filename, data })
+        } catch (error) {
+          console.error('[AgentView] 读取剪贴板草稿失败:', error)
+          staleDraftFiles.push(f.filename)
         }
+      }
+      if (staleDraftFiles.length > 0) {
+        toast.error('附件数据已失效', {
+          description: `请移除后重新粘贴：${staleDraftFiles.join('、')}`,
+        })
+        return
+      }
 
+      // 新上传的文件 + 剪贴板草稿一并保存到 session 目录
+      const inMemoryFilesToSave = newFiles.map((f) => ({
+        filename: f.filename,
+        data: window.__pendingAgentFileData?.get(f.id) || '',
+      }))
+      const missingDataFiles = inMemoryFilesToSave.filter((f) => !f.data).map((f) => f.filename)
+      if (missingDataFiles.length > 0) {
+        toast.error('附件数据已失效', {
+          description: `请移除后重新添加文件：${missingDataFiles.join('、')}`,
+        })
+        return
+      }
+
+      const filesToSave = [...inMemoryFilesToSave, ...draftFilesToSave]
+      if (filesToSave.length > 0) {
         try {
           const saved = await window.electronAPI.saveFilesToAgentSession({
             workspaceSlug: workspace.slug,

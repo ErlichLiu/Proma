@@ -31,6 +31,7 @@ describe('长文本粘贴附件', () => {
       filename: 'clipboard-20260528-123456.txt',
       mediaType: 'text/plain',
       sourcePath: '/tmp/proma-preview/clipboard-20260528-123456.txt',
+      isClipboardDraft: true,
     })
   })
 })

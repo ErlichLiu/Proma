@@ -33,8 +33,9 @@ export function createClipboardPendingFile(draft: ClipboardTextDraft, sourcePath
     filename: draft.filename,
     mediaType: draft.mediaType,
     size: draft.size,
-    // 临时文件是待发送长文本的唯一真实数据源；预览/外部编辑后发送端引用该路径。
+    // 临时文件是待发送长文本的唯一真实数据源；预览/外部编辑后发送端读取该路径最新内容拷贝进 session。
     sourcePath,
+    isClipboardDraft: true,
   }
 }
 
