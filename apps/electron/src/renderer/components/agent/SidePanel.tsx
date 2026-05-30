@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom, useStore } from 'jotai'
 import { X, FolderOpen, ExternalLink, ChevronRight, MoreHorizontal, FolderSearch, Pencil, FolderInput, Info, FolderHeart, MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -68,13 +68,11 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
   // Tab 系统
   const previewFileMap = useAtomValue(previewFileMapAtom)
   const selectedFilePath = previewFileMap.get(sessionId)?.filePath
-  const tabs = useAtomValue(tabsAtom)
+  const store = useStore()
 
   // 预览面板 atoms
   const setPreviewFileMap = useSetAtom(previewFileMapAtom)
   const setPreviewOpenMap = useSetAtom(previewPanelOpenMapAtom)
-  const setTabs = useSetAtom(tabsAtom)
-  const setActiveTabId = useSetAtom(activeTabIdAtom)
 
   // 用 ref 存 basePaths 相关值，避免声明顺序问题
   const basePathsRef = React.useRef<string[]>([])
@@ -86,14 +84,14 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
       return m
     })
     setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, false); return m })
-    const result = openTab(tabs, {
+    const result = openTab(store.get(tabsAtom), {
       type: 'preview',
       sessionId,
       title: getPreviewTabTitle(file.filePath),
     })
-    setTabs(result.tabs)
-    setActiveTabId(result.activeTabId)
-  }, [sessionId, setActiveTabId, setPreviewFileMap, setPreviewOpenMap, setTabs, tabs])
+    store.set(tabsAtom, result.tabs)
+    store.set(activeTabIdAtom, result.activeTabId)
+  }, [sessionId, setPreviewFileMap, setPreviewOpenMap, store])
 
   const handleFilePreview = React.useCallback((filePath: string) => {
     const bp = basePathsRef.current

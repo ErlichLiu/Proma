@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom, useStore } from 'jotai'
 import { previewFileMapAtom, previewPanelOpenMapAtom } from '@/atoms/preview-atoms'
 import { currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
 import { activeTabIdAtom, getPreviewTabTitle, openTab, tabsAtom } from '@/atoms/tab-atoms'
@@ -20,11 +20,9 @@ interface PreviewOpenButtonProps {
 
 export function PreviewOpenButton({ filePath, className }: PreviewOpenButtonProps): React.ReactElement | null {
   const sessionId = useAtomValue(currentAgentSessionIdAtom)
-  const tabs = useAtomValue(tabsAtom)
+  const store = useStore()
   const setPreviewFile = useSetAtom(previewFileMapAtom)
   const setPreviewOpen = useSetAtom(previewPanelOpenMapAtom)
-  const setTabs = useSetAtom(tabsAtom)
-  const setActiveTabId = useSetAtom(activeTabIdAtom)
 
   if (!sessionId || !filePath) return null
 
@@ -39,13 +37,13 @@ export function PreviewOpenButton({ filePath, className }: PreviewOpenButtonProp
       next.set(sessionId, false)
       return next
     })
-    const result = openTab(tabs, {
+    const result = openTab(store.get(tabsAtom), {
       type: 'preview',
       sessionId,
       title: getPreviewTabTitle(filePath),
     })
-    setTabs(result.tabs)
-    setActiveTabId(result.activeTabId)
+    store.set(tabsAtom, result.tabs)
+    store.set(activeTabIdAtom, result.activeTabId)
   }
 
   return (

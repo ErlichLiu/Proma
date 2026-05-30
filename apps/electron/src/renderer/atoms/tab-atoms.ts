@@ -143,9 +143,12 @@ export function createPreviewTabId(sessionId: string): string {
   return `${PREVIEW_TAB_PREFIX}${sessionId}`
 }
 
+export function getFileBaseName(filePath: string): string {
+  return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
+}
+
 export function getPreviewTabTitle(filePath: string): string {
-  const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
-  return `预览：${fileName}`
+  return `预览：${getFileBaseName(filePath)}`
 }
 
 export function isPreviewTab(tab: TabItem): boolean {

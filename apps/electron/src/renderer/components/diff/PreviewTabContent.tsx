@@ -11,6 +11,7 @@ import {
 } from '@/atoms/agent-atoms'
 import {
   createPreviewTabId,
+  getFileBaseName,
   getPreviewTabTitle,
   tabsAtom,
 } from '@/atoms/tab-atoms'
@@ -21,10 +22,6 @@ import { getDefaultAppTargetPath, getPreviewFileAccess } from './preview-open-pa
 
 interface PreviewTabContentProps {
   sessionId: string
-}
-
-function getFileName(filePath: string): string {
-  return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
 }
 
 function getFallbackDirPath(filePath: string, sessionPath: string): string {
@@ -39,7 +36,7 @@ export function PreviewTabContent({ sessionId }: PreviewTabContentProps): React.
 
   const currentFile = fileMap.get(sessionId) ?? null
   const sessionPath = sessionPathMap.get(sessionId) ?? ''
-  const fileName = currentFile ? getFileName(currentFile.filePath) : '文件预览'
+  const fileName = currentFile ? getFileBaseName(currentFile.filePath) : '文件预览'
 
   React.useEffect(() => {
     const previewTabId = createPreviewTabId(sessionId)
