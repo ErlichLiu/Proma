@@ -33,7 +33,8 @@ import {
   agentDiffRefreshVersionAtom,
   fileBrowserAutoRevealAtom,
 } from '@/atoms/agent-atoms'
-import { previewPanelOpenMapAtom, previewFileMapAtom } from '@/atoms/preview-atoms'
+import { previewPanelOpenMapAtom, previewFileMapAtom, type PreviewFile } from '@/atoms/preview-atoms'
+import { activeTabIdAtom, getPreviewTabTitle, openTab, tabsAtom } from '@/atoms/tab-atoms'
 import { detectIsWindows } from '@/lib/platform'
 import type { FileEntry, AgentPendingFile } from '@proma/shared'
 
@@ -67,32 +68,49 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
   // Tab 系统
   const previewFileMap = useAtomValue(previewFileMapAtom)
   const selectedFilePath = previewFileMap.get(sessionId)?.filePath
+  const tabs = useAtomValue(tabsAtom)
 
   // 预览面板 atoms
   const setPreviewFileMap = useSetAtom(previewFileMapAtom)
   const setPreviewOpenMap = useSetAtom(previewPanelOpenMapAtom)
+  const setTabs = useSetAtom(tabsAtom)
+  const setActiveTabId = useSetAtom(activeTabIdAtom)
 
   // 用 ref 存 basePaths 相关值，避免声明顺序问题
   const basePathsRef = React.useRef<string[]>([])
 
+  const openPreviewTabForFile = React.useCallback((file: PreviewFile) => {
+    setPreviewFileMap((prev) => {
+      const m = new Map(prev)
+      m.set(sessionId, file)
+      return m
+    })
+    setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, false); return m })
+    const result = openTab(tabs, {
+      type: 'preview',
+      sessionId,
+      title: getPreviewTabTitle(file.filePath),
+    })
+    setTabs(result.tabs)
+    setActiveTabId(result.activeTabId)
+  }, [sessionId, setActiveTabId, setPreviewFileMap, setPreviewOpenMap, setTabs, tabs])
+
   const handleFilePreview = React.useCallback((filePath: string) => {
     const bp = basePathsRef.current
-    setPreviewFileMap((prev) => {
-      const m = new Map(prev)
-      m.set(sessionId, { filePath, previewOnly: true, basePaths: bp.length > 0 ? bp : undefined })
-      return m
+    openPreviewTabForFile({
+      filePath,
+      previewOnly: true,
+      basePaths: bp.length > 0 ? bp : undefined,
     })
-    setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
-  }, [sessionId, setPreviewFileMap, setPreviewOpenMap])
+  }, [openPreviewTabForFile])
 
   const handleDiffFileClick = React.useCallback((filePath: string, _isUntracked: boolean, gitRoot?: string) => {
-    setPreviewFileMap((prev) => {
-      const m = new Map(prev)
-      m.set(sessionId, { filePath, dirPath: sessionPath || undefined, gitRoot })
-      return m
+    openPreviewTabForFile({
+      filePath,
+      dirPath: sessionPath || undefined,
+      gitRoot,
     })
-    setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
-  }, [sessionId, sessionPath, setPreviewFileMap, setPreviewOpenMap])
+  }, [openPreviewTabForFile, sessionPath])
 
   // 动画标志：isOpen 变化时启用过渡动画，切换会话时即时显示
   const prevIsOpenRef = React.useRef(isOpen)
