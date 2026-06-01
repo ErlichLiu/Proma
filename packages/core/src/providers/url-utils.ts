@@ -5,6 +5,8 @@
  * 所有 Anthropic URL 规范化逻辑统一收口在此文件，避免分散重复。
  */
 
+import type { ProviderType } from '@proma/shared'
+
 /**
  * 规范化 Anthropic Base URL（用于 Proma Chat 直接调用 API）
  *
@@ -89,7 +91,7 @@ export function normalizeBaseUrl(baseUrl: string): string {
  * 统一收口 channel-manager 和 AnthropicAdapter 中重复的条件分支逻辑。
  * 仅适用于走 Anthropic 协议的供应商（anthropic / anthropic-compatible / deepseek / kimi-* / minimax）。
  */
-export function normalizeAnthropicProviderUrl(baseUrl: string, provider: string): string {
+export function normalizeAnthropicProviderUrl(baseUrl: string, provider: ProviderType): string {
   if (provider === 'minimax' || provider === 'anthropic-compatible') {
     return normalizeVersionedAnthropicBaseUrl(baseUrl)
   }
