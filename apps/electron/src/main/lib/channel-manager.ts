@@ -24,7 +24,7 @@ import type {
 import { PROVIDER_DEFAULT_URLS } from '@proma/shared'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
-import { normalizeAnthropicBaseUrl, normalizeBaseUrl, normalizeVersionedAnthropicBaseUrl } from '@proma/core'
+import { normalizeBaseUrl, normalizeAnthropicProviderUrl } from '@proma/core'
 
 /** 当前配置版本 */
 const CONFIG_VERSION = 1
@@ -267,6 +267,7 @@ export async function testChannel(channelId: string): Promise<ChannelTestResult>
   try {
     switch (channel.provider) {
       case 'anthropic':
+      case 'anthropic-compatible':
       case 'deepseek':
       case 'kimi-api':
       case 'kimi-coding':
@@ -301,11 +302,7 @@ async function testAnthropicCompatible(
   proxyUrl?: string,
   provider: ProviderType = 'anthropic',
 ): Promise<ChannelTestResult> {
-  const isNonVersionedPath =
-    provider === 'deepseek' || provider === 'kimi-api' || provider === 'kimi-coding'
-  const url = provider === 'minimax'
-    ? normalizeVersionedAnthropicBaseUrl(baseUrl)
-    : isNonVersionedPath ? normalizeBaseUrl(baseUrl) : normalizeAnthropicBaseUrl(baseUrl)
+  const url = normalizeAnthropicProviderUrl(baseUrl, provider)
   const fetchFn = getFetchFn(proxyUrl)
 
   let testModel: string
@@ -320,7 +317,7 @@ async function testAnthropicCompatible(
       testModel = 'kimi-for-coding'
       break
     case 'minimax':
-      testModel = 'MiniMax-M2.7'
+      testModel = 'MiniMax-M3'
       break
     default:
       testModel = 'claude-sonnet-4-6'
@@ -426,6 +423,7 @@ export async function testChannelDirect(input: FetchModelsInput): Promise<Channe
   try {
     switch (input.provider) {
       case 'anthropic':
+      case 'anthropic-compatible':
       case 'deepseek':
       case 'kimi-api':
       case 'kimi-coding':
@@ -462,6 +460,7 @@ export async function fetchModels(input: FetchModelsInput): Promise<FetchModelsR
   try {
     switch (input.provider) {
       case 'anthropic':
+      case 'anthropic-compatible':
       case 'deepseek':
       case 'kimi-api':
       case 'kimi-coding':
@@ -507,11 +506,7 @@ async function fetchAnthropicCompatibleModels(
   proxyUrl?: string,
   provider: ProviderType = 'anthropic',
 ): Promise<FetchModelsResult> {
-  const isNonVersionedPath =
-    provider === 'deepseek' || provider === 'kimi-api' || provider === 'kimi-coding'
-  const url = provider === 'minimax'
-    ? normalizeVersionedAnthropicBaseUrl(baseUrl)
-    : isNonVersionedPath ? normalizeBaseUrl(baseUrl) : normalizeAnthropicBaseUrl(baseUrl)
+  const url = normalizeAnthropicProviderUrl(baseUrl, provider)
   const fetchFn = getFetchFn(proxyUrl)
 
   const headers: Record<string, string> = {
