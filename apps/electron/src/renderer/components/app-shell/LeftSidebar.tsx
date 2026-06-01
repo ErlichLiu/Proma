@@ -2142,7 +2142,7 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
             startEdit()
           }}
           className={cn(
-            'group relative w-full flex items-center gap-2 px-3 py-[7px] rounded-md transition-colors duration-100 titlebar-no-drag text-left',
+            'group relative w-full flex items-start gap-1.5 px-3 py-[7px] rounded-md transition-colors duration-100 titlebar-no-drag text-left',
             active
               ? 'session-item-selected bg-primary/10 shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
               : 'hover:bg-primary/5'
@@ -2169,18 +2169,22 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
                 maxLength={100}
               />
             ) : (
-              <div className={cn(
-                'truncate text-[13px] leading-5 flex items-center gap-1.5',
-                active ? 'text-foreground' : 'text-foreground/80'
-              )}>
-                {showPinIcon && (
-                  <Pin size={11} className="flex-shrink-0 text-primary/60" />
-                )}
-                <span className="truncate">{session.title}</span>
+              <div className="min-w-0">
+                <div className={cn(
+                  'flex min-w-0 items-center gap-1.5 text-[13px] leading-5',
+                  active ? 'text-foreground' : 'text-foreground/80'
+                )}>
+                  {showPinIcon && (
+                    <Pin size={11} className="flex-shrink-0 text-primary/60" />
+                  )}
+                  <span className="min-w-0 truncate">{session.title}</span>
+                </div>
                 {workspaceName && (
-                  <span className="flex-shrink-0 px-1.5 py-0 rounded-full bg-primary/10 text-[10px] leading-4 workspace-badge font-medium truncate max-w-[80px]">
-                    {workspaceName}
-                  </span>
+                  <div className="mt-1 flex min-w-0 items-center">
+                    <span className="inline-flex max-w-full flex-shrink px-1.5 py-0 rounded-full bg-primary/10 text-[10px] leading-4 workspace-badge font-medium truncate">
+                      {workspaceName}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
@@ -2193,7 +2197,7 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
                   type="button"
                   aria-label="标记为完成"
                   className={cn(
-                    'flex-shrink-0 p-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-colors',
+                    'flex-shrink-0 -ml-0.5 -mr-1 translate-x-1 p-1 rounded-md text-primary/70 hover:bg-primary/10 hover:text-primary transition-colors',
                     'opacity-0 pointer-events-none',
                     'group-hover:opacity-100 group-hover:pointer-events-auto',
                     'group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
