@@ -72,4 +72,33 @@ describe('Mermaid 代码块识别', () => {
     expect(shouldInspectMermaidCodeBlock(undefined)).toBe(true)
     expect(shouldRenderMermaidCodeBlock(undefined, 'const graph = createGraph()')).toBe(false)
   })
+
+  test('given graph/flowchart keyword without direction when checking code block then keeps source code', () => {
+    // graph/flowchart 是常见英文词，无方向关键字时不应被误判为图（否则触发 mermaid 渲染失败）
+    const nonDiagrams = [
+      'graph of quarterly results:\n- Q1: 100',
+      'graph the following data points',
+      'flowchart for the deployment pipeline',
+      'flowchart-elk is an alternative renderer',
+      'graphql query {\n  user { id }\n}',
+    ]
+    nonDiagrams.forEach((text) => {
+      expect(looksLikeMermaidDefinition(text)).toBe(false)
+      expect(shouldRenderMermaidCodeBlock(undefined, text)).toBe(false)
+    })
+  })
+
+  test('given graph/flowchart with direction when checking code block then renders as diagram', () => {
+    const diagrams = [
+      'graph TD\nA-->B',
+      'graph LR\nA-->B',
+      'flowchart TB\nA --> B',
+      'flowchart BT\nA --> B',
+      'flowchart-elk RL\nA --> B',
+      'graph TD;\nA-->B',
+    ]
+    diagrams.forEach((text) => {
+      expect(looksLikeMermaidDefinition(text)).toBe(true)
+    })
+  })
 })
