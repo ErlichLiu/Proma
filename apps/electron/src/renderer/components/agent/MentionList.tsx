@@ -87,6 +87,9 @@ function MentionListInner<T>(
             'w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-accent transition-colors',
             index === localIndex && 'bg-accent text-accent-foreground',
           )}
+          // 阻止 mousedown 抢走编辑器焦点，否则会触发 blur → cleanup 提前销毁弹窗，
+          // 导致后续 onClick 永不触发（鼠标点击有时无效的根因，回车走键盘路径不受影响）
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => onSelect(item)}
         >
           {renderItem(item)}
