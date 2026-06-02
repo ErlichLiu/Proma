@@ -34,15 +34,10 @@ export function VersionHistory(): React.ReactElement {
       console.error('[版本历史] 加载失败:', err)
       let errorMessage = err instanceof Error ? err.message : '加载失败'
       // 过滤掉 Electron IPC 的英文前缀，只保留中文错误信息
-      if (errorMessage.includes('Error invoking remote method')) {
-        const parts = errorMessage.split('Error:')
-        if (parts.length > 1) {
-          const lastPart = parts[parts.length - 1].trim()
-          // 确保截取后还有有效内容
-          if (lastPart) {
-            errorMessage = lastPart
-          }
-        }
+      // IPC 错误格式: "Error invoking remote method 'xxx': Error: 中文错误信息"
+      const ipcPrefixMatch = errorMessage.match(/Error invoking remote method[^:]*:\s*Error:\s*(.+)/s)
+      if (ipcPrefixMatch && ipcPrefixMatch[1]) {
+        errorMessage = ipcPrefixMatch[1].trim()
       }
       setError(errorMessage)
     } finally {
