@@ -50,6 +50,8 @@ export function SettingsSelect({
   placeholder,
   disabled,
 }: SettingsSelectProps): React.ReactElement {
+  const selected = React.useMemo(() => options.find((o) => o.value === value), [options, value])
+
   return (
     <div className="px-4 py-3 space-y-2">
       <div>
@@ -61,16 +63,12 @@ export function SettingsSelect({
       <Select value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectTrigger className="w-full">
           <SelectValue placeholder={placeholder}>
-            {(() => {
-              const selected = options.find((o) => o.value === value)
-              if (!selected) return placeholder
-              return (
-                <span className="flex items-center gap-2">
-                  {selected.icon && <img src={selected.icon} alt="" className="w-4 h-4 rounded-sm object-contain" />}
-                  <span>{selected.label}</span>
-                </span>
-              )
-            })()}
+            {selected ? (
+              <span className="flex items-center gap-2">
+                {selected.icon && <img src={selected.icon} alt="" className="w-4 h-4 rounded-sm object-contain" />}
+                <span>{selected.label}</span>
+              </span>
+            ) : placeholder}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
