@@ -10,7 +10,7 @@
 
 import * as React from 'react'
 import { useAtom } from 'jotai'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -273,29 +273,52 @@ export function ShortcutSettings(): React.ReactElement {
   const [sendWithCmdEnter, setSendWithCmdEnter] = useAtom(sendWithCmdEnterAtom)
   // 当前正在录制的快捷键 id，用于隐藏并列操作按钮，避免与录制中途的 state 冲突
   const [recordingId, setRecordingId] = React.useState<string | null>(null)
-  // 全局快捷键可用性状态：shortcutId → boolean（true=可用, false=被占用）
-  const [globalShortcutAvailability, setGlobalShortcutAvailability] = React.useState<Record<string, boolean>>({})
+  // 全局快捷键可用性状态：shortcutId → 'checking' | 'available' | 'unavailable' | 'unknown'
+  const [globalShortcutAvailability, setGlobalShortcutAvailability] = React.useState<
+    Record<string, 'checking' | 'available' | 'unavailable' | 'unknown'>
+  >({})
 
   // 检测全局快捷键可用性
   React.useEffect(() => {
+    const abortController = new AbortController()
+
     const checkAvailability = async () => {
       const globalShortcuts = DEFAULT_SHORTCUTS.filter((s) => s.global)
-      const results: Record<string, boolean> = {}
+      // 初始状态设为 checking
+      const initialState: Record<string, 'checking' | 'available' | 'unavailable' | 'unknown'> = {}
       for (const def of globalShortcuts) {
+        initialState[def.id] = 'checking'
+      }
+      setGlobalShortcutAvailability(initialState)
+
+      for (const def of globalShortcuts) {
+        if (abortController.signal.aborted) return
+
         const accel = getActiveAccelerator(def.id)
-        if (accel && accel !== null) {
-          try {
-            results[def.id] = await window.electronAPI.checkGlobalShortcutAvailability(accel)
-          } catch {
-            results[def.id] = true // 检测失败时默认认为可用
-          }
-        } else {
-          results[def.id] = true // 未启用时不显示冲突
+        if (!accel || accel === null) {
+          setGlobalShortcutAvailability((prev) => ({ ...prev, [def.id]: 'unknown' }))
+          continue
+        }
+
+        try {
+          const isAvailable = await window.electronAPI.checkGlobalShortcutAvailability(accel)
+          if (abortController.signal.aborted) return
+          setGlobalShortcutAvailability((prev) => ({
+            ...prev,
+            [def.id]: isAvailable ? 'available' : 'unavailable',
+          }))
+        } catch {
+          if (abortController.signal.aborted) return
+          setGlobalShortcutAvailability((prev) => ({ ...prev, [def.id]: 'unknown' }))
         }
       }
-      setGlobalShortcutAvailability(results)
     }
+
     checkAvailability()
+
+    return () => {
+      abortController.abort()
+    }
   }, [overrides]) // 当快捷键覆盖变化时重新检测
 
   const handleRecordingChange = React.useCallback(
@@ -671,17 +694,31 @@ export function ShortcutSettings(): React.ReactElement {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className={`inline-flex items-center justify-center size-5 rounded-full text-[10px] font-bold ${
-                                  globalShortcutAvailability[def.id] === false
+                                  globalShortcutAvailability[def.id] === 'unavailable'
                                     ? 'bg-destructive/15 text-destructive'
-                                    : 'bg-emerald-500/15 text-emerald-600'
+                                    : globalShortcutAvailability[def.id] === 'checking'
+                                      ? 'bg-muted text-muted-foreground animate-pulse'
+                                      : globalShortcutAvailability[def.id] === 'unknown'
+                                        ? 'bg-amber-500/15 text-amber-600'
+                                        : 'bg-emerald-500/15 text-emerald-600'
                                 }`}>
-                                  {globalShortcutAvailability[def.id] === false ? '!' : '✓'}
+                                  {globalShortcutAvailability[def.id] === 'unavailable'
+                                    ? '!'
+                                    : globalShortcutAvailability[def.id] === 'checking'
+                                      ? '...'
+                                      : globalShortcutAvailability[def.id] === 'unknown'
+                                        ? '?'
+                                        : '✓'}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent side="top">
-                                {globalShortcutAvailability[def.id] === false
+                                {globalShortcutAvailability[def.id] === 'unavailable'
                                   ? '该快捷键可能已被系统或其他应用占用'
-                                  : '该快捷键当前可被系统注册'}
+                                  : globalShortcutAvailability[def.id] === 'checking'
+                                    ? '正在检测快捷键可用性...'
+                                    : globalShortcutAvailability[def.id] === 'unknown'
+                                      ? '无法检测快捷键可用性（检测失败）'
+                                      : '该快捷键当前可被系统注册'}
                               </TooltipContent>
                             </Tooltip>
                           )}
