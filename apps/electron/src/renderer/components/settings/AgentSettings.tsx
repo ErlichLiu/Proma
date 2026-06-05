@@ -695,12 +695,12 @@ function SkillListPanel({ skills, defaultSkillSlugs, selectedSlug, onSelect, onD
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate flex-1">
                 {group.prefix === 'built-in' ? 'built-in' : group.prefix}
               </span>
-              <span className="text-[10px] tabular-nums text-muted-foreground flex-shrink-0">{group.skills.length}</span>
               {group.isBuiltin && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium flex-shrink-0">
                   PROMA
                 </span>
               )}
+              <span className="text-[10px] tabular-nums text-muted-foreground flex-shrink-0">{group.skills.length}</span>
             </button>
             {expandedGroups.has(group.prefix) && (
               <div className="relative">
