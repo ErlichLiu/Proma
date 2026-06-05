@@ -579,6 +579,9 @@ export class AgentOrchestrator {
     if (provider === 'kimi-coding') {
       sdkEnv.ANTHROPIC_AUTH_TOKEN = apiKey
       sdkEnv.ANTHROPIC_CUSTOM_HEADERS = `User-Agent: ${getPromaUserAgent(pkg.version)}`
+    } else if (provider === 'zhipu-coding') {
+      sdkEnv.ANTHROPIC_AUTH_TOKEN = apiKey
+      sdkEnv.ANTHROPIC_CUSTOM_HEADERS = `User-Agent: ${getPromaUserAgent(pkg.version)}`
     } else if (provider === 'xiaomi-token-plan') {
       sdkEnv.ANTHROPIC_AUTH_TOKEN = apiKey
       sdkEnv.ANTHROPIC_CUSTOM_HEADERS = `User-Agent: ${getPromaUserAgent(pkg.version)}`

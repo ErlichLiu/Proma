@@ -17,9 +17,11 @@ import { LABEL_CLASS, DESCRIPTION_CLASS } from './SettingsUIConstants'
 import { cn } from '@/lib/utils'
 
 /** 选项定义 */
-interface SelectOption {
+export interface SelectOption {
   value: string
   label: string
+  /** 选项图标 URL（可选） */
+  icon?: string
 }
 
 interface SettingsSelectProps {
@@ -58,12 +60,26 @@ export function SettingsSelect({
       </div>
       <Select value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectTrigger className="w-full">
-          <SelectValue placeholder={placeholder} />
+          <SelectValue placeholder={placeholder}>
+            {(() => {
+              const selected = options.find((o) => o.value === value)
+              if (!selected) return placeholder
+              return (
+                <span className="flex items-center gap-2">
+                  {selected.icon && <img src={selected.icon} alt="" className="w-4 h-4 rounded-sm object-contain" />}
+                  <span>{selected.label}</span>
+                </span>
+              )
+            })()}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
-              {option.label}
+              <span className="flex items-center gap-2">
+                {option.icon && <img src={option.icon} alt="" className="w-4 h-4 rounded-sm object-contain" />}
+                <span>{option.label}</span>
+              </span>
             </SelectItem>
           ))}
         </SelectContent>
