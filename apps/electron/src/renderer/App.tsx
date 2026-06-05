@@ -45,47 +45,49 @@ const MOCK_HTML = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:#0f0f11;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}
-.card{background:#1a1a1e;border-radius:20px;padding:28px 24px;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 8px 32px rgba(0,0,0,.4);max-width:400px;width:100%}
-h1{font-size:20px;color:#e8e8ed;margin-bottom:20px;text-align:center;font-weight:700}
-.amount-row{display:flex;gap:10px;margin-bottom:14px}
-.amount-input{flex:1;background:#25252b;border:1px solid #2e2e36;border-radius:12px;padding:12px 14px;font-size:18px;color:#e8e8ed;outline:none;font-weight:600;transition:border-color .2s}
-.amount-input:focus{border-color:#a78bfa}
-.amount-input::placeholder{color:#5a5a66;font-weight:400}
-.tag-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.tag{padding:8px 16px;border-radius:10px;font-size:13px;cursor:pointer;font-weight:500;user-select:none;transition:all .15s;background:#25252b;color:#9d9dab;border:1px solid transparent}
-.tag:hover{background:#2e2e38;color:#c8c8d4}
-.tag.active{background:rgba(139,92,246,.15);color:#a78bfa;border-color:rgba(139,92,246,.35)}
-.save-btn{width:100%;padding:12px;background:#8b5cf6;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:background .2s}
-.save-btn:hover{background:#7c3aed}
-.record-list{margin-top:18px;list-style:none;display:flex;flex-direction:column;gap:8px}
-.record-list li{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#25252b;border-radius:12px;font-size:14px;color:#d4d4dc}
-.record-list .amount{font-weight:700;color:#a78bfa;font-size:15px}
-.record-list .cat{font-size:11px;color:#7a7a8a;background:rgba(139,92,246,.08);padding:3px 10px;border-radius:8px}
-.record-list .name{flex:1;margin-left:10px;color:#c4c4ce}
-.wizard-highlight{outline:2px solid #f87171!important;outline-offset:4px;border-radius:8px;animation:pulse .7s infinite alternate}
+.card{background:#1a1a1e;border-radius:20px;padding:24px 20px;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 8px 32px rgba(0,0,0,.4);max-width:380px;width:100%}
+h1{font-size:18px;color:#e8e8ed;margin-bottom:4px;font-weight:700}
+.subtitle{font-size:12px;color:#6b6b7b;margin-bottom:18px}
+.summary{display:flex;gap:12px;margin-bottom:18px}
+.summary-item{flex:1;background:#1e1e24;border-radius:12px;padding:14px;text-align:center}
+.summary-item .num{font-size:24px;font-weight:700;color:#a78bfa;line-height:1.2}
+.summary-item .label{font-size:11px;color:#6b6b7b;margin-top:4px}
+.section-title{font-size:13px;color:#9d9dab;font-weight:600;margin-bottom:10px}
+.tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.tag{padding:6px 14px;border-radius:8px;font-size:12px;font-weight:500;background:#1e1e24;color:#9d9dab}
+.tag.hot{background:rgba(139,92,246,.12);color:#a78bfa}
+.record-list{list-style:none;display:flex;flex-direction:column;gap:6px}
+.record-list li{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#1e1e24;border-radius:10px;font-size:14px;color:#d4d4dc}
+.record-list .amount{font-weight:700;color:#e8e8ed;font-size:14px}
+.record-list .cat{font-size:11px;color:#7a7a8a;padding:2px 8px}
+.record-list .name{flex:1;margin-left:8px;color:#c4c4ce}
+.fab{position:fixed;bottom:28px;right:28px;width:48px;height:48px;border-radius:50%;background:#8b5cf6;color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(139,92,246,.35)}
+.wizard-highlight{outline:2px solid #f87171!important;outline-offset:4px;border-radius:inherit;animation:pulse .7s infinite alternate}
 @keyframes pulse{from{outline-color:#f87171}to{outline-color:#fca5a5}}
 </style></head><body>
-<div class="card"><h1>💰 记账应用</h1>
-<div class="amount-row"><input class="amount-input" placeholder="输入金额" id="amount" autocomplete="off"></div>
-<div class="tag-row" id="tagRow">
-<span class="tag active" data-cat="餐饮">🍜 餐饮</span>
-<span class="tag" data-cat="交通">🚇 交通</span>
-<span class="tag" data-cat="购物">🛍 购物</span>
-<span class="tag" data-cat="娱乐">🎮 娱乐</span>
-<span class="tag" data-cat="其他">📦 其他</span>
+<div class="card">
+<h1>💰 记账应用</h1>
+<div class="subtitle">2026年6月</div>
+<div class="summary">
+<div class="summary-item"><div class="num">¥67</div><div class="label">本月支出</div></div>
+<div class="summary-item"><div class="num">3</div><div class="label">记账笔数</div></div>
+<div class="summary-item"><div class="num">¥18</div><div class="label">日均支出</div></div>
 </div>
-<button class="save-btn" id="saveBtn">记一笔</button>
-<ul class="record-list" id="recordList">
-<li><span class="name">🍜 午餐</span><span class="cat">餐饮</span><span class="amount">¥30</span></li>
-<li><span class="name">🚇 地铁</span><span class="cat">交通</span><span class="amount">¥15</span></li>
-<li><span class="name">☕ 咖啡</span><span class="cat">餐饮</span><span class="amount">¥22</span></li>
-</ul></div>
+<div class="section-title">分类筛选</div>
+<div class="tag-row">
+<span class="tag hot">全部</span><span class="tag">🍜 餐饮</span><span class="tag">🚇 交通</span><span class="tag">🛍 购物</span><span class="tag">🎮 娱乐</span>
+</div>
+<div class="section-title">最近记录</div>
+<ul class="record-list">
+<li><span>🍜</span><span class="name">午餐 — 食堂</span><span class="cat">餐饮</span><span class="amount">-¥30</span></li>
+<li><span>🚇</span><span class="name">地铁通勤</span><span class="cat">交通</span><span class="amount">-¥15</span></li>
+<li><span>☕</span><span class="name">星巴克拿铁</span><span class="cat">餐饮</span><span class="amount">-¥22</span></li>
+</ul>
+</div>
+<div class="fab">+</div>
 <script>
-var selCat='餐饮'
-document.getElementById('tagRow').addEventListener('click',function(e){var t=e.target.closest('.tag');if(!t)return;document.querySelectorAll('.tag').forEach(function(el){el.classList.remove('active')});t.classList.add('active');selCat=t.dataset.cat})
-document.getElementById('saveBtn').addEventListener('click',function(){var a=document.getElementById('amount').value.trim();if(!a||isNaN(a)){alert('请输入有效金额');return}var li=document.createElement('li');var icons={餐饮:'🍜',交通:'🚇',购物:'🛍',娱乐:'🎮',其他:'📦'};li.innerHTML='<span class="name">'+(icons[selCat]||'📝')+' '+selCat+'</span><span class="cat">'+selCat+'</span><span class="amount">¥'+a+'</span>';document.getElementById('recordList').appendChild(li);document.getElementById('amount').value=''})
-var hl=null;document.addEventListener('click',function(e){if(e.target.tagName==='INPUT'&&document.activeElement===e.target)return;e.stopPropagation();e.preventDefault();if(hl)hl.classList.remove('wizard-highlight');var t=e.target.closest('.tag')||e.target.closest('.save-btn')||e.target.closest('li')||e.target.closest('.amount-input')||e.target;t.classList.add('wizard-highlight');hl=t;window.parent.postMessage({type:'element-clicked',data:{tag:t.tagName,textContent:(t.textContent||'').trim().substring(0,50)}},'*')},true)
-window.addEventListener('message',function(e){if(e.data==='clear-highlight'&&hl){hl.classList.remove('wizard-highlight');hl=null}})
+var hl=null;document.addEventListener('click',function(e){e.stopPropagation();e.preventDefault();if(hl)hl.classList.remove('wizard-highlight');var t=e.target;t.classList.add('wizard-highlight');hl=t;window.parent.postMessage({type:'element-clicked',data:{tag:t.tagName,textContent:(t.textContent||'').trim().substring(0,50)}},'*')},true);
+window.addEventListener('message',function(e){if(e.data==='clear-highlight'&&hl){hl.classList.remove('wizard-highlight');hl=null}});
 </script></body></html>`
 
 // ===== 时间轴 =====
