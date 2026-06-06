@@ -15,7 +15,7 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { toast } from 'sonner'
-import { Clock, Plus, Play, Pause, Trash2 } from 'lucide-react'
+import { Clock, Plus, Play, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   automationsAtom,
@@ -185,7 +185,7 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
                 </span>
               </div>
             </div>
-            {/* hover 操作按钮 */}
+            {/* hover 操作按钮（立即运行 + 删除） */}
             <div className="hidden group-hover:flex items-center gap-1 shrink-0">
               <span
                 role="button"
@@ -194,14 +194,6 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
                 className="p-1.5 rounded-md text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.06] transition-colors"
               >
                 <Play className="size-3.5" />
-              </span>
-              <span
-                role="button"
-                title={a.active ? '暂停' : '启用'}
-                onClick={(e) => { void handleToggle(e, a) }}
-                className="p-1.5 rounded-md text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.06] transition-colors"
-              >
-                {a.active ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
               </span>
               <span
                 role="button"
@@ -219,6 +211,18 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
             )}>
               {variant === 'paused' ? '已暂停' : formatSchedule(a)}
             </span>
+            {/* 状态灯：常驻显示，绿=启用/红=暂停，点击切换 */}
+            <span
+              role="button"
+              title={a.active ? '点击暂停' : '点击启用'}
+              onClick={(e) => { void handleToggle(e, a) }}
+              className={cn(
+                'size-2.5 rounded-full shrink-0 cursor-pointer transition-colors',
+                a.active
+                  ? 'bg-emerald-500 hover:bg-red-400'
+                  : 'bg-red-400 hover:bg-emerald-500',
+              )}
+            />
           </button>
         ))}
       </div>
