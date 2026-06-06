@@ -997,7 +997,7 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, triggeredBy } = input
+    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds } = input
     const stderrChunks: string[] = []
 
     // 0. 并发保护
