@@ -30,8 +30,17 @@ const INDEX_VERSION = 1
 
 function readIndex(): AutomationsIndex {
   const data = readJsonFileSafe<AutomationsIndex>(getAutomationsPath())
-  if (data) return data
-  return { version: INDEX_VERSION, automations: [] }
+  if (!data) return { version: INDEX_VERSION, automations: [] }
+  // 未知版本：拒绝按当前 schema 解析，回退到空索引（避免用未来格式当作当前格式覆写）。
+  // 当前版本只有 1，未来加迁移逻辑时在这里分支处理。
+  if (typeof data.version !== 'number' || data.version > INDEX_VERSION) {
+    console.warn(`[定时任务] 索引文件版本 ${data.version} 不被当前构建识别，将忽略其内容`)
+    return { version: INDEX_VERSION, automations: [] }
+  }
+  if (!Array.isArray(data.automations)) {
+    return { version: INDEX_VERSION, automations: [] }
+  }
+  return data
 }
 
 function writeIndex(index: AutomationsIndex): void {
@@ -178,8 +187,10 @@ export function deleteAutomation(id: string): boolean {
  * 记录一次运行结果并推进下次触发时间
  *
  * 由调度器在运行完成/失败/跳过后调用。
- * - 成功/跳过：清零连续失败计数
- * - 失败：累加连续失败计数（调度器据此判断是否自动暂停）
+ * - 成功/失败：从「现在」起算下次触发时间
+ * - 跳过：不动 nextRunAt——否则任务因重入持续跳过时，每次跳过都会把下次触发再推一个完整间隔，
+ *   实际周期会被拉成 N×interval。保留原 nextRunAt 让下一个 tick 立刻有机会再次尝试。
+ * - 成功/跳过：清零连续失败计数；失败：累加（调度器据此判断是否自动暂停）
  */
 export function appendRun(id: string, run: AutomationRun): Automation | undefined {
   const index = readIndex()
@@ -191,8 +202,11 @@ export function appendRun(id: string, run: AutomationRun): Automation | undefine
   if (target.runHistory.length > AUTOMATION_MAX_HISTORY) {
     target.runHistory = target.runHistory.slice(0, AUTOMATION_MAX_HISTORY)
   }
-  target.lastRunAt = run.runAt
-  target.nextRunAt = computeNextRunAt(target, now)
+
+  if (run.status !== 'skipped') {
+    target.lastRunAt = run.runAt
+    target.nextRunAt = computeNextRunAt(target, now)
+  }
 
   if (run.status === 'error') {
     target.consecutiveFailures = (target.consecutiveFailures ?? 0) + 1

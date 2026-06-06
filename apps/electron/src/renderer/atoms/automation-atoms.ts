@@ -60,6 +60,28 @@ export function createEmptyDraft(): AutomationDraft {
   }
 }
 
+/**
+ * 把已存在的 Automation 映射成表单草稿（编辑入口共用）。
+ * 集中映射避免新增字段时漏改某个调用点。
+ */
+export function automationToDraft(a: Automation): AutomationDraft {
+  return {
+    id: a.id,
+    name: a.name,
+    prompt: a.prompt,
+    scheduleType: a.scheduleType,
+    intervalMinutes: a.intervalMinutes,
+    timeOfDay: a.timeOfDay,
+    dayOfWeek: a.dayOfWeek,
+    channelId: a.channelId,
+    modelId: a.modelId,
+    workspaceId: a.workspaceId,
+    permissionMode: a.permissionMode ?? AUTOMATION_DEFAULT_PERMISSION_MODE,
+    sourceSessionId: a.sourceSessionId,
+    active: a.active,
+  }
+}
+
 /** 固定间隔选项（分钟） */
 export const AUTOMATION_INTERVAL_OPTIONS = [
   { label: '每 5 分钟', value: 5 },

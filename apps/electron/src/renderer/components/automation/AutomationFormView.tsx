@@ -62,6 +62,13 @@ export function AutomationFormView(): React.ReactElement | null {
   const [editingName, setEditingName] = React.useState(false)
   const nameInputRef = React.useRef<HTMLInputElement>(null)
 
+  // 卸载/关闭过程中不再 setState（保存 IPC 是异步的，结束时表单可能已经被关掉了）
+  const isMountedRef = React.useRef(true)
+  React.useEffect(() => {
+    isMountedRef.current = true
+    return () => { isMountedRef.current = false }
+  }, [])
+
   React.useEffect(() => {
     if (formState.open && formState.draft) {
       setForm({ ...formState.draft })
@@ -143,7 +150,7 @@ export function AutomationFormView(): React.ReactElement | null {
           workspaceId: form.workspaceId ?? '',
           active: form.active,
         })
-        toast.success('已保存')
+        if (isMountedRef.current) toast.success('已保存')
       } else {
         const created = await window.electronAPI.createAutomation({
           name: form.name.trim(),
@@ -156,14 +163,16 @@ export function AutomationFormView(): React.ReactElement | null {
           active: form.active,
         })
         // 不关闭页面：转为编辑模式，便于继续调整
-        if (created?.id) setForm((prev) => (prev ? { ...prev, id: created.id } : prev))
-        toast.success('定时任务已创建')
+        if (isMountedRef.current && created?.id) {
+          setForm((prev) => (prev ? { ...prev, id: created.id } : prev))
+        }
+        if (isMountedRef.current) toast.success('定时任务已创建')
       }
     } catch (err) {
       console.error('[定时任务] 保存失败:', err)
-      toast.error('保存失败')
+      if (isMountedRef.current) toast.error('保存失败')
     } finally {
-      setSaving(false)
+      if (isMountedRef.current) setSaving(false)
     }
   }
 

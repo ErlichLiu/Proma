@@ -4086,6 +4086,34 @@ export function registerIpcHandlers(): void {
 
   // ===== 定时任务（Automation）=====
 
+  // 渲染进程可能被注入内容污染（XSS via markdown / MCP tool output），主进程必须自己校验入参，
+  // 否则 NaN / -Infinity / 越界值会污染 ~/.proma/automations.json，无法回滚。
+  const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0
+  const isFiniteInt = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v)
+  const validScheduleType = (v: unknown): v is 'interval' | 'daily' | 'weekly' =>
+    v === 'interval' || v === 'daily' || v === 'weekly'
+  const validPermissionMode = (v: unknown): v is 'auto' | 'bypassPermissions' =>
+    v === 'auto' || v === 'bypassPermissions'
+  const validTimeOfDay = (v: unknown): boolean => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v)
+
+  const validateAutomationFields = (i: Partial<CreateAutomationInput | UpdateAutomationInput>): void => {
+    if (i.scheduleType !== undefined && !validScheduleType(i.scheduleType)) {
+      throw new Error(`非法的 scheduleType: ${String(i.scheduleType)}`)
+    }
+    if (i.intervalMinutes !== undefined && (!isFiniteInt(i.intervalMinutes) || i.intervalMinutes < 1)) {
+      throw new Error(`非法的 intervalMinutes: ${String(i.intervalMinutes)}`)
+    }
+    if (i.timeOfDay !== undefined && !validTimeOfDay(i.timeOfDay)) {
+      throw new Error(`非法的 timeOfDay: ${String(i.timeOfDay)}`)
+    }
+    if (i.dayOfWeek !== undefined && (!isFiniteInt(i.dayOfWeek) || i.dayOfWeek < 0 || i.dayOfWeek > 6)) {
+      throw new Error(`非法的 dayOfWeek: ${String(i.dayOfWeek)}`)
+    }
+    if (i.permissionMode !== undefined && !validPermissionMode(i.permissionMode)) {
+      throw new Error(`非法的 permissionMode: ${String(i.permissionMode)}`)
+    }
+  }
+
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.LIST,
     async (): Promise<Automation[]> => listAutomations()
@@ -4094,6 +4122,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.CREATE,
     async (_, input: CreateAutomationInput): Promise<Automation> => {
+      if (!input || typeof input !== 'object') throw new Error('input 必须是对象')
+      if (!isNonEmptyString(input.name)) throw new Error('name 必填')
+      if (!isNonEmptyString(input.prompt)) throw new Error('prompt 必填')
+      if (!isNonEmptyString(input.channelId)) throw new Error('channelId 必填')
+      validateAutomationFields(input)
       const a = createAutomation(input)
       broadcastAutomationsChanged()
       return a
@@ -4103,6 +4136,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.UPDATE,
     async (_, input: UpdateAutomationInput): Promise<Automation | undefined> => {
+      if (!input || typeof input !== 'object') throw new Error('input 必须是对象')
+      if (!isNonEmptyString(input.id)) throw new Error('id 必填')
+      validateAutomationFields(input)
       const a = updateAutomation(input)
       broadcastAutomationsChanged()
       return a
@@ -4112,6 +4148,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.DELETE,
     async (_, id: string): Promise<boolean> => {
+      if (!isNonEmptyString(id)) throw new Error('id 必填')
       const ok = deleteAutomation(id)
       broadcastAutomationsChanged()
       return ok
@@ -4121,6 +4158,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.TOGGLE,
     async (_, id: string, active: boolean): Promise<Automation | undefined> => {
+      if (!isNonEmptyString(id)) throw new Error('id 必填')
+      if (typeof active !== 'boolean') throw new Error('active 必须是 boolean')
       const a = updateAutomation({ id, active })
       broadcastAutomationsChanged()
       return a
@@ -4129,6 +4168,9 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     AUTOMATION_IPC_CHANNELS.RUN_NOW,
-    async (_, id: string): Promise<void> => { await runAutomationNow(id) }
+    async (_, id: string): Promise<void> => {
+      if (!isNonEmptyString(id)) throw new Error('id 必填')
+      await runAutomationNow(id)
+    }
   )
 }

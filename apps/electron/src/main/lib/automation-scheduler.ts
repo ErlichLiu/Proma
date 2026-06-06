@@ -81,16 +81,17 @@ export async function runAutomation(automation: Automation, manual = false): Pro
   try {
     // 复用同一会话：仅当上次会话存在且未归档时复用，否则新建。
     // 标题直接用任务名（不加时间戳），并标记 sourceAutomationId 供侧栏显示钟表图标 + 跳转。
-    let sessionId = automation.lastSessionId
-    const existing = sessionId ? getAgentSessionMeta(sessionId) : undefined
-    const reusable = existing && !existing.archived
-    if (!reusable) {
+    let targetSessionId: string
+    const existingId = automation.lastSessionId
+    const existing = existingId ? getAgentSessionMeta(existingId) : undefined
+    if (existingId && existing && !existing.archived) {
+      targetSessionId = existingId
+    } else {
       const created = createAgentSession(automation.name, automation.channelId, automation.workspaceId)
       updateAgentSessionMeta(created.id, { sourceAutomationId: automation.id })
-      sessionId = created.id
+      targetSessionId = created.id
       setLastSessionId(automation.id, created.id)
     }
-    const targetSessionId = sessionId!
 
     await new Promise<void>((resolveRun) => {
       let settled = false

@@ -20,8 +20,8 @@ import { cn } from '@/lib/utils'
 import {
   automationsAtom,
   automationFormAtom,
+  automationToDraft,
   createEmptyDraft,
-  type AutomationDraft,
 } from '@/atoms/automation-atoms'
 import type { Automation } from '@proma/shared'
 
@@ -64,21 +64,7 @@ export function AutomationsListView(): React.ReactElement {
   }
 
   const handleEdit = (a: Automation): void => {
-    const draft: AutomationDraft = {
-      id: a.id,
-      name: a.name,
-      prompt: a.prompt,
-      scheduleType: a.scheduleType,
-      intervalMinutes: a.intervalMinutes,
-      timeOfDay: a.timeOfDay,
-      dayOfWeek: a.dayOfWeek,
-      channelId: a.channelId,
-      modelId: a.modelId,
-      workspaceId: a.workspaceId,
-      permissionMode: a.permissionMode ?? 'bypassPermissions',
-      active: a.active,
-    }
-    setForm({ open: true, draft })
+    setForm({ open: true, draft: automationToDraft(a) })
   }
 
   return (
@@ -165,12 +151,21 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
       <div className="text-[13px] font-medium text-foreground/55 px-1">{title}</div>
       <div className="rounded-xl border border-border/50 overflow-hidden bg-content-area">
         {automations.map((a, i) => (
-          <button
+          // 行容器：用 div + role=button，避免与内部 button（立即运行/删除/状态灯）
+          // 形成嵌套 button 的非法 HTML，同时通过 keyDown 维持键盘可达。
+          <div
             key={a.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => onEdit(a)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onEdit(a)
+              }
+            }}
             className={cn(
-              'group w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.03]',
+              'group w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.03] cursor-pointer focus:outline-none focus-visible:bg-foreground/[0.05]',
               i > 0 && 'border-t border-border/40',
             )}
           >
@@ -188,22 +183,24 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
             </div>
             {/* hover 操作按钮（立即运行 + 删除） */}
             <div className="hidden group-hover:flex items-center gap-1 shrink-0">
-              <span
-                role="button"
+              <button
+                type="button"
+                aria-label={`立即运行 ${a.name}`}
                 title="立即运行一次"
                 onClick={(e) => { void handleRunNow(e, a) }}
                 className="p-1.5 rounded-md text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.06] transition-colors"
               >
                 <Play className="size-3.5" />
-              </span>
-              <span
-                role="button"
+              </button>
+              <button
+                type="button"
+                aria-label={`删除 ${a.name}`}
                 title="删除"
                 onClick={(e) => { void handleDelete(e, a) }}
                 className="p-1.5 rounded-md text-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <Trash2 className="size-3.5" />
-              </span>
+              </button>
             </div>
             {/* 非 hover 时显示调度文案 */}
             <span className={cn(
@@ -213,11 +210,12 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
               {variant === 'paused' ? '已暂停' : formatSchedule(a)}
             </span>
             {/* 状态灯：常驻显示，绿=启用/红=暂停，点击切换。外层 padding 扩大点击区域 */}
-            <span
-              role="button"
+            <button
+              type="button"
+              aria-label={a.active ? `暂停 ${a.name}` : `启用 ${a.name}`}
               title={a.active ? '点击暂停' : '点击启用'}
               onClick={(e) => { void handleToggle(e, a) }}
-              className="p-2 -m-2 shrink-0 cursor-pointer flex items-center justify-center"
+              className="p-2 -m-2 shrink-0 flex items-center justify-center"
             >
               <span className={cn(
                 'size-2.5 rounded-full transition-colors',
@@ -225,8 +223,8 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
                   ? 'bg-emerald-500 hover:bg-red-400'
                   : 'bg-red-400 hover:bg-emerald-500',
               )} />
-            </span>
-          </button>
+            </button>
+          </div>
         ))}
       </div>
     </div>

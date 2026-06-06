@@ -1492,6 +1492,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label="定时任务"
               onClick={() => { setAutomationForm({ open: false, draft: null }); setActiveView('automations') }}
               className={cn(
                 'relative flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] transition-colors duration-100 titlebar-no-drag border border-dashed',

@@ -845,6 +845,9 @@ export class AgentOrchestrator {
         }
       }
 
+      // 短路：绝大多数回复不含 marker，跳过正则编译/扫描
+      if (!fullText.includes('<!--PROMA_AUTOMATION:')) return
+
       // 匹配所有 <!--PROMA_AUTOMATION:{...}-->
       const pattern = /<!--PROMA_AUTOMATION:([\s\S]*?)-->/g
       let match: RegExpExecArray | null
