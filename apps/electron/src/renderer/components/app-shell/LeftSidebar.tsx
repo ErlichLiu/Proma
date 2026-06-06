@@ -18,7 +18,7 @@ import { ModeSwitcher } from './ModeSwitcher'
 import { SearchDialog } from './SearchDialog'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { activeViewAtom } from '@/atoms/active-view'
-import { automationFormAtom } from '@/atoms/automation-atoms'
+import { automationFormAtom, automationsAtom } from '@/atoms/automation-atoms'
 import { appModeAtom, type AppMode } from '@/atoms/app-mode'
 import { settingsTabAtom, settingsOpenAtom } from '@/atoms/settings-tab'
 import {
@@ -336,6 +336,8 @@ function SidebarWindowDragStrip({ height }: { height: number }): React.ReactElem
 export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const [activeView, setActiveView] = useAtom(activeViewAtom)
   const setAutomationForm = useSetAtom(automationFormAtom)
+  const automations = useAtomValue(automationsAtom)
+  const activeAutomationCount = automations.filter((a) => a.active).length
   const setSettingsTab = useSetAtom(settingsTabAtom)
   const setSettingsOpen = useSetAtom(settingsOpenAtom)
   const [activeItem, setActiveItem] = React.useState<SidebarItemId>('all-chats')
@@ -1370,13 +1372,18 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
                 aria-label="定时任务"
                 onClick={() => { setAutomationForm({ open: false, draft: null }); setActiveView('automations') }}
                 className={cn(
-                  'size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border border-dashed',
+                  'relative size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border border-dashed',
                   activeView === 'automations'
                     ? 'bg-primary/10 text-foreground/70 border-[hsl(var(--dashed-border-hover))]'
                     : 'bg-primary/5 hover:bg-primary/10 text-foreground/45 hover:text-foreground/70 border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]',
                 )}
               >
                 <Clock size={16} />
+                {activeAutomationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                    {activeAutomationCount}
+                  </span>
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">定时任务</TooltipContent>
@@ -1487,13 +1494,18 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             <button
               onClick={() => { setAutomationForm({ open: false, draft: null }); setActiveView('automations') }}
               className={cn(
-                'flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] transition-colors duration-100 titlebar-no-drag border border-dashed',
+                'relative flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] transition-colors duration-100 titlebar-no-drag border border-dashed',
                 activeView === 'automations'
                   ? 'bg-primary/10 text-foreground/70 border-[hsl(var(--dashed-border-hover))]'
                   : 'bg-primary/5 hover:bg-primary/10 text-foreground/40 hover:text-foreground/60 border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]',
               )}
             >
               <Clock size={14} />
+              {activeAutomationCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                  {activeAutomationCount}
+                </span>
+              )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">定时任务</TooltipContent>
