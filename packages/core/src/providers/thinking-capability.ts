@@ -107,7 +107,7 @@ export function detectThinkingCapability(
 
   // 其它非 Anthropic 供应商：不发 thinking
   if (providerType !== 'anthropic' && providerType !== 'anthropic-compatible') {
-    return { mode: 'manual-only', disableStrategy: 'explicit-disabled' }
+    return { mode: 'none', disableStrategy: 'omit-field' }
   }
 
   // Claude Mythos Preview：adaptive 是默认且唯一，不接受 disabled

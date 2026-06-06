@@ -130,6 +130,8 @@ export function listChannels(): Channel[] {
         { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', enabled: true },
       ],
       enabled: false,
+      thinkingMode: 'auto',
+      thinkingBudgetTokens: 16384,
       createdAt: now,
       updatedAt: now,
     }

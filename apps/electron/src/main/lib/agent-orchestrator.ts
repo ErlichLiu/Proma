@@ -439,6 +439,9 @@ const DEFAULT_SESSION_TITLE = '新 Agent 会话'
 /** 默认模型 ID */
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-6'
 
+/** 默认 thinking budget tokens */
+const DEFAULT_THINKING_BUDGET = 16384
+
 /**
  * 判断模型是否支持 1M context window beta（context-1m-2025-08-07）
  * 当前支持：Claude Sonnet 4 / 4.5 / 4.6、Opus 4.6 / 4.7 / 4.8、DeepSeek V4 系列、
@@ -1563,9 +1566,9 @@ export class AgentOrchestrator {
                 : channel.thinkingMode === 'adaptive'
                   ? { type: 'adaptive' as const }
                   : channel.thinkingMode === 'manual'
-                    ? { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? 16384 }
+                    ? { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? DEFAULT_THINKING_BUDGET }
                     : channel.thinkingMode === 'effort-based'
-                      ? { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? 16384 }
+                      ? { type: 'enabled' as const, effort: 'max' as const }
                       : undefined,
             }
           : appSettings.agentThinking

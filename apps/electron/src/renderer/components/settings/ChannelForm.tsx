@@ -591,8 +591,8 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
             checked={enabled}
             onCheckedChange={setEnabled}
           />
-          {/* 思考模式配置（仅 Anthropic 兼容渠道显示） */}
-          {(provider === 'anthropic' || provider === 'anthropic-compatible' || provider === 'deepseek') && (
+          {/* 思考模式配置（Anthropic 兼容渠道显示） */}
+          {ANTHROPIC_PROTOCOL_PROVIDERS.has(provider) && (
             <>
               <SettingsSelect
                 label="思考模式"
@@ -611,7 +611,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
                 <SettingsInput
                   label="Thinking Budget Tokens"
                   value={thinkingBudgetTokens.toString()}
-                  onChange={(v) => setThinkingBudgetTokens(parseInt(v) || 16384)}
+                  onChange={(v) => setThinkingBudgetTokens(parseInt(v, 10) || 16384)}
                   placeholder="16384"
                   type="number"
                   description="manual 模式下的思考预算 token 数"

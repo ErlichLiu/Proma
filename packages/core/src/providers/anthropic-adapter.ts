@@ -309,13 +309,14 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     // UI 开关决定 thinking 是否启用，channelThinkingMode 只决定协议格式
     // disabled 模式始终不发 thinking
-    const shouldEnableThinking = input.thinkingEnabled && input.channelThinkingMode !== 'disabled'
+    const shouldEnableThinking = input.thinkingEnabled && capability.mode !== 'none'
 
     // manual 模式：budget_tokens 必须 < max_tokens，所以开启时放大上限
     // adaptive / effort-based 模式：max_tokens 作为「思考+回答」的总硬上限，给充足空间
+    const DEFAULT_THINKING_BUDGET = 16384
     const manualThinkingBudget = input.channelThinkingMode === 'manual' && input.thinkingBudgetTokens !== undefined
       ? input.thinkingBudgetTokens
-      : 16384
+      : DEFAULT_THINKING_BUDGET
     let maxTokens: number
     if (this.providerType === 'minimax') {
       maxTokens = 2048
