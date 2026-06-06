@@ -84,7 +84,7 @@ export function AutomationsListView(): React.ReactElement {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* 标题栏 */}
-      <div className="titlebar-drag-region flex items-center justify-between px-8 pt-8 pb-6 flex-shrink-0">
+      <div className="titlebar-drag-region flex items-center justify-between max-w-5xl w-full mx-auto px-8 pt-8 pb-6 flex-shrink-0">
         <h1 className="text-2xl font-semibold text-foreground">定时任务</h1>
         <button
           type="button"
@@ -97,11 +97,11 @@ export function AutomationsListView(): React.ReactElement {
       </div>
 
       {/* 列表内容 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {automations.length === 0 ? (
           <EmptyState onCreate={handleCreate} />
         ) : (
-          <div className="flex flex-col gap-8 max-w-4xl">
+          <div className="flex flex-col gap-8 max-w-5xl w-full mx-auto px-8 pb-8">
             {current.length > 0 && (
               <Section title="启用中" automations={current} onEdit={handleEdit} onRefresh={refreshList} variant="active" />
             )}
