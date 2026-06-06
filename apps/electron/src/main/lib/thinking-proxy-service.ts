@@ -266,8 +266,11 @@ async function forwardWithUndiciProxy(
     // 管道透传响应体（SSE 流）
     if (response.body) {
       const reader = response.body.getReader()
+      let aborted = false
+      // 客户端断开时中止读取，避免无限循环
+      clientRes.on('close', () => { aborted = true })
       try {
-        while (true) {
+        while (!aborted) {
           const { done, value } = await reader.read()
           if (done) break
           clientRes.write(value)

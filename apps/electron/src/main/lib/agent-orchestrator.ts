@@ -1330,6 +1330,8 @@ export class AgentOrchestrator {
           delete process.env.HTTPS_PROXY
           delete process.env.HTTP_PROXY
           console.log(`[Agent Thinking Proxy] 启用代理: ${thinkingProxyUrl} → ${originalBaseUrl}, budgetTokens=${budgetTokens}`)
+        } else {
+          console.warn(`[Agent Thinking Proxy] 跳过：isCompatThinking 渠道缺少自定义 Base URL，thinking 可能不兼容`)
         }
       }
 
