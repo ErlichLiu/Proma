@@ -53,7 +53,6 @@ import { tabsAtom, activeTabIdAtom, openTab, updateTabTitle } from '@/atoms/tab-
 import type { AgentStreamState } from '@/atoms/agent-atoms'
 import { agentDiffUnseenChangesAtom, agentDiffUnseenFilesAtom, agentDiffPanelTabAtom, agentSidePanelOpenAtom } from '@/atoms/agent-atoms'
 import { autoPreviewEnabledAtom, previewPanelOpenMapAtom, previewFileMapAtom } from '@/atoms/preview-atoms'
-import { automationsAtom, pendingAutomationIntentMapAtom } from '@/atoms/automation-atoms'
 import type { NotificationSoundType } from '@/types/settings'
 import { toast } from 'sonner'
 import type { AgentStreamEvent, AgentStreamCompletePayload, AgentEvent, AgentStreamPayload, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, SDKContentBlock, SDKUserContentBlock, PromaEvent, AgentSessionMeta } from '@proma/shared'
@@ -588,29 +587,6 @@ export function useGlobalAgentListeners(): void {
 
         if (payload.kind === 'proma_event' && payload.event.type === 'external_run_started') {
           activateExternalAgentRun(payload.event)
-        }
-
-        // 意图判断结果：写入 pendingAutomationIntentMapAtom 触发 banner
-        if (payload.kind === 'proma_event' && payload.event.type === 'automation_draft_created') {
-          const automation = payload.event.automation
-          // 把草稿追加到列表，让定时任务列表立即出现
-          store.set(automationsAtom, (prev) => {
-            if (prev.some((a) => a.id === automation.id)) return prev
-            return [...prev, automation]
-          })
-          store.set(pendingAutomationIntentMapAtom, (prev) => {
-            const next = new Map(prev)
-            next.set(sessionId, { kind: 'draft_created', automationId: automation.id })
-            return next
-          })
-        }
-        if (payload.kind === 'proma_event' && payload.event.type === 'automation_intent_pending_schedule') {
-          const suggestion = payload.event.suggestion
-          store.set(pendingAutomationIntentMapAtom, (prev) => {
-            const next = new Map(prev)
-            next.set(sessionId, { kind: 'pending_schedule', suggestion })
-            return next
-          })
         }
 
         // 如果收到未知会话的事件（跨工作区场景），立即刷新会话列表

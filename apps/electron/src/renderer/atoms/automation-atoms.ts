@@ -6,7 +6,7 @@
  */
 
 import { atom } from 'jotai'
-import type { Automation, AutomationScheduleType, AutomationPermissionMode, AutomationIntentSuggestion } from '@proma/shared'
+import type { Automation, AutomationScheduleType, AutomationPermissionMode } from '@proma/shared'
 import { AUTOMATION_DEFAULT_PERMISSION_MODE } from '@proma/shared'
 
 /** 全部定时任务列表 */
@@ -82,14 +82,4 @@ export const AUTOMATION_WEEKDAY_OPTIONS = [
   { label: '周日', value: 0 },
 ] as const
 
-/**
- * 意图判断 banner 待显示的数据（按 sessionId 隔离，支持多会话并行）
- * - draft_created：草稿已落库，banner 提示用户「打开调整 / 启用 / 丢弃」
- * - pending_schedule：意图明确但频率不明，banner 询问频率
- */
-export type PendingAutomationIntent =
-  | { kind: 'draft_created'; automationId: string }
-  | { kind: 'pending_schedule'; suggestion: AutomationIntentSuggestion }
-
-export const pendingAutomationIntentMapAtom = atom<Map<string, PendingAutomationIntent>>(new Map())
 

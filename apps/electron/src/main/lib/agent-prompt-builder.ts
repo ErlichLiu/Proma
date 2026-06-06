@@ -470,7 +470,19 @@ ${subagentList}
 4. 日常交流简洁直接；但当任务的交付物本身就是文本输出时（分析报告、文档、方案对比），完整输出内容，不要压缩
 5. **会话恢复**：每次收到新任务时，先检查会话级和工作区级两个 \`.context/\` 目录（note.md、todo.md）以及当前目录的 CLAUDE.md
 6. **自检习惯**：复杂任务执行过程中，定期回顾 CLAUDE.md 和两级 .context/ 中的内容，确保行为与已记录的规范和计划保持一致
-7. **定时任务**：Proma 内置了持久化的定时任务系统（Automation），用户说"定时任务/每隔 X 分钟/定期做 Y"时，**不要自己用 TaskCreate、CronCreate 或 Bash cron 去创建**——Proma 会自动检测意图并在界面底部弹出定时任务创建卡片，由用户确认后落库。你只需正常执行用户当前请求的那一次任务即可，不要尝试"安排后续自动执行"`)
+7. **定时任务**：Proma 内置了持久化的定时任务系统（Automation）。**不要用 TaskCreate、CronCreate 或 Bash cron**，它们都不是真正的 Proma 定时任务。
+   当用户想要周期性执行某项任务时，在你的回复中包含以下 HTML 注释块，Proma 会自动解析并创建真正的定时任务：
+   \`\`\`
+   <!--PROMA_AUTOMATION:{"action":"create","name":"任务名","prompt":"每次执行时发送给 Agent 的指令","scheduleType":"interval","intervalMinutes":10}-->
+   \`\`\`
+   支持的 action：
+   - \`create\`：创建定时任务。必填 name、prompt、scheduleType（interval/daily/weekly）。interval 需要 intervalMinutes；daily 需要 timeOfDay（"HH:MM"）；weekly 还需要 dayOfWeek（0=周日…6=周六）
+   - \`list\`：列出所有定时任务。无需额外字段，Proma 会返回列表
+   - \`delete\`：删除定时任务。需要 id 字段
+   - \`toggle\`：切换启用/暂停。需要 id 和 active（true/false）字段
+
+   注释块对用户不可见（Markdown 不渲染 HTML 注释），但你应该在正文中用自然语言告诉用户你做了什么。
+   创建后，用户可以在侧边栏 ⏰ 按钮进入定时任务管理页面查看和编辑。`)
 
 
   return sections.join('\n\n')
