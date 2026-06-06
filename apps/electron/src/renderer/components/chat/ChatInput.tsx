@@ -80,6 +80,7 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
     })
   }, [conversationId, setDraftsMap])
 
+  const setChannels = useSetAtom(channelsAtom)
   const [selectedModel] = useConversationModel()
   const [thinkingEnabled, setThinkingEnabled] = useConversationThinkingEnabled()
   const channels = useAtomValue(channelsAtom)
@@ -87,6 +88,14 @@ export function ChatInput({ conversationId, streaming, pendingAttachments, onSet
   const isThinkingDisabled = channel?.thinkingMode === 'disabled'
   const setPendingAttachments = onSetPendingAttachments
   const [isDragOver, setIsDragOver] = React.useState(false)
+
+  // 页面切换时重新加载渠道列表，确保 thinkingMode 状态同步
+  React.useEffect(() => {
+    window.electronAPI.listChannels().then((latestChannels) => {
+      setChannels(latestChannels)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const canSend = (content.trim().length > 0 || pendingAttachments.length > 0)
     && selectedModel !== null

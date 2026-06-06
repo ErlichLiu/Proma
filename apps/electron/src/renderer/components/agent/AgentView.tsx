@@ -339,8 +339,16 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const [agentThinking, setAgentThinking] = useAtom(agentThinkingAtom)
   const setSettingsOpen = useSetAtom(settingsOpenAtom)
   const setDraftSessionIds = useSetAtom(draftSessionIdsAtom)
+  const setChannels = useSetAtom(channelsAtom)
   const globalWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const sessions = useAtomValue(agentSessionsAtom)
+  // 页面切换时重新加载渠道列表，确保 thinkingMode 状态同步
+  React.useEffect(() => {
+    window.electronAPI.listChannels().then((latestChannels) => {
+      setChannels(latestChannels)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // 从会话元数据派生 workspaceId：会话数据已加载时以自身为准，未加载时回退全局 atom
   const currentWorkspaceId = React.useMemo(() => {
     const meta = sessions.find((s) => s.id === sessionId)
