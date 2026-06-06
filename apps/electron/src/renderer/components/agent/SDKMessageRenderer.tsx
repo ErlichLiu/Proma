@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react'
-import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2, RotateCw, Plus, Minimize2, Wrench, Settings, ExternalLink, Quote, Clock } from 'lucide-react'
+import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2, RotateCw, Plus, Minimize2, Wrench, Settings, ExternalLink, Quote } from 'lucide-react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { cn } from '@/lib/utils'
 import { ImageLightbox } from '@/components/ui/image-lightbox'
@@ -43,7 +43,6 @@ import { channelsAtom } from '@/atoms/chat-atoms'
 import { agentProcessGroupsKeepExpandedAtom } from '@/atoms/agent-atoms'
 import { agentSessionsAtom } from '@/atoms/agent-atoms'
 import { activeSessionIdAtom } from '@/atoms/tab-atoms'
-import { automationsAtom, automationFormAtom } from '@/atoms/automation-atoms'
 import { environmentCheckDialogOpenAtom } from '@/atoms/environment'
 import { settingsOpenAtom, settingsTabAtom } from '@/atoms/settings-tab'
 import type {
@@ -973,49 +972,6 @@ function QuoteChip({ quote }: { quote: QuotedFileRef }): React.ReactElement {
 
 // ===== 用户输入消息渲染 =====
 
-/**
- * 「来自定时任务」标记：当前会话由定时任务创建时显示，点击跳到该任务编辑页。
- * 会话级判定（会话的 user 消息均来自调度器），不逐条标记。
- */
-function AutomationMessageBadge(): React.ReactElement | null {
-  const activeSessionId = useAtomValue(activeSessionIdAtom)
-  const sessions = useAtomValue(agentSessionsAtom)
-  const automations = useAtomValue(automationsAtom)
-  const setForm = useSetAtom(automationFormAtom)
-
-  const session = sessions.find((s) => s.id === activeSessionId)
-  const automationId = session?.sourceAutomationId
-  if (!automationId) return null
-  const automation = automations.find((a) => a.id === automationId)
-  if (!automation) return null
-
-  return (
-    <button
-      onClick={() => setForm({
-        open: true,
-        draft: {
-          id: automation.id,
-          name: automation.name,
-          prompt: automation.prompt,
-          scheduleType: automation.scheduleType,
-          intervalMinutes: automation.intervalMinutes,
-          timeOfDay: automation.timeOfDay,
-          dayOfWeek: automation.dayOfWeek,
-          channelId: automation.channelId,
-          modelId: automation.modelId,
-          workspaceId: automation.workspaceId,
-          permissionMode: automation.permissionMode ?? 'bypassPermissions',
-          active: automation.active,
-        },
-      })}
-      className="inline-flex items-center gap-1 text-xs text-primary/70 hover:text-primary transition-colors"
-      title="来自 Proma 的定时任务，点击查看设置"
-    >
-      <Clock className="size-4" />
-      <span>来自 Proma 的定时任务</span>
-    </button>
-  )
-}
 
 function UserInputMessage({ message }: { message: SDKUserMessage }): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
@@ -1034,7 +990,6 @@ function UserInputMessage({ message }: { message: SDKUserMessage }): React.React
           {meta.createdAt && (
             <span className="flex items-center gap-2 leading-none">
               <span className="text-[10px] text-foreground/[0.38]">{formatMessageTime(meta.createdAt)}</span>
-              <AutomationMessageBadge />
             </span>
           )}
         </div>
