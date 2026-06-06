@@ -122,7 +122,7 @@ export async function runAutomation(automation: Automation, manual = false): Pro
       runAgentHeadless(
         {
           sessionId: targetSessionId,
-          userMessage: automation.prompt,
+          userMessage: automation.prompt + '\n<!--PROMA_SCHEDULED_RUN-->',
           automationContext: `这是 Proma 定时任务「${automation.name}」的自动执行（${formatScheduleLabel(automation)}）。这本身就是定时任务，不要建议用户再创建定时任务。直接执行任务即可。`,
           channelId: automation.channelId,
           modelId: automation.modelId,

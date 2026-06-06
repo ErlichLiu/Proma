@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react'
-import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2, RotateCw, Plus, Minimize2, Wrench, Settings, ExternalLink, Quote } from 'lucide-react'
+import { Bot, Loader2, AlertTriangle, FileText, FileImage, Download, Split, Undo2, RotateCw, Plus, Minimize2, Wrench, Settings, ExternalLink, Quote, Clock } from 'lucide-react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { cn } from '@/lib/utils'
 import { ImageLightbox } from '@/components/ui/image-lightbox'
@@ -973,10 +973,13 @@ function QuoteChip({ quote }: { quote: QuotedFileRef }): React.ReactElement {
 // ===== 用户输入消息渲染 =====
 
 
+const SCHEDULED_RUN_MARKER = '<!--PROMA_SCHEDULED_RUN-->'
+
 function UserInputMessage({ message }: { message: SDKUserMessage }): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const rawText = extractUserText(message) ?? ''
-  const { files: attachedFiles, quotes, text } = parseAttachedFiles(rawText)
+  const isScheduledRun = rawText.includes(SCHEDULED_RUN_MARKER)
+  const { files: attachedFiles, quotes, text } = parseAttachedFiles(rawText.replace(SCHEDULED_RUN_MARKER, '').trim())
   const imageFiles = attachedFiles.filter((f) => isImageFile(f.filename))
   const nonImageFiles = attachedFiles.filter((f) => !isImageFile(f.filename))
   const meta = extractMeta(message as unknown as SDKMessage)
@@ -990,6 +993,12 @@ function UserInputMessage({ message }: { message: SDKUserMessage }): React.React
           {meta.createdAt && (
             <span className="flex items-center gap-2 leading-none">
               <span className="text-[10px] text-foreground/[0.38]">{formatMessageTime(meta.createdAt)}</span>
+              {isScheduledRun && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-foreground/40">
+                  <Clock className="size-3" />
+                  <span>定时执行</span>
+                </span>
+              )}
             </span>
           )}
         </div>
