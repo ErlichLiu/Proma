@@ -31,6 +31,18 @@ import { runAgentHeadless, isAgentSessionActive } from './agent-service'
 /** tick 周期：每 30s 检查一次到期任务（短轮询，抗休眠漂移） */
 const TICK_INTERVAL_MS = 30_000
 
+function formatScheduleLabel(a: Automation): string {
+  if (a.scheduleType === 'daily') return `每天 ${a.timeOfDay ?? '09:00'}`
+  if (a.scheduleType === 'weekly') {
+    const names = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+    return `每${names[a.dayOfWeek ?? 1]} ${a.timeOfDay ?? '09:00'}`
+  }
+  const min = a.intervalMinutes
+  if (min < 60) return `每 ${min} 分钟`
+  if (min < 1440) return `每 ${min / 60} 小时`
+  return `每 ${min / 1440} 天`
+}
+
 let tickTimer: NodeJS.Timeout | undefined
 /** 正在执行中的 automation id 集合，防止同一任务重入 */
 const runningAutomations = new Set<string>()
@@ -107,10 +119,11 @@ export async function runAutomation(automation: Automation, manual = false): Pro
         resolveRun()
       }
 
+      const automationContext = `[系统提示：这是 Proma 定时任务「${automation.name}」的自动执行（${formatScheduleLabel(automation)}）。你正在被定时调度器调用，不需要再建议用户创建定时任务——这本身就是定时任务。直接执行任务即可。]\n\n`
       runAgentHeadless(
         {
           sessionId: targetSessionId,
-          userMessage: automation.prompt,
+          userMessage: automationContext + automation.prompt,
           channelId: automation.channelId,
           modelId: automation.modelId,
           workspaceId: automation.workspaceId,

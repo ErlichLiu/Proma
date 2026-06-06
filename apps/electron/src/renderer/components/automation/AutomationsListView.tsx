@@ -149,6 +149,7 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
 
   const handleDelete = async (e: React.MouseEvent, a: Automation): Promise<void> => {
     e.stopPropagation()
+    if (!window.confirm(`确定要删除定时任务「${a.name}」吗？`)) return
     try {
       await window.electronAPI.deleteAutomation(a.id)
       await onRefresh()
