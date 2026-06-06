@@ -43,6 +43,7 @@ import { channelsAtom } from '@/atoms/chat-atoms'
 import { agentProcessGroupsKeepExpandedAtom } from '@/atoms/agent-atoms'
 import { agentSessionsAtom } from '@/atoms/agent-atoms'
 import { activeSessionIdAtom } from '@/atoms/tab-atoms'
+import { automationsAtom, automationFormAtom } from '@/atoms/automation-atoms'
 import { environmentCheckDialogOpenAtom } from '@/atoms/environment'
 import { settingsOpenAtom, settingsTabAtom } from '@/atoms/settings-tab'
 import type {
@@ -975,6 +976,51 @@ function QuoteChip({ quote }: { quote: QuotedFileRef }): React.ReactElement {
 
 const SCHEDULED_RUN_MARKER = '<!--PROMA_SCHEDULED_RUN-->'
 
+function ScheduledRunBadge(): React.ReactElement {
+  const activeSessionId = useAtomValue(activeSessionIdAtom)
+  const sessions = useAtomValue(agentSessionsAtom)
+  const automations = useAtomValue(automationsAtom)
+  const setForm = useSetAtom(automationFormAtom)
+
+  const session = sessions.find((s) => s.id === activeSessionId)
+  const automation = session?.sourceAutomationId
+    ? automations.find((a) => a.id === session.sourceAutomationId)
+    : undefined
+
+  const handleClick = (): void => {
+    if (!automation) return
+    setForm({
+      open: true,
+      draft: {
+        id: automation.id,
+        name: automation.name,
+        prompt: automation.prompt,
+        scheduleType: automation.scheduleType,
+        intervalMinutes: automation.intervalMinutes,
+        timeOfDay: automation.timeOfDay,
+        dayOfWeek: automation.dayOfWeek,
+        channelId: automation.channelId,
+        modelId: automation.modelId,
+        workspaceId: automation.workspaceId,
+        permissionMode: automation.permissionMode ?? 'bypassPermissions',
+        active: automation.active,
+      },
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="inline-flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors"
+      title="来自 Proma 定时任务，点击查看设置"
+    >
+      <Clock className="size-3" />
+      <span>来自 Proma 定时任务</span>
+    </button>
+  )
+}
+
 function UserInputMessage({ message }: { message: SDKUserMessage }): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const rawText = extractUserText(message) ?? ''
@@ -994,10 +1040,7 @@ function UserInputMessage({ message }: { message: SDKUserMessage }): React.React
             <span className="flex items-center gap-2 leading-none">
               <span className="text-[10px] text-foreground/[0.38]">{formatMessageTime(meta.createdAt)}</span>
               {isScheduledRun && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-foreground/40">
-                  <Clock className="size-3" />
-                  <span>定时执行</span>
-                </span>
+                <ScheduledRunBadge />
               )}
             </span>
           )}
