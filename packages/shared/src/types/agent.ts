@@ -854,6 +854,8 @@ export interface AgentSendInput {
   startedAt?: number
   /** 触发来源：用户手动 vs 定时任务自动触发（用于 UI 区分标记） */
   triggeredBy?: 'user' | 'automation'
+  /** 定时任务执行上下文（注入到系统提示词，用户不可见） */
+  automationContext?: string
 }
 
 // ===== Agent 队列消息 =====
