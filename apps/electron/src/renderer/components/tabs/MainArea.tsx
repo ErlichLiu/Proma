@@ -152,17 +152,16 @@ export function MainArea(): React.ReactElement {
             className="flex flex-col min-w-0 h-full relative"
             style={leftFlexStyle}
           >
-            {automationFormOpen ? (
-              // 定时任务表单打开时：仅渲染表单，不渲染 TabBar/TabContent，
-              // 从源头避免会话标题/内容预览/minimap 等元素泄漏到表单界面
-              <AutomationFormView />
-            ) : activeView === 'automations' ? (
+            {activeView === 'automations' && !automationFormOpen ? (
               // Automations 列表视图：全屏取代 TabBar + TabContent
               <AutomationsListView />
             ) : (
               <>
                 <TabBar />
-                {tabs.length === 0 ? (
+                {automationFormOpen ? (
+                  // 定时任务编辑表单：替换 TabContent，但保留 TabBar 让用户能点 tab 切走
+                  <AutomationFormView />
+                ) : tabs.length === 0 ? (
                   <WelcomeView />
                 ) : deferredActiveTabId ? (
                   <div className="flex-1 min-h-0 titlebar-no-drag">
