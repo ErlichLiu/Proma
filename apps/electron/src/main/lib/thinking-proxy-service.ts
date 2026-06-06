@@ -170,10 +170,11 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
 
   // 3. 构建转发目标 URL
   // req.url 可能是相对路径（/v1/messages）或完整 URL（http://127.0.0.1:PORT/v1/messages）
-  // 完整 URL 时 new URL 会忽略 base，导致转发回本地代理自身（死循环）
-  // 所以统一提取 pathname + search，再拼接到 targetBaseUrl
-  const reqUrl = new URL(req.url!, 'http://localhost')
-  const targetUrl = new URL(reqUrl.pathname + reqUrl.search, config.targetBaseUrl)
+  // 提取 pathname + search，直接拼接到 targetBaseUrl 末尾
+  // 不能用 new URL(pathname, base) 因为绝对路径会覆盖 base 的路径部分
+  const reqUrl = new URL(req.url || '/', 'http://localhost')
+  const targetUrlStr = config.targetBaseUrl.replace(/\/+$/, '') + reqUrl.pathname + reqUrl.search
+  const targetUrl = new URL(targetUrlStr)
 
   // 4. 构建转发请求头
   const forwardHeaders: Record<string, string> = {}
