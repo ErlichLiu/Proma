@@ -260,6 +260,7 @@ interface RailRecentItem {
   status: SessionIndicatorStatus
   pinned: boolean
   workspaceName?: string
+  isAutomation?: boolean
 }
 
 function RailRecentButton({
@@ -295,7 +296,10 @@ function RailRecentButton({
                 RAIL_STATUS_CLASS[item.status]
               )}
             />
-            <span className="text-[13px] font-semibold leading-none">{item.initial}</span>
+            {item.isAutomation
+              ? <Clock size={14} className="text-primary/60" />
+              : <span className="text-[13px] font-semibold leading-none">{item.initial}</span>
+            }
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">
@@ -1194,6 +1198,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         status: agentIndicatorMap.get(session.id) ?? (unviewedCompletedSessionIds.has(session.id) ? 'completed' as const : 'idle' as const),
         pinned: !!session.pinned,
         workspaceName: session.workspaceId ? workspaceNameMap.get(session.workspaceId) : undefined,
+        isAutomation: !!session.sourceAutomationId,
       }))
   }, [
     mode,
@@ -2310,6 +2315,9 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
               )}>
                 {showPinIcon && (
                   <Pin size={11} className="flex-shrink-0 text-primary/60" />
+                )}
+                {session.sourceAutomationId && (
+                  <Clock size={11} className="flex-shrink-0 text-primary/60" />
                 )}
                 <span className="truncate">{session.title}</span>
                 {workspaceName && (
