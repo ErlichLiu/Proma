@@ -18,6 +18,7 @@ import { ModeSwitcher } from './ModeSwitcher'
 import { SearchDialog } from './SearchDialog'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { activeViewAtom } from '@/atoms/active-view'
+import { automationFormAtom } from '@/atoms/automation-atoms'
 import { appModeAtom, type AppMode } from '@/atoms/app-mode'
 import { settingsTabAtom, settingsOpenAtom } from '@/atoms/settings-tab'
 import {
@@ -330,6 +331,7 @@ function SidebarWindowDragStrip({ height }: { height: number }): React.ReactElem
 
 export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const [activeView, setActiveView] = useAtom(activeViewAtom)
+  const setAutomationForm = useSetAtom(automationFormAtom)
   const setSettingsTab = useSetAtom(settingsTabAtom)
   const setSettingsOpen = useSetAtom(settingsOpenAtom)
   const [activeItem, setActiveItem] = React.useState<SidebarItemId>('all-chats')
@@ -1361,7 +1363,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
               <button
                 type="button"
                 aria-label="定时任务"
-                onClick={() => setActiveView('automations')}
+                onClick={() => { setAutomationForm({ open: false, draft: null }); setActiveView('automations') }}
                 className={cn(
                   'size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border border-dashed',
                   activeView === 'automations'
@@ -1478,7 +1480,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={() => setActiveView('automations')}
+              onClick={() => { setAutomationForm({ open: false, draft: null }); setActiveView('automations') }}
               className={cn(
                 'flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] transition-colors duration-100 titlebar-no-drag border border-dashed',
                 activeView === 'automations'

@@ -451,8 +451,14 @@ function stripScheduleWords(text: string): string {
 /** 从 prompt 提取一个短任务名（取前 12 字） */
 function derivePromptName(prompt: string): string {
   if (!prompt) return ''
-  const cleaned = prompt.replace(/[，,。.、:：!！?？\s]+/g, '').slice(0, 12)
-  return cleaned
+  const cleaned = prompt
+    .replace(/^(?:请|帮我|麻烦|可以|能不能|能否)?\s*/g, '')
+    .replace(/(?:建立|创建|设置|做|弄)\s*(?:一个|个)?\s*/g, '')
+    .replace(/定时任务|自动任务|自动化任务/g, '')
+    .replace(/[，,。.、:：!！?？\s]+/g, '')
+    .trim()
+  if (!cleaned) return ''
+  return cleaned.slice(0, 12)
 }
 
 // ===== 响应校验 =====

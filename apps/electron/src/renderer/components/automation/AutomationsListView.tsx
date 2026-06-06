@@ -14,7 +14,8 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { Clock, Plus } from 'lucide-react'
+import { toast } from 'sonner'
+import { Clock, Plus, Play, Pause, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   automationsAtom,
@@ -39,7 +40,13 @@ function formatSchedule(a: Automation): string {
 
 export function AutomationsListView(): React.ReactElement {
   const automations = useAtomValue(automationsAtom)
+  const setAutomations = useSetAtom(automationsAtom)
   const setForm = useSetAtom(automationFormAtom)
+
+  const refreshList = React.useCallback(async () => {
+    const list = await window.electronAPI.listAutomations()
+    setAutomations(list)
+  }, [setAutomations])
 
   const current = automations.filter((a) => a.active)
   const paused = automations.filter((a) => !a.active)
@@ -96,10 +103,10 @@ export function AutomationsListView(): React.ReactElement {
         ) : (
           <div className="flex flex-col gap-8 max-w-4xl">
             {current.length > 0 && (
-              <Section title="启用中" automations={current} onEdit={handleEdit} variant="active" />
+              <Section title="启用中" automations={current} onEdit={handleEdit} onRefresh={refreshList} variant="active" />
             )}
             {paused.length > 0 && (
-              <Section title="已暂停" automations={paused} onEdit={handleEdit} variant="paused" />
+              <Section title="已暂停" automations={paused} onEdit={handleEdit} onRefresh={refreshList} variant="paused" />
             )}
           </div>
         )}
@@ -112,10 +119,46 @@ interface SectionProps {
   title: string
   automations: Automation[]
   onEdit: (a: Automation) => void
+  onRefresh: () => Promise<void>
   variant: 'active' | 'paused'
 }
 
-function Section({ title, automations, onEdit, variant }: SectionProps): React.ReactElement {
+function Section({ title, automations, onEdit, onRefresh, variant }: SectionProps): React.ReactElement {
+  const handleRunNow = async (e: React.MouseEvent, a: Automation): Promise<void> => {
+    e.stopPropagation()
+    try {
+      await window.electronAPI.runAutomationNow(a.id)
+      toast.success(`「${a.name}」已触发运行`)
+    } catch (err) {
+      toast.error('运行失败')
+      console.error('[定时任务] 立即运行失败:', err)
+    }
+  }
+
+  const handleToggle = async (e: React.MouseEvent, a: Automation): Promise<void> => {
+    e.stopPropagation()
+    try {
+      await window.electronAPI.toggleAutomation(a.id, !a.active)
+      await onRefresh()
+      toast.success(a.active ? '已暂停' : '已启用')
+    } catch (err) {
+      toast.error('操作失败')
+      console.error('[定时任务] 切换状态失败:', err)
+    }
+  }
+
+  const handleDelete = async (e: React.MouseEvent, a: Automation): Promise<void> => {
+    e.stopPropagation()
+    try {
+      await window.electronAPI.deleteAutomation(a.id)
+      await onRefresh()
+      toast.success('已删除')
+    } catch (err) {
+      toast.error('删除失败')
+      console.error('[定时任务] 删除失败:', err)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="text-[13px] font-medium text-foreground/55 px-1">{title}</div>
@@ -126,7 +169,7 @@ function Section({ title, automations, onEdit, variant }: SectionProps): React.R
             type="button"
             onClick={() => onEdit(a)}
             className={cn(
-              'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.03]',
+              'group w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.03]',
               i > 0 && 'border-t border-border/40',
             )}
           >
@@ -142,8 +185,36 @@ function Section({ title, automations, onEdit, variant }: SectionProps): React.R
                 </span>
               </div>
             </div>
+            {/* hover 操作按钮 */}
+            <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+              <span
+                role="button"
+                title="立即运行一次"
+                onClick={(e) => { void handleRunNow(e, a) }}
+                className="p-1.5 rounded-md text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.06] transition-colors"
+              >
+                <Play className="size-3.5" />
+              </span>
+              <span
+                role="button"
+                title={a.active ? '暂停' : '启用'}
+                onClick={(e) => { void handleToggle(e, a) }}
+                className="p-1.5 rounded-md text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.06] transition-colors"
+              >
+                {a.active ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+              </span>
+              <span
+                role="button"
+                title="删除"
+                onClick={(e) => { void handleDelete(e, a) }}
+                className="p-1.5 rounded-md text-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <Trash2 className="size-3.5" />
+              </span>
+            </div>
+            {/* 非 hover 时显示调度文案 */}
             <span className={cn(
-              'text-[12px] tabular-nums shrink-0',
+              'text-[12px] tabular-nums shrink-0 group-hover:hidden',
               variant === 'active' ? 'text-foreground/55' : 'text-foreground/35',
             )}>
               {variant === 'paused' ? '已暂停' : formatSchedule(a)}
