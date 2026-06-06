@@ -1843,20 +1843,11 @@ export function registerIpcHandlers(): void {
         .filter((session) => session.workspaceId === id)
         .map((session) => session.id)
 
-      if (deletingWorkspace.slug !== 'default') {
-        const defaultWorkspace = ensureDefaultWorkspace()
-        for (const sessionId of affectedSessionIds) {
-          moveSessionToWorkspace(sessionId, defaultWorkspace.id)
-        }
-        deleteAgentWorkspace(id)
-        return
-      }
-
-      deleteAgentWorkspace(id)
       const defaultWorkspace = ensureDefaultWorkspace()
       for (const sessionId of affectedSessionIds) {
         moveSessionToWorkspace(sessionId, defaultWorkspace.id)
       }
+      deleteAgentWorkspace(id)
     }
   )
 

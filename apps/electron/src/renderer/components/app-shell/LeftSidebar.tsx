@@ -1043,10 +1043,13 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         )
       )
 
+      const defaultWsId = workspaces.find((ws) => ws.slug === 'default')?.id ?? workspaces[0]?.id
       for (const session of visibleHistory) {
-        if (!session.workspaceId) continue
-        const list = sessionsByWorkspaceId.get(session.workspaceId)
-        if (list) list.push(session)
+        const targetId = session.workspaceId && sessionsByWorkspaceId.has(session.workspaceId)
+          ? session.workspaceId
+          : defaultWsId
+        if (!targetId) continue
+        sessionsByWorkspaceId.get(targetId)!.push(session)
       }
 
       return workspaces.map((workspace) => ({
