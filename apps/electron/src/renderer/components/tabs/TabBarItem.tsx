@@ -165,7 +165,7 @@ export function TabBarItem({
           <span className="flex-1" />
         ) : (
           <span className="flex-1 min-w-0 truncate text-left flex items-center gap-1">
-            {isAutomation && <Clock className="size-3 shrink-0 text-primary/60" />}
+            {isAutomation && <Clock className="size-3 shrink-0 text-foreground/40" />}
             {title}
           </span>
         )}

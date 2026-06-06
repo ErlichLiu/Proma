@@ -297,7 +297,7 @@ function RailRecentButton({
               )}
             />
             {item.isAutomation
-              ? <Clock size={14} className="text-primary/60" />
+              ? <Clock size={14} className="text-foreground/40" />
               : <span className="text-[13px] font-semibold leading-none">{item.initial}</span>
             }
           </button>
@@ -2317,7 +2317,7 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
                   <Pin size={11} className="flex-shrink-0 text-primary/60" />
                 )}
                 {session.sourceAutomationId && (
-                  <Clock size={11} className="flex-shrink-0 text-primary/60" />
+                  <Clock size={11} className="flex-shrink-0 text-foreground/40" />
                 )}
                 <span className="truncate">{session.title}</span>
                 {workspaceName && (
