@@ -211,18 +211,20 @@ function Section({ title, automations, onEdit, onRefresh, variant }: SectionProp
             )}>
               {variant === 'paused' ? '已暂停' : formatSchedule(a)}
             </span>
-            {/* 状态灯：常驻显示，绿=启用/红=暂停，点击切换 */}
+            {/* 状态灯：常驻显示，绿=启用/红=暂停，点击切换。外层 padding 扩大点击区域 */}
             <span
               role="button"
               title={a.active ? '点击暂停' : '点击启用'}
               onClick={(e) => { void handleToggle(e, a) }}
-              className={cn(
-                'size-2.5 rounded-full shrink-0 cursor-pointer transition-colors',
+              className="p-2 -m-2 shrink-0 cursor-pointer flex items-center justify-center"
+            >
+              <span className={cn(
+                'size-2.5 rounded-full transition-colors',
                 a.active
                   ? 'bg-emerald-500 hover:bg-red-400'
                   : 'bg-red-400 hover:bg-emerald-500',
-              )}
-            />
+              )} />
+            </span>
           </button>
         ))}
       </div>
