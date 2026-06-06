@@ -1575,8 +1575,26 @@ export class AgentOrchestrator {
         // 启用文件检查点，支持 rewindFiles 回退
         enableFileCheckpointing: true,
         // SDK 0.2.52+ 新增选项（从 settings 读取）
-        ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
-        effort: appSettings.agentEffort ?? 'high',
+        // thinking / effort 仅在渠道支持时传递：
+        // - anthropic / deepseek：原生支持 adaptive thinking
+        // - anthropic-compatible + agentThinkingEnabled：兼容端点不支持 adaptive，
+        //   需降级为 manual 模式（{type:'enabled', budgetTokens}）
+        // - 其它（kimi / zhipu / minimax 等）：不支持，不传
+        ...(() => {
+          const provider = channel.provider
+          const isNativeThinking = provider === 'anthropic' || provider === 'deepseek'
+          const isCompatThinking = provider === 'anthropic-compatible' && channel.agentThinkingEnabled === true
+          if (!isNativeThinking && !isCompatThinking) return {}
+          if (!appSettings.agentThinking) return {}
+          // anthropic-compatible 兼容端点不支持 adaptive，降级为 manual 模式
+          const thinking = isCompatThinking && appSettings.agentThinking.type === 'adaptive'
+            ? { type: 'enabled' as const, budgetTokens: 16384 }
+            : appSettings.agentThinking
+          return {
+            thinking,
+            effort: appSettings.agentEffort ?? 'high',
+          }
+        })(),
         ...(appSettings.agentMaxBudgetUsd != null && appSettings.agentMaxBudgetUsd > 0 && {
           maxBudgetUsd: appSettings.agentMaxBudgetUsd,
         }),

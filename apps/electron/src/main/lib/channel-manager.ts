@@ -170,6 +170,7 @@ export function createChannel(input: ChannelCreateInput): Channel {
     apiKey: encryptApiKey(input.apiKey),
     models: input.models,
     enabled: input.enabled,
+    ...(input.agentThinkingEnabled != null && { agentThinkingEnabled: input.agentThinkingEnabled }),
     createdAt: now,
     updatedAt: now,
   }
@@ -206,6 +207,7 @@ export function updateChannel(id: string, input: ChannelUpdateInput): Channel {
     apiKey: input.apiKey ? encryptApiKey(input.apiKey) : existing.apiKey,
     models: input.models ?? existing.models,
     enabled: input.enabled ?? existing.enabled,
+    ...(input.agentThinkingEnabled != null ? { agentThinkingEnabled: input.agentThinkingEnabled } : {}),
     updatedAt: Date.now(),
   }
 
