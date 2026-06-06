@@ -1462,6 +1462,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
                 active={conv.id === activeSessionId}
                 streaming={streamingIds.has(conv.id)}
                 showPinIcon={false}
+                relativeTimeNow={relativeTimeNow}
                 onSelect={handleSelectConversation}
                 onRequestDelete={handleRequestDelete}
                 onRename={handleRename}
@@ -1607,6 +1608,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
                         active={conv.id === activeSessionId}
                         streaming={streamingIds.has(conv.id)}
                         showPinIcon={!!conv.pinned}
+                        relativeTimeNow={relativeTimeNow}
                         onSelect={handleSelectConversation}
                         onRequestDelete={handleRequestDelete}
                         onRename={handleRename}
@@ -1746,6 +1748,7 @@ interface ConversationItemProps {
   streaming: boolean
   /** 是否在标题旁显示 Pin 图标 */
   showPinIcon: boolean
+  relativeTimeNow: number
   onSelect: (id: string, title: string) => void
   onRequestDelete: (id: string) => void
   onRename: (id: string, newTitle: string) => Promise<void>
@@ -1758,6 +1761,7 @@ const ConversationItem = React.memo(function ConversationItem({
   active,
   streaming,
   showPinIcon,
+  relativeTimeNow,
   onSelect,
   onRequestDelete,
   onRename,
@@ -1767,10 +1771,17 @@ const ConversationItem = React.memo(function ConversationItem({
   const [editing, setEditing] = React.useState(false)
   const [editTitle, setEditTitle] = React.useState('')
   const [menuOpen, setMenuOpen] = React.useState(false)
+  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
   // 菜单打开时关闭迷你地图预览，避免预览面板盖住菜单项导致点不动
   const preview = useSessionMiniMapHover(300, menuOpen)
+
+  React.useEffect(() => {
+    if (!archiveConfirming) return
+    const timer = setTimeout(() => setArchiveConfirming(false), 3000)
+    return () => clearTimeout(timer)
+  }, [archiveConfirming])
 
   /** 进入编辑模式 */
   const startEdit = (): void => {
@@ -1877,7 +1888,7 @@ const ConversationItem = React.memo(function ConversationItem({
               />
             ) : (
               <div className={cn(
-                'truncate text-[13px] leading-5 flex items-center gap-1.5',
+                'truncate text-[13px] leading-[18px] flex items-center gap-1.5',
                 active ? 'text-foreground' : 'text-foreground/80'
               )}>
                 {/* 置顶标记 */}
@@ -1889,29 +1900,72 @@ const ConversationItem = React.memo(function ConversationItem({
             )}
           </div>
 
-          {/* 三点菜单按钮（hover 时可见，始终占位避免跳动） */}
+          {/* 默认显示时间，hover 时显示操作按钮 */}
           {!editing && (
-            <div
-              className="flex-shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <DropdownMenu onOpenChange={setMenuOpen}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className={cn(
-                      'p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors',
-                      'opacity-0 pointer-events-none',
-                      'group-hover:opacity-100 group-hover:pointer-events-auto',
-                      'data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground/60 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto',
-                    )}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-40 z-[9999] min-w-0 p-0.5">
-                  {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div className="flex-shrink-0 flex items-center h-[18px]" onClick={(e) => e.stopPropagation()}>
+              <span
+                title={`最后更新：${new Date(conversation.updatedAt).toLocaleString('zh-CN')}`}
+                className="min-w-[42px] text-right text-[11px] leading-[18px] tabular-nums text-foreground/35 group-hover:hidden"
+              >
+                {formatRelativeUpdatedAt(conversation.updatedAt, relativeTimeNow)}
+              </span>
+              <div className="hidden group-hover:flex items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded transition-colors',
+                        isPinned
+                          ? 'text-primary/60 hover:bg-foreground/[0.08] hover:text-primary'
+                          : 'text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60',
+                      )}
+                      onClick={() => onTogglePin(conversation.id)}
+                    >
+                      {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{isPinned ? '取消置顶' : '置顶'}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded transition-colors',
+                        archiveConfirming
+                          ? 'text-destructive bg-destructive/10'
+                          : conversation.archived
+                            ? 'text-foreground/60 hover:bg-foreground/[0.08]'
+                            : 'text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60',
+                      )}
+                      onClick={() => {
+                        if (conversation.archived) { onToggleArchive(conversation.id); return }
+                        if (archiveConfirming) { onToggleArchive(conversation.id); setArchiveConfirming(false); return }
+                        setArchiveConfirming(true)
+                      }}
+                    >
+                      {conversation.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {archiveConfirming ? '再次点击确认归档' : conversation.archived ? '取消归档' : '归档'}
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenu onOpenChange={setMenuOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors',
+                        'data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground/60',
+                      )}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-40 z-[9999] min-w-0 p-0.5">
+                    {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           )}
         </div>
@@ -1947,7 +2001,7 @@ const SESSION_ACCENT_ROW_CLASS: Record<SessionLeftAccent, string> = {
 
 const SESSION_ACCENT_INDICATOR_CLASS: Record<SessionLeftAccent, string> = {
   orange: 'bg-orange-500',
-  blue: 'bg-primary',
+  blue: 'bg-blue-500',
   green: 'bg-green-500',
 }
 
@@ -1998,10 +2052,17 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
   const [editing, setEditing] = React.useState(false)
   const [editTitle, setEditTitle] = React.useState('')
   const [menuOpen, setMenuOpen] = React.useState(false)
+  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
   // 菜单打开时关闭迷你地图预览，避免预览面板盖住菜单项导致点不动
   const preview = useSessionMiniMapHover(300, disableMiniMap || menuOpen)
+
+  React.useEffect(() => {
+    if (!archiveConfirming) return
+    const timer = setTimeout(() => setArchiveConfirming(false), 3000)
+    return () => clearTimeout(timer)
+  }, [archiveConfirming])
 
   const startEdit = (): void => {
     setEditTitle(session.title)
@@ -2091,11 +2152,11 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
                 : 'hover:bg-foreground/[0.03]'
           )}
         >
-          {(leftAccent || active) && (
+          {leftAccent && (
             <span
               className={cn(
                 'absolute inset-y-0 left-0 w-[3px] rounded-l-md pointer-events-none',
-                leftAccent ? SESSION_ACCENT_INDICATOR_CLASS[leftAccent] : 'bg-primary',
+                SESSION_ACCENT_INDICATOR_CLASS[leftAccent],
               )}
             />
           )}
@@ -2113,7 +2174,7 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
               />
             ) : (
               <div className={cn(
-                'truncate text-[13px] leading-5 flex items-center gap-1.5',
+                'truncate text-[13px] leading-[18px] flex items-center gap-1.5',
                 active ? 'text-foreground' : 'text-foreground/80'
               )}>
                 {showPinIcon && (
@@ -2130,37 +2191,71 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
           </div>
 
           {!editing && (
-            <span
-              title={`最后更新：${new Date(session.updatedAt).toLocaleString('zh-CN')}`}
-              className="min-w-[42px] flex-shrink-0 text-right text-[11px] leading-5 tabular-nums text-foreground/35"
-            >
-              {formatRelativeUpdatedAt(session.updatedAt, relativeTimeNow)}
-            </span>
-          )}
-
-          {/* 三点菜单按钮（hover 时可见，始终占位避免跳动） */}
-          {!editing && (
-            <div
-              className="flex-shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <DropdownMenu onOpenChange={setMenuOpen}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className={cn(
-                      'p-1 rounded-md text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors',
-                      'opacity-0 pointer-events-none',
-                      'group-hover:opacity-100 group-hover:pointer-events-auto',
-                      'data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground/60 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto',
-                    )}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-40 z-[9999] min-w-0 p-0.5">
-                  {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div className="flex-shrink-0 flex items-center h-[18px]" onClick={(e) => e.stopPropagation()}>
+              {/* 默认显示时间，hover 时显示操作按钮 */}
+              <span
+                title={`最后更新：${new Date(session.updatedAt).toLocaleString('zh-CN')}`}
+                className="min-w-[42px] text-right text-[11px] leading-[18px] tabular-nums text-foreground/35 group-hover:hidden"
+              >
+                {formatRelativeUpdatedAt(session.updatedAt, relativeTimeNow)}
+              </span>
+              <div className="hidden group-hover:flex items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded transition-colors',
+                        session.pinned
+                          ? 'text-primary/60 hover:bg-foreground/[0.08] hover:text-primary'
+                          : 'text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60',
+                      )}
+                      onClick={() => onTogglePin(session.id)}
+                    >
+                      {session.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{session.pinned ? '取消置顶' : '置顶'}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded transition-colors',
+                        archiveConfirming
+                          ? 'text-destructive bg-destructive/10'
+                          : session.archived
+                            ? 'text-foreground/60 hover:bg-foreground/[0.08]'
+                            : 'text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60',
+                      )}
+                      onClick={() => {
+                        if (session.archived) { onToggleArchive(session.id); return }
+                        if (archiveConfirming) { onToggleArchive(session.id); setArchiveConfirming(false); return }
+                        setArchiveConfirming(true)
+                      }}
+                    >
+                      {session.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {archiveConfirming ? '再次点击确认归档' : session.archived ? '取消归档' : '归档'}
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenu onOpenChange={setMenuOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        'p-0.5 rounded text-foreground/30 hover:bg-foreground/[0.08] hover:text-foreground/60 transition-colors',
+                        'data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground/60',
+                      )}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-40 z-[9999] min-w-0 p-0.5">
+                    {menuItems(DropdownMenuItem, DropdownMenuSeparator)}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           )}
         </div>
