@@ -319,6 +319,8 @@ export async function sendMessage(
         attachments,
         readImageAttachments: getImageAttachmentData,
         thinkingEnabled,
+        channelThinkingMode: channel.thinkingMode,
+        thinkingBudgetTokens: channel.thinkingBudgetTokens,
         tools,
         continuationMessages: continuationMessages.length > 0 ? continuationMessages : undefined,
       })
@@ -395,6 +397,8 @@ export async function sendMessage(
         attachments,
         readImageAttachments: getImageAttachmentData,
         thinkingEnabled,
+        channelThinkingMode: channel.thinkingMode,
+        thinkingBudgetTokens: channel.thinkingBudgetTokens,
         // 不传 tools，强制模型生成文本回复而非继续调用工具
         continuationMessages,
       })
@@ -592,6 +596,7 @@ export async function generateTitle(input: GenerateTitleInput): Promise<string |
       apiKey,
       modelId,
       prompt: TITLE_PROMPT + userMessage,
+      channelThinkingMode: channel.thinkingMode,
     })
 
     const proxyUrl = await getEffectiveProxyUrl()

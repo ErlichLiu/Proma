@@ -1555,8 +1555,22 @@ export class AgentOrchestrator {
         })(),
         // 启用文件检查点，支持 rewindFiles 回退
         enableFileCheckpointing: true,
-        // SDK 0.2.52+ 新增选项（从 settings 读取）
-        ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
+        // SDK thinking 配置：优先使用渠道的 thinkingMode，否则回退到全局设置
+        ...(channel.thinkingMode && channel.thinkingMode !== 'auto'
+          ? {
+              thinking: channel.thinkingMode === 'disabled'
+                ? { type: 'disabled' as const }
+                : channel.thinkingMode === 'adaptive'
+                  ? { type: 'adaptive' as const }
+                  : channel.thinkingMode === 'manual'
+                    ? { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? 16384 }
+                    : channel.thinkingMode === 'effort-based'
+                      ? { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? 16384 }
+                      : undefined,
+            }
+          : appSettings.agentThinking
+            ? { thinking: appSettings.agentThinking }
+            : {}),
         effort: appSettings.agentEffort ?? 'high',
         ...(appSettings.agentMaxBudgetUsd != null && appSettings.agentMaxBudgetUsd > 0 && {
           maxBudgetUsd: appSettings.agentMaxBudgetUsd,

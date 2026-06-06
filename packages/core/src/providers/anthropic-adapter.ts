@@ -301,20 +301,30 @@ export class AnthropicAdapter implements ProviderAdapter {
   buildStreamRequest(input: StreamRequestInput): ProviderRequest {
     const url = this.normalizeUrl(input.baseUrl)
     const messages = toAnthropicMessages(input)
-    const capability = detectThinkingCapability(this.providerType, input.modelId)
+    const capability = detectThinkingCapability(
+      this.providerType,
+      input.modelId,
+      input.channelThinkingMode,
+    )
+
+    // UI 开关决定 thinking 是否启用，channelThinkingMode 只决定协议格式
+    // disabled 模式始终不发 thinking
+    const shouldEnableThinking = input.thinkingEnabled && input.channelThinkingMode !== 'disabled'
 
     // manual 模式：budget_tokens 必须 < max_tokens，所以开启时放大上限
     // adaptive / effort-based 模式：max_tokens 作为「思考+回答」的总硬上限，给充足空间
-    const manualThinkingBudget = 16384
+    const manualThinkingBudget = input.channelThinkingMode === 'manual' && input.thinkingBudgetTokens !== undefined
+      ? input.thinkingBudgetTokens
+      : 16384
     let maxTokens: number
     if (this.providerType === 'minimax') {
       maxTokens = 2048
-    } else if (!input.thinkingEnabled) {
+    } else if (!shouldEnableThinking) {
       maxTokens = 8192
     } else if (capability.mode === 'manual-only') {
       maxTokens = manualThinkingBudget + 16384
     } else {
-      maxTokens = 32000
+      maxTokens = 64000
     }
 
     const body: Record<string, unknown> = {
@@ -331,13 +341,13 @@ export class AnthropicAdapter implements ProviderAdapter {
     // - effort-based-max（DeepSeek v4 系列）：{type: 'enabled'} + output_config.effort='max'
     //   DeepSeek v4 默认就开启思考，所以关闭时必须显式 {type: 'disabled'}
     if (capability.mode === 'effort-based-max') {
-      if (input.thinkingEnabled) {
+      if (shouldEnableThinking) {
         body.thinking = { type: 'enabled' }
         body.output_config = { effort: 'max' }
       } else {
         body.thinking = { type: 'disabled' }
       }
-    } else if (input.thinkingEnabled) {
+    } else if (shouldEnableThinking) {
       if (capability.mode === 'adaptive-only' || capability.mode === 'adaptive-preferred') {
         body.thinking = {
           type: 'adaptive',
@@ -362,7 +372,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     // 工具续接消息
     if (input.continuationMessages && input.continuationMessages.length > 0) {
-      appendContinuationMessages(messages, input.continuationMessages, !!input.thinkingEnabled)
+      appendContinuationMessages(messages, input.continuationMessages, !!shouldEnableThinking)
     }
 
     const requestBody = JSON.stringify(body)

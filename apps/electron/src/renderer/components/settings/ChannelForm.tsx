@@ -41,6 +41,7 @@ import type {
   ChannelTestResult,
   FetchModelsResult,
   ProviderType,
+  ThinkingModeConfig,
 } from '@proma/shared'
 import { normalizeAnthropicProviderUrl } from '@proma/core'
 import { getProviderLogo } from '@/lib/model-logo'
@@ -145,6 +146,8 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
   const [showApiKey, setShowApiKey] = React.useState(false)
   const [models, setModels] = React.useState<ChannelModel[]>(channel?.models ?? [])
   const [enabled, setEnabled] = React.useState(channel?.enabled ?? true)
+  const [thinkingMode, setThinkingMode] = React.useState<ThinkingModeConfig>(channel?.thinkingMode ?? 'auto')
+  const [thinkingBudgetTokens, setThinkingBudgetTokens] = React.useState<number>(channel?.thinkingBudgetTokens ?? 16384)
 
   // 新模型输入
   const [newModelId, setNewModelId] = React.useState('')
@@ -195,6 +198,8 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     currentBaseUrl: string,
     currentApiKey: string,
     currentEnabled: boolean,
+    currentThinkingMode: ThinkingModeConfig,
+    currentThinkingBudgetTokens: number,
   ) => {
     if (!isEdit || !channel) return
     try {
@@ -205,6 +210,8 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
         apiKey: currentApiKey || undefined,
         models: currentModels,
         enabled: currentEnabled,
+        thinkingMode: currentThinkingMode,
+        thinkingBudgetTokens: currentThinkingBudgetTokens,
       })
       const eligible = isAgentEligibleChannel(savedChannel)
       if (eligible !== lastAgentEligibleRef.current) {
@@ -226,11 +233,13 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     nextBaseUrl: string,
     nextApiKey: string,
     nextEnabled: boolean,
+    nextThinkingMode: ThinkingModeConfig,
+    nextThinkingBudgetTokens: number,
   ) => {
     if (!isEdit || !initializedRef.current) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      doAutoSave(nextModels, nextName, nextProvider, nextBaseUrl, nextApiKey, nextEnabled)
+      doAutoSave(nextModels, nextName, nextProvider, nextBaseUrl, nextApiKey, nextEnabled, nextThinkingMode, nextThinkingBudgetTokens)
     }, AUTO_SAVE_DELAY)
   }, [isEdit, doAutoSave])
 
@@ -248,9 +257,9 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
 
   // 监听字段变化触发 auto-save
   React.useEffect(() => {
-    scheduleAutoSave(models, name, provider, baseUrl, apiKey, enabled)
+    scheduleAutoSave(models, name, provider, baseUrl, apiKey, enabled, thinkingMode, thinkingBudgetTokens)
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current) }
-  }, [models, name, provider, baseUrl, apiKey, enabled, scheduleAutoSave])
+  }, [models, name, provider, baseUrl, apiKey, enabled, thinkingMode, thinkingBudgetTokens, scheduleAutoSave])
 
   // 切换供应商时自动更新 Base URL，Anthropic 兼容渠道自动添加预设模型
   const handleProviderChange = (newProvider: string): void => {
@@ -388,6 +397,8 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
         apiKey,
         models,
         enabled,
+        thinkingMode,
+        thinkingBudgetTokens,
       }
       const savedChannel = await window.electronAPI.createChannel(input)
       if (isAgentEligibleChannel(savedChannel)) {
@@ -402,7 +413,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     } finally {
       setSaving(false)
     }
-  }, [name, provider, baseUrl, apiKey, models, enabled, onAgentEligibilityChange])
+  }, [name, provider, baseUrl, apiKey, models, enabled, thinkingMode, thinkingBudgetTokens, onAgentEligibilityChange])
 
   /** 创建渠道（仅新建模式） */
   const handleCreate = async (): Promise<void> => {
@@ -580,6 +591,34 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
             checked={enabled}
             onCheckedChange={setEnabled}
           />
+          {/* 思考模式配置（仅 Anthropic 兼容渠道显示） */}
+          {(provider === 'anthropic' || provider === 'anthropic-compatible' || provider === 'deepseek') && (
+            <>
+              <SettingsSelect
+                label="思考模式"
+                value={thinkingMode}
+                onValueChange={(value) => setThinkingMode(value as ThinkingModeConfig)}
+                options={[
+                  { value: 'auto', label: '自动推断（推荐）' },
+                  { value: 'manual', label: 'Manual（旧版 extended thinking）' },
+                  { value: 'adaptive', label: 'Adaptive（Claude 4.6+）' },
+                  { value: 'disabled', label: '禁用思考' },
+                  { value: 'effort-based', label: 'Effort-based（DeepSeek V4）' },
+                ]}
+                description="自动推断根据模型 ID 自动选择，自定义可强制指定"
+              />
+              {thinkingMode === 'manual' && (
+                <SettingsInput
+                  label="Thinking Budget Tokens"
+                  value={thinkingBudgetTokens.toString()}
+                  onChange={(v) => setThinkingBudgetTokens(parseInt(v) || 16384)}
+                  placeholder="16384"
+                  type="number"
+                  description="manual 模式下的思考预算 token 数"
+                />
+              )}
+            </>
+          )}
         </SettingsCard>
       </SettingsSection>
 

@@ -214,6 +214,10 @@ export interface StreamRequestInput {
   readImageAttachments: ImageAttachmentReader
   /** 是否启用思考模式（各适配器根据供应商 API 自行转换） */
   thinkingEnabled?: boolean
+  /** 渠道自定义思考模式配置（可选） */
+  channelThinkingMode?: 'auto' | 'manual' | 'adaptive' | 'disabled' | 'effort-based'
+  /** 思考模式 budget tokens（manual 模式下使用） */
+  thinkingBudgetTokens?: number
   /** 工具定义列表（可选，启用 function calling） */
   tools?: ToolDefinition[]
   /** 工具续接消息（tool use 循环中，前一轮的 tool_use + tool_result） */
@@ -230,6 +234,8 @@ export interface TitleRequestInput {
   modelId: string
   /** 标题生成 prompt（已包含用户消息） */
   prompt: string
+  /** 渠道自定义思考模式配置（可选） */
+  channelThinkingMode?: 'auto' | 'manual' | 'adaptive' | 'disabled' | 'effort-based'
 }
 
 // ===== 适配器接口 =====

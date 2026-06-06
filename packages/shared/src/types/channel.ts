@@ -26,6 +26,21 @@ export type ProviderType =
   | 'custom'
 
 /**
+ * 思考模式配置
+ * - auto: 自动推断（根据模型 ID 自动选择）
+ * - manual: 旧版 extended thinking（{type: 'enabled', budget_tokens}）
+ * - adaptive: Claude 4.6+ adaptive thinking（{type: 'adaptive', display: 'summarized'}）
+ * - disabled: 禁用思考
+ * - effort-based: DeepSeek V4 系列（{type: 'enabled'} + output_config.effort='max'）
+ */
+export type ThinkingModeConfig =
+  | 'auto'
+  | 'manual'
+  | 'adaptive'
+  | 'disabled'
+  | 'effort-based'
+
+/**
  * 各供应商的默认 Base URL
  */
 export const PROVIDER_DEFAULT_URLS: Record<ProviderType, string> = {
@@ -124,6 +139,10 @@ export interface Channel {
   models: ChannelModel[]
   /** 是否启用 */
   enabled: boolean
+  /** 思考模式配置（可选，默认 auto） */
+  thinkingMode?: ThinkingModeConfig
+  /** 思考模式 budget tokens（manual 模式下使用） */
+  thinkingBudgetTokens?: number
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -141,6 +160,10 @@ export interface ChannelCreateInput {
   apiKey: string
   models: ChannelModel[]
   enabled: boolean
+  /** 思考模式配置（可选，默认 auto） */
+  thinkingMode?: ThinkingModeConfig
+  /** 思考模式 budget tokens（manual 模式下使用） */
+  thinkingBudgetTokens?: number
 }
 
 /**
@@ -154,6 +177,10 @@ export interface ChannelUpdateInput {
   apiKey?: string
   models?: ChannelModel[]
   enabled?: boolean
+  /** 思考模式配置（可选） */
+  thinkingMode?: ThinkingModeConfig
+  /** 思考模式 budget tokens（可选） */
+  thinkingBudgetTokens?: number
 }
 
 /**

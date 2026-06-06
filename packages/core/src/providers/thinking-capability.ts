@@ -11,7 +11,7 @@
  *
  * 本模块根据模型 ID 推断思考协议，供适配器构造请求体时分支使用。
  */
-import type { ProviderType } from '@proma/shared'
+import type { ProviderType, ThinkingModeConfig } from '@proma/shared'
 
 /** 思考协议能力 */
 export type ThinkingMode =
@@ -39,6 +39,24 @@ export interface ThinkingCapability {
 }
 
 /**
+ * 根据自定义配置获取思考协议能力
+ */
+function getCapabilityFromConfig(config: ThinkingModeConfig): ThinkingCapability {
+  switch (config) {
+    case 'manual':
+      return { mode: 'manual-only', disableStrategy: 'explicit-disabled' }
+    case 'adaptive':
+      return { mode: 'adaptive-preferred', disableStrategy: 'explicit-disabled' }
+    case 'disabled':
+      return { mode: 'none', disableStrategy: 'omit-field' }
+    case 'effort-based':
+      return { mode: 'effort-based-max', disableStrategy: 'explicit-disabled' }
+    default:
+      return { mode: 'manual-only', disableStrategy: 'explicit-disabled' }
+  }
+}
+
+/**
  * 匹配模型 ID（不区分大小写，允许 -latest、-20250101 等后缀）
  */
 function startsWith(modelId: string, prefix: string): boolean {
@@ -54,14 +72,22 @@ function startsWith(modelId: string, prefix: string): boolean {
  *   'anthropic'，不是 'deepseek'；只靠 providerType 匹配会落到 manual-only，导致
  *   思考关闭时不发 `thinking` 字段、而 DeepSeek v4 默认开思考 → 报「thinking must be passed back」）
  * - 再按 providerType 兜底
+ * - 如果渠道配置了自定义 thinking 模式，优先使用配置
  *
  * @param providerType 供应商类型
  * @param modelId 模型 ID
+ * @param channelThinkingMode 渠道自定义思考模式配置（可选）
  */
 export function detectThinkingCapability(
   providerType: ProviderType,
   modelId: string,
+  channelThinkingMode?: ThinkingModeConfig,
 ): ThinkingCapability {
+  // 如果渠道配置了自定义 thinking 模式（且不是 auto），优先使用配置
+  if (channelThinkingMode && channelThinkingMode !== 'auto') {
+    return getCapabilityFromConfig(channelThinkingMode)
+  }
+
   // DeepSeek v4 系列（按模型 ID 识别，不依赖 providerType）：
   // effort-based-max 模式会在思考关闭时显式发 `{type:'disabled'}`，这是 DeepSeek v4 的硬要求
   if (startsWith(modelId, 'deepseek-v4')) {
