@@ -36,6 +36,7 @@ import { isTransientNetworkError } from './error-patterns'
 import { AgentEventBus } from './agent-event-bus'
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk, getPromaUserAgent } from '@proma/core'
+import { detectThinkingCapability } from '@proma/core'
 import pkg from '../../../package.json' with { type: 'json' }
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
@@ -1558,7 +1559,7 @@ export class AgentOrchestrator {
         })(),
         // 启用文件检查点，支持 rewindFiles 回退
         enableFileCheckpointing: true,
-        // SDK thinking 配置：优先使用渠道的 thinkingMode，否则回退到全局设置
+        // SDK thinking 配置：优先使用渠道的 thinkingMode，否则根据模型能力推断
         ...(channel.thinkingMode && channel.thinkingMode !== 'auto'
           ? {
               thinking: channel.thinkingMode === 'disabled'
@@ -1571,8 +1572,24 @@ export class AgentOrchestrator {
                       ? { type: 'enabled' as const, effort: 'max' as const }
                       : undefined,
             }
-          : appSettings.agentThinking
-            ? { thinking: appSettings.agentThinking }
+          : input.thinkingEnabled !== false
+            ? (() => {
+                // channel.thinkingMode === 'auto' 或未配置：根据模型能力推断
+                const capability = detectThinkingCapability(channel.provider, modelId || DEFAULT_MODEL_ID, channel.thinkingMode)
+                if (capability.mode === 'none') {
+                  return undefined
+                }
+                if (capability.mode === 'adaptive-only' || capability.mode === 'adaptive-preferred') {
+                  return { thinking: { type: 'adaptive' as const } }
+                }
+                if (capability.mode === 'manual-only') {
+                  return { thinking: { type: 'enabled' as const, budgetTokens: channel.thinkingBudgetTokens ?? DEFAULT_THINKING_BUDGET } }
+                }
+                if (capability.mode === 'effort-based-max') {
+                  return { thinking: { type: 'enabled' as const, effort: 'max' as const } }
+                }
+                return undefined
+              })()
             : {}),
         effort: appSettings.agentEffort ?? 'high',
         ...(appSettings.agentMaxBudgetUsd != null && appSettings.agentMaxBudgetUsd > 0 && {

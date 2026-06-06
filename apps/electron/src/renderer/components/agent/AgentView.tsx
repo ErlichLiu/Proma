@@ -793,6 +793,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
         workspaceId: snapshot.workspaceId,
         startedAt: streamStartedAt,
         permissionModeOverride: permissionMode,
+        thinkingEnabled: agentThinking?.type !== 'disabled',
         ...(snapshot.additionalDirectories && snapshot.additionalDirectories.length > 0 && {
           additionalDirectories: snapshot.additionalDirectories,
         }),
@@ -1491,6 +1492,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       workspaceId: currentWorkspaceId || undefined,
       startedAt: streamStartedAt,
       permissionModeOverride: permissionMode,
+      thinkingEnabled: agentThinking?.type !== 'disabled',
       ...(additionalDirectoriesForRun.size > 0 && { additionalDirectories: Array.from(additionalDirectoriesForRun) }),
       // 解析用户消息中的 Skill/MCP/会话引用，传递结构化元数据给后端
       ...(() => {

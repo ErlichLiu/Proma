@@ -59,6 +59,7 @@ export interface AgentWorkspace {
 export type ThinkingConfig =
   | { type: 'adaptive' }
   | { type: 'enabled'; budgetTokens: number }
+  | { type: 'enabled'; effort: 'max' }
   | { type: 'disabled' }
 
 /**
@@ -850,6 +851,8 @@ export interface AgentSendInput {
   mentionedSessionIds?: string[]
   /** 渲染进程生成的流式开始时间戳，主进程原样回传到 STREAM_COMPLETE，确保竞态保护比较的是同一个值 */
   startedAt?: number
+  /** 是否启用思考模式（UI 开关状态，仅当 channel.thinkingMode === 'auto' 时生效） */
+  thinkingEnabled?: boolean
 }
 
 // ===== Agent 队列消息 =====
