@@ -2242,9 +2242,19 @@ const AgentProjectGroupItem = React.memo(function AgentProjectGroupItem({
 }: AgentProjectGroupItemProps): React.ReactElement {
   const isCurrent = group.workspace.id === currentWorkspaceId
   const recentCutoff = relativeTimeNow - PROJECT_SESSION_RECENT_WINDOW_MS
-  const collapsedSessions = group.sessions
-    .filter((session) => session.updatedAt >= recentCutoff)
+  // 折叠时：所有"活跃"会话（运行中 / 阻塞 / 未查看的已完成）必须展示，
+  // 不受 PROJECT_SESSION_PREVIEW_LIMIT=5 与 3 天窗口限制；
+  // 其余槽位用最近 3 天内的会话按原排序填充至 5 条。
+  const isActiveStatus = (sessionId: string): boolean => {
+    const status = agentIndicatorMap.get(sessionId) ?? 'idle'
+    return status === 'running' || status === 'blocked' || status === 'completed'
+  }
+  const activeSessions = group.sessions.filter((session) => isActiveStatus(session.id))
+  const activeIds = new Set(activeSessions.map((s) => s.id))
+  const fillSessions = group.sessions
+    .filter((session) => !activeIds.has(session.id) && session.updatedAt >= recentCutoff)
     .slice(0, PROJECT_SESSION_PREVIEW_LIMIT)
+  const collapsedSessions = [...activeSessions, ...fillSessions]
   const sessions = expanded
     ? group.sessions
     : collapsedSessions
