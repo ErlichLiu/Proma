@@ -1,5 +1,25 @@
 # Proma
 
+> ⚠️ **向导 Agent 开发分支**：当前分支为 `wizard-ui`，是 W1 前端减法版。如需原版 Proma，请切回 `main` 分支。
+
+## 快速启动（向导 Agent 前端）
+
+```bash
+git clone https://github.com/guide-agent-platform/Proma.git
+git checkout wizard-ui            # 前端减法版
+# 或 git checkout w1-backend       # 后端薄沙箱版
+
+cd apps/electron
+bun install                       # 或 npm install
+bun run dev:vite                  # 或 npx vite dev
+```
+
+浏览器打开 **http://localhost:5173**，即可看到向导三栏界面（左对话 + 右沙箱草图预览 + 底时间轴）。
+
+> 不需要 Electron，纯浏览器运行。原版 Proma Electron 桌面应用走 `bun run dev`。
+
+---
+
 Proma 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agent、工作区、Skills、MCP、远程机器人和记忆能力放在同一个开源客户端里。
 
 它不是只面向闲聊的聊天框，而是一个可以长期沉淀个人工作流的 Agent 工作台：简单问题用 Chat，复杂任务交给 Agent，数据和配置尽量留在本地。
