@@ -119,7 +119,7 @@ export async function runAutomation(automation: Automation, manual = false): Pro
         resolveRun()
       }
 
-      const automationContext = `[系统提示：这是 Proma 定时任务「${automation.name}」的自动执行（${formatScheduleLabel(automation)}）。你正在被定时调度器调用，不需要再建议用户创建定时任务——这本身就是定时任务。直接执行任务即可。]\n\n`
+      const automationContext = `[系统提示：这是 Proma 定时任务「${automation.name}」的自动执行（${formatScheduleLabel(automation)}）。]\n\n`
       runAgentHeadless(
         {
           sessionId: targetSessionId,
