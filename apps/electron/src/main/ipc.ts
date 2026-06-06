@@ -9,7 +9,7 @@ import { join, resolve, sep, dirname } from 'node:path'
 import { existsSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, isPromaPermissionMode } from '@proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, AUTOMATION_IPC_CHANNELS, isPromaPermissionMode } from '@proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, QUICK_TASK_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   QuickTaskSubmitInput,
@@ -107,6 +107,9 @@ import type {
   RevertFileInput,
   FileAccessOptions,
   ResolvedFileUrl,
+  Automation,
+  CreateAutomationInput,
+  UpdateAutomationInput,
 } from '@proma/shared'
 import type { UserProfile, AppSettings } from '../types'
 import { getRuntimeStatus, getGitRepoStatus, reinitializeRuntime } from './lib/runtime-init'
@@ -158,6 +161,13 @@ import {
 } from './lib/installer-downloader'
 import { getProxySettings, saveProxySettings } from './lib/proxy-settings-service'
 import { detectSystemProxy } from './lib/system-proxy-detector'
+import {
+  listAutomations,
+  createAutomation,
+  updateAutomation,
+  deleteAutomation,
+} from './lib/automation-manager'
+import { runAutomationNow, broadcastChanged as broadcastAutomationsChanged } from './lib/automation-scheduler'
 import {
   listAgentSessions,
   createAgentSession,
@@ -4072,5 +4082,53 @@ export function registerIpcHandlers(): void {
       const win = BrowserWindow.fromWebContents(event.sender)
       return win && !win.isDestroyed() ? win.isMaximized() : false
     }
+  )
+
+  // ===== 定时任务（Automation）=====
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.LIST,
+    async (): Promise<Automation[]> => listAutomations()
+  )
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.CREATE,
+    async (_, input: CreateAutomationInput): Promise<Automation> => {
+      const a = createAutomation(input)
+      broadcastAutomationsChanged()
+      return a
+    }
+  )
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.UPDATE,
+    async (_, input: UpdateAutomationInput): Promise<Automation | undefined> => {
+      const a = updateAutomation(input)
+      broadcastAutomationsChanged()
+      return a
+    }
+  )
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      const ok = deleteAutomation(id)
+      broadcastAutomationsChanged()
+      return ok
+    }
+  )
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.TOGGLE,
+    async (_, id: string, active: boolean): Promise<Automation | undefined> => {
+      const a = updateAutomation({ id, active })
+      broadcastAutomationsChanged()
+      return a
+    }
+  )
+
+  ipcMain.handle(
+    AUTOMATION_IPC_CHANNELS.RUN_NOW,
+    async (_, id: string): Promise<void> => { await runAutomationNow(id) }
   )
 }

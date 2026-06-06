@@ -35,6 +35,7 @@ import { isPromptTooLongError, isThinkingSignatureError, friendlyErrorMessage, m
 import { isTransientNetworkError } from './error-patterns'
 import { AgentEventBus } from './agent-event-bus'
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
+import { detectAutomationIntent } from './intent-detection'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk, getPromaUserAgent } from '@proma/core'
 import pkg from '../../../package.json' with { type: 'json' }
 import { getFetchFn } from './proxy-fetch'
@@ -925,7 +926,7 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds } = input
+    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, triggeredBy } = input
     const stderrChunks: string[] = []
 
     // 0. 并发保护
@@ -1029,6 +1030,33 @@ export class AgentOrchestrator {
     // 否则用本地 runGeneration 作为回退（headless 模式等无渲染进程场景）
     const streamStartedAt = input.startedAt ?? runGeneration
     this.activeSessions.set(sessionId, runGeneration)
+
+    // 异步触发"定时任务意图判断"（fire-and-forget，不阻塞主流程）
+    // 只对用户主动发送的消息判断，定时任务自身触发的 headless run 跳过避免循环
+    if (triggeredBy !== 'automation') {
+      void detectAutomationIntent({
+        sessionId,
+        userMessage,
+        workspaceId,
+        conversationChannelId: channelId,
+        conversationModelId: modelId,
+      })
+        .then((result) => {
+          if (!result) return
+          if (result.kind === 'draft_created') {
+            this.eventBus.emit(sessionId, {
+              kind: 'proma_event',
+              event: { type: 'automation_draft_created', automation: result.automation },
+            })
+          } else {
+            this.eventBus.emit(sessionId, {
+              kind: 'proma_event',
+              event: { type: 'automation_intent_pending_schedule', suggestion: result.suggestion },
+            })
+          }
+        })
+        .catch((err) => console.warn('[Agent 编排] 意图判断异常:', err))
+    }
     const releaseActiveRun = (): void => {
       // 在发送 STREAM_COMPLETE 前释放 active slot，避免渲染进程已进入空闲态、
       // 主进程仍在 finally 前短暂拒绝下一条消息。

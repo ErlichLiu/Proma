@@ -11,7 +11,7 @@
 import * as React from 'react'
 import { useAtom, useSetAtom, useAtomValue, useStore } from 'jotai'
 import { toast } from 'sonner'
-import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Bot, MessageSquare, MoreHorizontal, FolderOpen, GripVertical } from 'lucide-react'
+import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Bot, MessageSquare, MoreHorizontal, FolderOpen, GripVertical, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { ModeSwitcher } from './ModeSwitcher'
@@ -593,6 +593,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
   /** 创建新对话（继承当前选中的模型/渠道） */
   const handleNewConversation = async (): Promise<void> => {
+    setActiveView('conversations')
     try {
       const meta = await window.electronAPI.createConversation(
         undefined,
@@ -805,8 +806,9 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
   /** 创建新 Agent 会话 */
   const handleNewAgentSession = React.useCallback(async (): Promise<void> => {
+    setActiveView('conversations')
     await createAgentSessionInWorkspace()
-  }, [createAgentSessionInWorkspace])
+  }, [createAgentSessionInWorkspace, setActiveView])
 
   /** 切换当前项目 */
   const handleSelectProject = React.useCallback((workspaceId: string): void => {
@@ -1353,6 +1355,25 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             </TooltipTrigger>
             <TooltipContent side="right">搜索</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="定时任务"
+                onClick={() => setActiveView('automations')}
+                className={cn(
+                  'size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border border-dashed',
+                  activeView === 'automations'
+                    ? 'bg-primary/10 text-foreground/70 border-[hsl(var(--dashed-border-hover))]'
+                    : 'bg-primary/5 hover:bg-primary/10 text-foreground/45 hover:text-foreground/70 border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]',
+                )}
+              >
+                <Clock size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">定时任务</TooltipContent>
+          </Tooltip>
         </div>
 
         <div className="my-3 h-px w-8 bg-border/70" />
@@ -1453,6 +1474,22 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">搜索 ({getAcceleratorDisplay(getActiveAccelerator('global-search'))})</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setActiveView('automations')}
+              className={cn(
+                'flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] transition-colors duration-100 titlebar-no-drag border border-dashed',
+                activeView === 'automations'
+                  ? 'bg-primary/10 text-foreground/70 border-[hsl(var(--dashed-border-hover))]'
+                  : 'bg-primary/5 hover:bg-primary/10 text-foreground/40 hover:text-foreground/60 border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]',
+              )}
+            >
+              <Clock size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">定时任务</TooltipContent>
         </Tooltip>
       </div>
 

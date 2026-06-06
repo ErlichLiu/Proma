@@ -4,6 +4,8 @@
  * 包含 Agent SDK 集成所需的事件类型、会话管理、消息持久化和 IPC 通道常量。
  */
 
+import type { Automation } from './automation'
+
 // ===== 记忆配置 =====
 
 /** 全局记忆配置（MemOS Cloud） */
@@ -561,9 +563,28 @@ export type PromaEvent =
   | { type: 'permission_mode_changed'; mode: PromaPermissionMode }
   | { type: 'title_updated'; title: string }
   | { type: 'external_run_started'; source: AgentExternalRunSource; sessionId: string; title?: string; workspaceId?: string; modelId?: string; startedAt: number }
+  /** 意图判断检测到定时任务意图，已创建草稿（active=false） */
+  | { type: 'automation_draft_created'; automation: Automation }
+  /** 意图判断检测到定时任务意图但频率不明，等待用户选择频率 */
+  | { type: 'automation_intent_pending_schedule'; suggestion: AutomationIntentSuggestion }
 
 /** 外部入口触发 Agent 运行的来源 */
 export type AgentExternalRunSource = 'feishu' | 'dingtalk' | 'wechat' | 'bridge'
+
+/**
+ * 意图判断给出的"频率待用户选择"建议
+ *
+ * 当 LLM 判定用户想要定时任务，但用户没说清楚频率时（如「以后定期帮我看看」），
+ * 主进程不直接落库，而是推送此建议让 banner 弹"频率选择"形态。
+ */
+export interface AutomationIntentSuggestion {
+  /** 建议的任务名（不含「定时任务 N」前缀，由 LLM 据 prompt 提炼） */
+  name: string
+  /** 建议的任务 prompt（每次自动重跑发送的内容） */
+  prompt: string
+  /** 一句话解释：模型为什么觉得这是个定时任务意图（用于 banner 展示，可选） */
+  reasoning?: string
+}
 
 /** IPC 传输的统一 payload（替代 AgentEvent） */
 export type AgentStreamPayload =
@@ -611,6 +632,8 @@ export interface AgentSessionMeta {
   stoppedByUser?: boolean
   /** 该会话当前的权限模式（持久化到磁盘，重启后恢复）。未设置时新会话默认 auto */
   permissionMode?: PromaPermissionMode
+  /** 来源定时任务 ID（该会话由定时任务自动创建/复用时标记，用于侧栏显示钟表图标 + 跳转设置） */
+  sourceAutomationId?: string
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -850,6 +873,8 @@ export interface AgentSendInput {
   mentionedSessionIds?: string[]
   /** 渲染进程生成的流式开始时间戳，主进程原样回传到 STREAM_COMPLETE，确保竞态保护比较的是同一个值 */
   startedAt?: number
+  /** 触发来源：用户手动 vs 定时任务自动触发（用于 UI 区分标记） */
+  triggeredBy?: 'user' | 'automation'
 }
 
 // ===== Agent 队列消息 =====
