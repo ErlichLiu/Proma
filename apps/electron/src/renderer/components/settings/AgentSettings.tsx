@@ -8,8 +8,8 @@
  */
 
 import * as React from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
-import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Search, RefreshCw, Save, X } from 'lucide-react'
+import { useAtomValue, useSetAtom, useAtom } from 'jotai'
+import { Plus, Plug, Pencil, Trash2, Sparkles, FolderOpen, MessageSquare, ShieldCheck, ChevronDown, ChevronRight, Brain, ImagePlus, Search, RefreshCw, Save, X, GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -29,6 +29,7 @@ import {
   agentPendingPromptAtom,
   workspaceCapabilitiesVersionAtom,
 } from '@/atoms/agent-atoms'
+import { useProjectActions } from '@/hooks/useProjectActions'
 import { settingsTabAtom, settingsOpenAtom } from '@/atoms/settings-tab'
 import { appModeAtom } from '@/atoms/app-mode'
 import { chatToolsAtom } from '@/atoms/chat-tool-atoms'
@@ -128,7 +129,7 @@ function rebuildSkillMd(
 // ===== Main Component =====
 
 export function AgentSettings(): React.ReactElement {
-  const workspaces = useAtomValue(agentWorkspacesAtom)
+  const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const currentWorkspaceId = useAtomValue(currentAgentWorkspaceIdAtom)
   const agentChannelId = useAtomValue(agentChannelIdAtom)
   const setAgentSessions = useSetAtom(agentSessionsAtom)
@@ -140,6 +141,52 @@ export function AgentSettings(): React.ReactElement {
 
   const currentWorkspace = workspaces.find((w) => w.id === currentWorkspaceId)
   const workspaceSlug = currentWorkspace?.slug ?? ''
+
+  // 项目排序
+  const { selectProject } = useProjectActions()
+  const [dragId, setDragId] = React.useState<string | null>(null)
+  const [dropIndicator, setDropIndicator] = React.useState<{ id: string; position: 'before' | 'after' } | null>(null)
+
+  const handleDragStart = (e: React.DragEvent, wsId: string): void => {
+    setDragId(wsId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', wsId)
+  }
+
+  const handleDragOver = (e: React.DragEvent, wsId: string): void => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!dragId || wsId === dragId) { setDropIndicator(null); return }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientY - rect.top) / rect.height
+    const position: 'before' | 'after' = ratio < 0.5 ? 'before' : 'after'
+    setDropIndicator((prev) => prev?.id === wsId && prev.position === position ? prev : { id: wsId, position })
+  }
+
+  const handleDragLeave = (e: React.DragEvent): void => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropIndicator(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, targetId: string): void => {
+    e.preventDefault()
+    if (!dragId || dragId === targetId || !dropIndicator || dropIndicator.id !== targetId) {
+      setDragId(null); setDropIndicator(null); return
+    }
+    const fromIdx = workspaces.findIndex((w) => w.id === dragId)
+    const toIdx = workspaces.findIndex((w) => w.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDropIndicator(null); return }
+    const reordered = [...workspaces]
+    const [moved] = reordered.splice(fromIdx, 1)
+    const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
+    const insertIdx = dropIndicator.position === 'after' ? adjustedToIdx + 1 : adjustedToIdx
+    reordered.splice(insertIdx, 0, moved!)
+    setWorkspaces(reordered)
+    setDragId(null)
+    setDropIndicator(null)
+    window.electronAPI.reorderAgentWorkspaces(reordered.map((w) => w.id)).catch(console.error)
+  }
+
+  const handleDragEnd = (): void => { setDragId(null); setDropIndicator(null) }
 
   // Tab & view state
   const [activeTab, setActiveTab] = React.useState('skills')
@@ -418,6 +465,42 @@ ${skillList}
 
   return (
     <div className="space-y-4">
+      {/* 项目排序 */}
+      <SettingsSection title="项目排序" description="拖拽调整项目在侧边栏下拉选择器中的显示顺序">
+        <SettingsCard>
+          {workspaces.map((ws) => (
+            <div key={ws.id} className="relative">
+              {dropIndicator?.id === ws.id && dropIndicator.position === 'before' && (
+                <div className="absolute top-0 left-4 right-4 h-0.5 bg-primary rounded-full z-10" />
+              )}
+              <div
+                draggable
+                onDragStart={(e) => handleDragStart(e, ws.id)}
+                onDragOver={(e) => handleDragOver(e, ws.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, ws.id)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  'group w-full flex items-center gap-2 px-4 py-2.5 transition-colors cursor-grab active:cursor-grabbing',
+                  dragId === ws.id ? 'opacity-40' : 'hover:bg-muted/50',
+                  ws.id === currentWorkspaceId && 'font-medium',
+                )}
+              >
+                <GripVertical size={14} className="flex-shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                <FolderOpen size={16} className="flex-shrink-0 text-muted-foreground" />
+                <span className="flex-1 min-w-0 truncate text-sm">{ws.name}</span>
+                {ws.id === currentWorkspaceId && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">当前</span>
+                )}
+              </div>
+              {dropIndicator?.id === ws.id && dropIndicator.position === 'after' && (
+                <div className="absolute bottom-0 left-4 right-4 h-0.5 bg-primary rounded-full z-10" />
+              )}
+            </div>
+          ))}
+        </SettingsCard>
+      </SettingsSection>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="relative flex rounded-xl bg-muted p-1">
           <div

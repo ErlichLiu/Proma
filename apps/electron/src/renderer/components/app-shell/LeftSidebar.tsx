@@ -692,7 +692,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     }
   }, [setConversations, setTabs])
 
-  /** 切换对话置顶状态 */
+  /** 切换对话置顶状态（同步标签页常驻） */
   const handleTogglePin = React.useCallback(async (id: string): Promise<void> => {
     try {
       const original = store.get(conversationsAtom).find((c) => c.id === id)
@@ -700,14 +700,53 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       setConversations((prev) =>
         prev.map((c) => (c.id === updated.id ? updated : c))
       )
-      // 归档会话被置顶时会自动取消归档
-      if (original?.archived && updated.pinned && !updated.archived) {
-        toast.success('已取消归档并置顶')
+
+      if (updated.pinned) {
+        // 置顶时：创建或标记置顶标签
+        setTabs((prev) => {
+          const existing = prev.find((t) => t.sessionId === id && t.type === 'chat')
+          if (existing) {
+            return prev.map((t) => t.id === existing.id ? { ...t, pinned: true } : t)
+          }
+          const scratchTab = prev.find((t) => t.id === SCRATCH_PAD_ID)
+          const pinnedTabs = prev.filter((t) => t.pinned)
+          const nonPinnedTabs = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+          const newTab: TabItem = {
+            id: id,
+            type: 'chat',
+            sessionId: id,
+            title: updated.title,
+            pinned: true,
+          }
+          return scratchTab
+            ? [scratchTab, ...pinnedTabs, newTab, ...nonPinnedTabs]
+            : [newTab, ...pinnedTabs, ...nonPinnedTabs]
+        })
+        if (original?.archived && !updated.archived) {
+          toast.success('已置顶', { description: '已自动取消归档' })
+        } else {
+          toast.success('已置顶')
+        }
+      } else {
+        // 取消置顶时：移除置顶标签
+        setTabs((prev) => {
+          const tab = prev.find((t) => t.sessionId === id && t.pinned)
+          if (!tab) return prev
+          const currentActive = store.get(activeTabIdAtom)
+          if (currentActive === tab.id) {
+            const otherPinned = prev.filter((t) => t.pinned && t.id !== tab.id)
+            const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+            const newActive = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
+            setActiveTabId(newActive)
+          }
+          return prev.filter((t) => t.id !== tab.id)
+        })
+        toast.success('已取消置顶')
       }
     } catch (error) {
       console.error('[侧边栏] 切换置顶失败:', error)
     }
-  }, [store, setConversations])
+  }, [store, setConversations, setTabs, setActiveTabId])
 
   /** 切换对话归档状态 */
   const handleToggleArchive = React.useCallback(async (id: string): Promise<void> => {
