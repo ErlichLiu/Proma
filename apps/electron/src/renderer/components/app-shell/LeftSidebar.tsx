@@ -1820,10 +1820,30 @@ function SessionItemActions({
     setArchiveConfirming(true)
   }
 
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const handleMenuOpenChange = (open: boolean): void => {
-    setMenuOpen(open)
+    if (open) {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current)
+        closeTimerRef.current = null
+      }
+      setMenuOpen(true)
+    } else {
+      // Delay hiding the trigger so Radix Popper can still read its rect during the close animation (~150ms).
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null
+        setMenuOpen(false)
+      }, 200)
+    }
     onMenuOpenChange?.(open)
   }
+
+  React.useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current)
+    }
+  }, [])
 
   const forceVisible = archiveConfirming || menuOpen
 
