@@ -1957,7 +1957,7 @@ const ConversationItem = React.memo(function ConversationItem({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
   // 菜单打开时关闭迷你地图预览，避免预览面板盖住菜单项导致点不动
-  const preview = useSessionMiniMapHover(300, menuOpen)
+  const preview = useSessionMiniMapHover(600, menuOpen)
 
   /** 进入编辑模式 */
   const startEdit = (): void => {
@@ -2176,7 +2176,7 @@ const AgentSessionItem = React.memo(function AgentSessionItem({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const justStartedEditing = React.useRef(false)
   // 菜单打开时关闭迷你地图预览，避免预览面板盖住菜单项导致点不动
-  const preview = useSessionMiniMapHover(300, disableMiniMap || menuOpen)
+  const preview = useSessionMiniMapHover(600, disableMiniMap || menuOpen)
 
   const startEdit = (): void => {
     setEditTitle(session.title)
