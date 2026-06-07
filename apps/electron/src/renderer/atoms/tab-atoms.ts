@@ -351,7 +351,7 @@ export function closeTab(
   return { tabs: newTabs, activeTabId: newActiveTabId }
 }
 
-/** 重排标签顺序（Scratch 不可移出第 0 位，置顶标签不可拖拽） */
+/** 重排标签顺序（Scratch 不可移出第 0 位，置顶标签只能在置顶区域内移动） */
 export function reorderTabs(
   tabs: TabItem[],
   fromIndex: number,
@@ -360,10 +360,15 @@ export function reorderTabs(
   if (fromIndex === toIndex) return tabs
   // Scratch 不可移出第 0 位
   if (tabs[0]?.id === SCRATCH_PAD_ID && (fromIndex === 0 || toIndex === 0)) return tabs
-  // 置顶标签不可移动
   const movingTab = tabs[fromIndex]
   const targetTab = tabs[toIndex]
-  if (movingTab?.pinned || targetTab?.pinned) return tabs
+  if (!movingTab) return tabs
+  // 置顶标签只能在置顶区域内互相移动
+  if (movingTab.pinned) {
+    if (!targetTab?.pinned) return tabs // 不能拖到非置顶区域
+  } else if (targetTab?.pinned) {
+    return tabs // 非置顶标签不能拖到置顶区域
+  }
   const newTabs = [...tabs]
   const [moved] = newTabs.splice(fromIndex, 1)
   newTabs.splice(toIndex, 0, moved!)

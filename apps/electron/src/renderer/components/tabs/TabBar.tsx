@@ -15,6 +15,7 @@ import {
   activeTabIdAtom,
   tabIndicatorMapAtom,
   SCRATCH_PAD_ID,
+  reorderTabs,
 } from '@/atoms/tab-atoms'
 import type { TabItem } from '@/atoms/tab-atoms'
 import type { SessionIndicatorStatus } from '@/atoms/agent-atoms'
@@ -168,12 +169,33 @@ export function TabBar(): React.ReactElement {
     const handleUp = (): void => {
       document.removeEventListener('pointermove', handleMove)
       document.removeEventListener('pointerup', handleUp)
+      if (!dragState.current) return
+      const { dragging, startIndex, tabId: dragTabId } = dragState.current
       dragState.current = null
+      if (!dragging) return // 未实际拖拽，只是点击
+
+      // 计算释放位置对应的 tab 索引
+      const tabElements = document.querySelectorAll('[data-tab-id]')
+      let dropIndex = startIndex
+      for (let i = 0; i < tabElements.length; i++) {
+        const el = tabElements[i] as HTMLElement
+        const rect = el.getBoundingClientRect()
+        if (e.clientX < rect.right) {
+          dropIndex = i
+          break
+        }
+        dropIndex = i
+      }
+
+      if (dropIndex !== startIndex) {
+        const reordered = reorderTabs(tabs, startIndex, dropIndex)
+        if (reordered !== tabs) setTabs(reordered)
+      }
     }
 
     document.addEventListener('pointermove', handleMove)
     document.addEventListener('pointerup', handleUp)
-  }, [tabs])
+  }, [tabs, setTabs])
 
   if (tabs.length === 0) return <div className="h-[34px] titlebar-drag-region" />
 
@@ -290,6 +312,41 @@ function TabBarInner({
     setIsLeaving(false)
   }, [])
 
+  // 溢出检测：左右滚动指示器
+  const [canScrollLeft, setCanScrollLeft] = React.useState(false)
+  const [canScrollRight, setCanScrollRight] = React.useState(false)
+
+  const updateScrollState = React.useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 2)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+  }, [])
+
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    updateScrollState()
+    el.addEventListener('scroll', updateScrollState)
+    const ro = new ResizeObserver(updateScrollState)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateScrollState)
+      ro.disconnect()
+    }
+  }, [updateScrollState, tabs])
+
+  // tabs 变化时更新溢出状态
+  React.useEffect(() => {
+    updateScrollState()
+  }, [tabs, updateScrollState])
+
+  const scrollByTab = React.useCallback((direction: 'left' | 'right') => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: direction === 'left' ? -150 : 150, behavior: 'smooth' })
+  }, [])
+
   return (
     <div className="flex items-end h-[34px] tabbar-bg relative">
       {/* 顶部 TabBar 的空白区域必须保持可拖拽，尤其是 macOS/Windows 自定义标题栏。
@@ -298,9 +355,21 @@ function TabBarInner({
           需要交互的单个 Tab 会在 TabBarItem 内部自己声明 titlebar-no-drag。 */}
       <div className={cn("absolute inset-0 titlebar-drag-region", isWindows && "right-[126px]")} />
 
+      {/* 左侧滚动指示器 */}
+      {canScrollLeft && (
+        <button
+          type="button"
+          onClick={() => scrollByTab('left')}
+          className="absolute left-0 top-0 bottom-0 w-6 z-10 flex items-center justify-center bg-gradient-to-r from-tabbar-bg to-transparent titlebar-no-drag text-foreground/40 hover:text-foreground/70 transition-colors"
+          aria-label="向左滚动标签栏"
+        >
+          ‹
+        </button>
+      )}
+
       <div
         ref={scrollRef}
-        className={cn("relative flex items-end flex-1 min-w-0 overflow-x-auto scrollbar-none", isWindows && "pr-[126px]")}
+        className={cn("relative flex items-end flex-1 min-w-0 overflow-x-auto scrollbar-none", canScrollLeft && "pl-5", canScrollRight && "pr-5", isWindows && "pr-[126px]")}
       >
         {tabs.map((tab) => (
           <TabBarItem
@@ -331,6 +400,21 @@ function TabBarInner({
           />
         ))}
       </div>
+
+      {/* 右侧滚动指示器 */}
+      {canScrollRight && (
+        <button
+          type="button"
+          onClick={() => scrollByTab('right')}
+          className={cn(
+            "absolute top-0 bottom-0 w-6 z-10 flex items-center justify-center bg-gradient-to-l from-tabbar-bg to-transparent titlebar-no-drag text-foreground/40 hover:text-foreground/70 transition-colors",
+            isWindows ? "right-[126px]" : "right-0",
+          )}
+          aria-label="向右滚动标签栏"
+        >
+          ›
+        </button>
+      )}
     </div>
   )
 }
