@@ -98,12 +98,26 @@ export function useConversationContextLength(): [ContextLengthValue, (v: Context
   return [value, setter]
 }
 
-/** 每个对话独立的思考模式 */
+/** 每个对话独立的思考模式（切换时同步更新全局默认值，确保重启后不丢失） */
 export function useConversationThinkingEnabled(): [boolean, (v: boolean) => void] {
   const conversationId = useConversationId()
   const defaultEnabled = useAtomValue(thinkingEnabledAtom)
   const value = useMapValue(conversationThinkingEnabledAtom, conversationId, defaultEnabled)
-  const setter = useMapSetter(conversationThinkingEnabledAtom, conversationId)
+  const setMap = useSetAtom(conversationThinkingEnabledAtom)
+  const setGlobal = useSetAtom(thinkingEnabledAtom)
+
+  const setter = React.useCallback(
+    (v: boolean) => {
+      setMap((prev) => {
+        const map = new Map(prev)
+        map.set(conversationId, v)
+        return map
+      })
+      setGlobal(v)
+    },
+    [conversationId, setMap, setGlobal],
+  )
+
   return [value, setter]
 }
 
