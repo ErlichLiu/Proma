@@ -33,7 +33,7 @@ import { detectIsWindows } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 
 export function TabBar(): React.ReactElement {
-  const tabs = useAtomValue(tabsAtom)
+  const [tabs, setTabs] = useAtom(tabsAtom)
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom)
   const indicatorMap = useAtomValue(tabIndicatorMapAtom)
 
@@ -117,6 +117,14 @@ export function TabBar(): React.ReactElement {
     }
   }, [setActiveTabId, setAutomationForm, tabs, agentSessions, appMode, setAppMode, setCurrentConversationId, setCurrentAgentSessionId, setCurrentAgentWorkspaceId, setUnviewedCompleted])
 
+  /** 取消置顶标签 */
+  const handleUnpinTab = React.useCallback((tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab?.pinned) return
+    // 移除置顶标记，该标签变为可关闭的普通标签
+    setTabs(tabs.map((t) => t.id === tabId ? { ...t, pinned: false } : t))
+  }, [tabs, setTabs])
+
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return // 只处理左键
     const idx = tabs.findIndex((t) => t.id === tabId)
@@ -158,6 +166,7 @@ export function TabBar(): React.ReactElement {
         onActivate={handleActivate}
         onClose={requestClose}
         onDragStart={handleDragStart}
+        onUnpin={handleUnpinTab}
       />
     </>
   )
@@ -173,6 +182,7 @@ function TabBarInner({
   onActivate,
   onClose,
   onDragStart,
+  onUnpin,
 }: {
   tabs: TabItem[]
   activeTabId: string | null
@@ -182,6 +192,7 @@ function TabBarInner({
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
   onDragStart: (tabId: string, e: React.PointerEvent) => void
+  onUnpin?: (tabId: string) => void
 }): React.ReactElement {
   const [hoveredTabId, setHoveredTabId] = React.useState<string | null>(null)
   const [isLeaving, setIsLeaving] = React.useState(false)
@@ -277,6 +288,7 @@ function TabBarInner({
             title={tab.title}
             workspaceName={tab.type === 'agent' ? workspaceNameBySessionId.get(tab.sessionId) : undefined}
             isAutomation={tab.type === 'agent' && automationSessionIds.has(tab.sessionId)}
+            isPinned={!!tab.pinned}
             isActive={tab.id === activeTabId}
             isStreaming={streamingMap.get(tab.id) ?? 'idle'}
             isHovered={hoveredTabId === tab.id}
@@ -285,6 +297,7 @@ function TabBarInner({
             onClose={() => onClose(tab.id)}
             onMiddleClick={() => onClose(tab.id)}
             onDragStart={(e) => onDragStart(tab.id, e)}
+            onUnpin={onUnpin ? () => onUnpin(tab.id) : undefined}
             onHoverEnter={() => handleTabHoverEnter(tab.id)}
             onHoverLeave={handleTabHoverLeave}
             onPanelHoverEnter={handlePanelHoverEnter}

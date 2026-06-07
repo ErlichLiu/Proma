@@ -71,6 +71,8 @@ import {
   closeTab,
   updateTabTitle,
   sessionViewStateMapAtom,
+  SCRATCH_PAD_ID,
+  type TabItem,
 } from '@/atoms/tab-atoms'
 import { userProfileAtom } from '@/atoms/user-profile'
 import { sidebarViewModeAtom } from '@/atoms/sidebar-atoms'
@@ -904,25 +906,61 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     }
   }, [setAgentSessions, setTabs])
 
-  /** 切换 Agent 会话置顶状态 */
+  /** 切换 Agent 会话置顶状态（同步标签页常驻） */
   const handleTogglePinAgent = React.useCallback(async (id: string): Promise<void> => {
     try {
       const original = store.get(agentSessionsAtom).find((s) => s.id === id)
       const updated = await window.electronAPI.togglePinAgentSession(id)
       setAgentSessions((prev) => replaceAgentSessionInFreshnessOrder(prev, updated))
+
       if (updated.pinned) {
+        // 置顶时：创建或标记置顶标签
+        setTabs((prev) => {
+          const existing = prev.find((t) => t.sessionId === id && t.type === 'agent')
+          if (existing) {
+            return prev.map((t) => t.id === existing.id ? { ...t, pinned: true } : t)
+          }
+          // 创建新置顶标签
+          const scratchTab = prev.find((t) => t.id === SCRATCH_PAD_ID)
+          const pinnedTabs = prev.filter((t) => t.pinned)
+          const nonPinnedTabs = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+          const newTab: TabItem = {
+            id: id,
+            type: 'agent',
+            sessionId: id,
+            title: updated.title,
+            pinned: true,
+          }
+          return scratchTab
+            ? [scratchTab, ...pinnedTabs, newTab, ...nonPinnedTabs]
+            : [newTab, ...pinnedTabs, ...nonPinnedTabs]
+        })
         if (original?.archived && !updated.archived) {
           toast.success('已置顶', { description: '已自动取消归档' })
         } else {
           toast.success('已置顶')
         }
       } else {
+        // 取消置顶时：移除置顶标签
+        setTabs((prev) => {
+          const tab = prev.find((t) => t.sessionId === id && t.pinned)
+          if (!tab) return prev
+          // 如果当前激活的是这个标签，切换到最近的置顶标签或 Scratch Pad
+          const currentActive = store.get(activeTabIdAtom)
+          if (currentActive === tab.id) {
+            const otherPinned = prev.filter((t) => t.pinned && t.id !== tab.id)
+            const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+            const newActive = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
+            setActiveTabId(newActive)
+          }
+          return prev.filter((t) => t.id !== tab.id)
+        })
         toast.success('已取消置顶')
       }
     } catch (error) {
       console.error('[侧边栏] 切换 Agent 会话置顶失败:', error)
     }
-  }, [store, setAgentSessions])
+  }, [store, setAgentSessions, setTabs, setActiveTabId])
 
   /** 切换 Agent 会话归档状态 */
   const handleToggleArchiveAgent = React.useCallback(async (id: string): Promise<void> => {

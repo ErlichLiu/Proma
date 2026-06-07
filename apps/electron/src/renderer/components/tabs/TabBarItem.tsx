@@ -9,8 +9,9 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { useAtomValue } from 'jotai'
-import { FileText, StickyNote, X, Clock } from 'lucide-react'
+import { FileText, StickyNote, X, Clock, PinOff, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import type { TabType, TabMinimapItem } from '@/atoms/tab-atoms'
 import type { SessionIndicatorStatus } from '@/atoms/agent-atoms'
 import { tabMinimapCacheAtom } from '@/atoms/tab-atoms'
@@ -33,6 +34,10 @@ export interface TabBarItemProps {
   onDragStart: (e: React.PointerEvent) => void
   /** 该 Tab 对应的会话是否由定时任务创建 */
   isAutomation?: boolean
+  /** 是否置顶标签（常驻，不可关闭） */
+  isPinned?: boolean
+  /** 取消置顶回调 */
+  onUnpin?: () => void
   /** hover 进入 Tab */
   onHoverEnter: () => void
   /** hover 离开 Tab */
@@ -57,6 +62,8 @@ export function TabBarItem({
   onMiddleClick,
   onDragStart,
   isAutomation,
+  isPinned,
+  onUnpin,
   onHoverEnter,
   onHoverLeave,
   onPanelHoverEnter,
@@ -165,6 +172,7 @@ export function TabBarItem({
           <span className="flex-1" />
         ) : (
           <span className="flex-1 min-w-0 truncate text-left flex items-center gap-1">
+            {isPinned && <Pin size={10} className="shrink-0 text-primary/50" />}
             {isAutomation && <Clock className="size-3 shrink-0 text-foreground/40" />}
             {title}
           </span>
@@ -176,23 +184,49 @@ export function TabBarItem({
           </span>
         )}
 
-        {/* 关闭按钮（scratch 类型不显示） */}
+        {/* 关闭按钮 / 取消置顶按钮（scratch 类型不显示） */}
         {!isScratch && (
-        <span
-          role="button"
-          tabIndex={-1}
-          className={cn(
-            'size-4 rounded-sm flex items-center justify-center shrink-0',
-            'opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20 transition-opacity',
-            isActive && 'opacity-60',
-          )}
-          onClick={handleCloseClick}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') handleCloseClick(e as unknown as React.MouseEvent)
-          }}
-        >
-          <X className="size-2.5" />
-        </span>
+          isPinned ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className={cn(
+                    'size-4 rounded-sm flex items-center justify-center shrink-0',
+                    'opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20 transition-opacity',
+                    isActive && 'opacity-60',
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onUnpin?.()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') onUnpin?.()
+                  }}
+                >
+                  <PinOff className="size-2.5 text-primary/60" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">取消置顶</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span
+              role="button"
+              tabIndex={-1}
+              className={cn(
+                'size-4 rounded-sm flex items-center justify-center shrink-0',
+                'opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20 transition-opacity',
+                isActive && 'opacity-60',
+              )}
+              onClick={handleCloseClick}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') handleCloseClick(e as unknown as React.MouseEvent)
+              }}
+            >
+              <X className="size-2.5" />
+            </span>
+          )
         )}
 
         {/* 状态包边 */}

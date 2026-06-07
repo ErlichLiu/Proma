@@ -43,6 +43,8 @@ export interface TabItem {
   sessionId: string
   /** 标签页显示标题 */
   title: string
+  /** 置顶标签：常驻显示，不可手动关闭，只能取消置顶移除 */
+  pinned?: boolean
 }
 
 /** Tab 持久化数据（保存到 settings.json） */
@@ -223,7 +225,7 @@ export function getPersistableTabState(
   }
 }
 
-/** 打开或聚焦会话入口：始终用目标会话替换当前会话，避免顶部累积多个 Tab。
+/** 打开或聚焦会话入口：置顶标签常驻，非置顶会话标签替换。
  *  restore 提示存在时，切回带预览的会话会一并重建其预览 Tab 并回到上次视图。 */
 export function openTab(
   tabs: TabItem[],
@@ -231,21 +233,30 @@ export function openTab(
   restore?: OpenTabRestore,
 ): { tabs: TabItem[]; activeTabId: string } {
   const scratchTab = tabs.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
+  const pinnedTabs = tabs.filter((t) => t.pinned && t.id !== SCRATCH_PAD_ID)
 
   if (item.type === 'scratch') {
     return {
-      tabs: [scratchTab],
+      tabs: [scratchTab, ...pinnedTabs],
       activeTabId: SCRATCH_PAD_ID,
     }
   }
 
+  // 如果目标会话已有置顶标签，直接激活它
+  const existingPinned = pinnedTabs.find((t) => t.sessionId === item.sessionId)
+  if (existingPinned) {
+    return { tabs, activeTabId: existingPinned.id }
+  }
+
   if (item.type === 'preview') {
-    const ownerAgentTab = tabs.find((t) => t.type === 'agent' && t.sessionId === item.sessionId) ?? {
-      id: item.sessionId,
-      type: 'agent' as const,
-      sessionId: item.sessionId,
-      title: 'Agent 会话',
-    }
+    const ownerAgentTab = tabs.find((t) => t.type === 'agent' && t.sessionId === item.sessionId)
+      ?? pinnedTabs.find((t) => t.type === 'agent' && t.sessionId === item.sessionId)
+      ?? {
+          id: item.sessionId,
+          type: 'agent' as const,
+          sessionId: item.sessionId,
+          title: 'Agent 会话',
+        }
     const previewTab: TabItem = {
       id: createPreviewTabId(item.sessionId),
       type: 'preview',
@@ -254,12 +265,12 @@ export function openTab(
     }
 
     return {
-      tabs: [scratchTab, ownerAgentTab, previewTab],
+      tabs: [scratchTab, ...pinnedTabs, ownerAgentTab, previewTab],
       activeTabId: previewTab.id,
     }
   }
 
-  const existingTab = tabs.find((t) => t.sessionId === item.sessionId && t.type === item.type)
+  const existingTab = tabs.find((t) => t.sessionId === item.sessionId && t.type === item.type && !t.pinned)
   const sessionTab: TabItem = existingTab ?? {
     id: item.sessionId,
     type: item.type,
@@ -276,13 +287,13 @@ export function openTab(
       title: restore.previewTitle,
     }
     return {
-      tabs: [scratchTab, sessionTab, previewTab],
+      tabs: [scratchTab, ...pinnedTabs, sessionTab, previewTab],
       activeTabId: restore.lastView === 'preview' ? previewTab.id : sessionTab.id,
     }
   }
 
   return {
-    tabs: [scratchTab, sessionTab],
+    tabs: [scratchTab, ...pinnedTabs, sessionTab],
     activeTabId: sessionTab.id,
   }
 }
@@ -307,7 +318,7 @@ export function buildOpenTabRestore(
   }
 }
 
-/** 关闭标签页（scratch tab 不可关闭） */
+/** 关闭标签页（scratch tab 和置顶标签不可关闭） */
 export function closeTab(
   tabs: TabItem[],
   activeTabId: string | null,
@@ -315,6 +326,10 @@ export function closeTab(
 ): { tabs: TabItem[]; activeTabId: string | null } {
   // Scratch Pad 不可关闭
   if (tabId === SCRATCH_PAD_ID) return { tabs, activeTabId }
+
+  // 置顶标签不可关闭
+  const target = tabs.find((t) => t.id === tabId)
+  if (target?.pinned) return { tabs, activeTabId }
 
   const tabIndex = tabs.findIndex((t) => t.id === tabId)
   if (tabIndex === -1) return { tabs, activeTabId }
@@ -337,7 +352,7 @@ export function closeTab(
   return { tabs: newTabs, activeTabId: newActiveTabId }
 }
 
-/** 重排标签顺序（当前只保留 Scratch + 当前会话，保留函数用于兼容旧调用） */
+/** 重排标签顺序（Scratch 不可移出第 0 位，置顶标签不可拖拽） */
 export function reorderTabs(
   tabs: TabItem[],
   fromIndex: number,
@@ -346,6 +361,10 @@ export function reorderTabs(
   if (fromIndex === toIndex) return tabs
   // Scratch 不可移出第 0 位
   if (tabs[0]?.id === SCRATCH_PAD_ID && (fromIndex === 0 || toIndex === 0)) return tabs
+  // 置顶标签不可移动
+  const movingTab = tabs[fromIndex]
+  const targetTab = tabs[toIndex]
+  if (movingTab?.pinned || targetTab?.pinned) return tabs
   const newTabs = [...tabs]
   const [moved] = newTabs.splice(fromIndex, 1)
   newTabs.splice(toIndex, 0, moved!)
@@ -363,13 +382,14 @@ export function updateTabTitle(
   )
 }
 
-/** 确保 Scratch Pad 标签存在并位于首位，同时只保留一个会话入口 */
+/** 确保 Scratch Pad 标签存在并位于首位，同时保留置顶标签和唯一非置顶会话入口 */
 export function ensureScratchPadTab(tabs: TabItem[]): TabItem[] {
-  const scratchTab = tabs.find((t) => t.id === SCRATCH_PAD_ID)
-  const sessionTab = tabs.filter((t) => t.id !== SCRATCH_PAD_ID && !isPreviewTab(t)).at(-1)
+  const scratchTab = tabs.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
+  const pinnedTabs = tabs.filter((t) => t.pinned)
+  const sessionTab = tabs.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && !isPreviewTab(t)).at(-1)
   if (scratchTab) {
-    return sessionTab ? [scratchTab, sessionTab] : [scratchTab]
+    return sessionTab ? [scratchTab, ...pinnedTabs, sessionTab] : [scratchTab, ...pinnedTabs]
   }
   const newTab = createScratchPadTab()
-  return sessionTab ? [newTab, sessionTab] : [newTab]
+  return sessionTab ? [newTab, ...pinnedTabs, sessionTab] : [newTab, ...pinnedTabs]
 }
