@@ -674,7 +674,7 @@ function TabStatePersistenceInitializer(): null {
       }
 
       const activeTab = validTabs.find((t) => t.id === restoredActiveTabId) ?? validTabs[0] ?? null
-      store.set(tabsAtom, ensureScratchPadTab(activeTab ? [activeTab] : []))
+      store.set(tabsAtom, ensureScratchPadTab(validTabs))
       store.set(activeTabIdAtom, restoredActiveTabId)
 
       // 同步 appMode 和 currentSessionId

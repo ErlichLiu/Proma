@@ -119,11 +119,12 @@ export function TabBar(): React.ReactElement {
 
   /** 取消置顶标签 */
   const handleUnpinTab = React.useCallback((tabId: string) => {
-    const tab = tabs.find((t) => t.id === tabId)
-    if (!tab?.pinned) return
-    // 移除置顶标记，该标签变为可关闭的普通标签
-    setTabs(tabs.map((t) => t.id === tabId ? { ...t, pinned: false } : t))
-  }, [tabs, setTabs])
+    setTabs((prev) => {
+      const tab = prev.find((t) => t.id === tabId)
+      if (!tab?.pinned) return prev
+      return prev.map((t) => t.id === tabId ? { ...t, pinned: false } : t)
+    })
+  }, [setTabs])
 
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return // 只处理左键

@@ -143,7 +143,6 @@ export function AgentSettings(): React.ReactElement {
   const workspaceSlug = currentWorkspace?.slug ?? ''
 
   // 项目排序
-  const { selectProject } = useProjectActions()
   const [dragId, setDragId] = React.useState<string | null>(null)
   const [dropIndicator, setDropIndicator] = React.useState<{ id: string; position: 'before' | 'after' } | null>(null)
 

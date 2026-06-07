@@ -174,7 +174,7 @@ export const tabIndicatorMapAtom = atom<Map<string, SessionIndicatorStatus>>((ge
 
 // ===== 操作函数 =====
 
-function createScratchPadTab(): TabItem {
+export function createScratchPadTab(): TabItem {
   return {
     id: SCRATCH_PAD_ID,
     type: 'scratch',
@@ -250,7 +250,6 @@ export function openTab(
 
   if (item.type === 'preview') {
     const ownerAgentTab = tabs.find((t) => t.type === 'agent' && t.sessionId === item.sessionId)
-      ?? pinnedTabs.find((t) => t.type === 'agent' && t.sessionId === item.sessionId)
       ?? {
           id: item.sessionId,
           type: 'agent' as const,
@@ -387,9 +386,5 @@ export function ensureScratchPadTab(tabs: TabItem[]): TabItem[] {
   const scratchTab = tabs.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
   const pinnedTabs = tabs.filter((t) => t.pinned)
   const sessionTab = tabs.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && !isPreviewTab(t)).at(-1)
-  if (scratchTab) {
-    return sessionTab ? [scratchTab, ...pinnedTabs, sessionTab] : [scratchTab, ...pinnedTabs]
-  }
-  const newTab = createScratchPadTab()
-  return sessionTab ? [newTab, ...pinnedTabs, sessionTab] : [newTab, ...pinnedTabs]
+  return sessionTab ? [scratchTab, ...pinnedTabs, sessionTab] : [scratchTab, ...pinnedTabs]
 }

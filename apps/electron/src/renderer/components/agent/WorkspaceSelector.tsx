@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useAtom } from 'jotai'
-import { Check, ChevronDown, FolderOpen, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
@@ -160,7 +160,7 @@ export function WorkspaceSelector(): React.ReactElement {
             <ChevronDown size={12} className="flex-shrink-0 text-foreground/30" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56 z-[9999] min-w-0 p-0.5">
+        <DropdownMenuContent align="start" className="w-56 min-w-0 p-0.5">
           {workspaces.map((ws) => (
             <DropdownMenuItem
               key={ws.id}
@@ -180,6 +180,7 @@ export function WorkspaceSelector(): React.ReactElement {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
+                    e.preventDefault()
                     setDeleteTargetId(ws.id)
                   }}
                   className="p-0.5 rounded text-foreground/30 hover:bg-destructive/10 hover:text-destructive transition-colors"

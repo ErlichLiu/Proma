@@ -201,7 +201,11 @@ export function TabBarItem({
                     onUnpin?.()
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') onUnpin?.()
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      onUnpin?.()
+                    }
                   }}
                 >
                   <PinOff className="size-2.5 text-primary/60" />
