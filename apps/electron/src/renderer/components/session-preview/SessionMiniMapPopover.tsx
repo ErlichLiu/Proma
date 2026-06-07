@@ -233,10 +233,15 @@ function buildAgentMinimapItems(messages: SDKMessage[], userAvatar?: string): Ta
   return items
 }
 
-function usePopoverPosition(
+/**
+ * 浮层定位计算：右侧优先 / 越界翻左侧 / 垂直居中 / 视口贴边。
+ * panelWidth 可由调用方指定（默认 318，与会话迷你地图保持一致）。
+ */
+export function usePopoverPosition(
   anchorRef: React.MutableRefObject<HTMLElement | null>,
   open: boolean,
   preferredHeight: number,
+  panelWidth: number = PANEL_WIDTH,
 ): { top: number; left: number; height: number } | null {
   const [position, setPosition] = React.useState<{ top: number; left: number; height: number } | null>(null)
 
@@ -255,8 +260,8 @@ function usePopoverPosition(
       const availableHeight = Math.max(120, viewportHeight - VIEWPORT_MARGIN * 2)
       const height = Math.min(preferredHeight, availableHeight)
       let left = rect.right + PANEL_GAP
-      if (left + PANEL_WIDTH > viewportWidth - VIEWPORT_MARGIN) {
-        left = rect.left - PANEL_WIDTH - PANEL_GAP
+      if (left + panelWidth > viewportWidth - VIEWPORT_MARGIN) {
+        left = rect.left - panelWidth - PANEL_GAP
       }
       if (left < VIEWPORT_MARGIN) left = VIEWPORT_MARGIN
 
@@ -273,7 +278,7 @@ function usePopoverPosition(
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
     }
-  }, [anchorRef, open, preferredHeight])
+  }, [anchorRef, open, preferredHeight, panelWidth])
 
   return position
 }

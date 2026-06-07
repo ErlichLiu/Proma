@@ -24,20 +24,8 @@ import {
   automationToDraft,
   createEmptyDraft,
 } from '@/atoms/automation-atoms'
+import { formatSchedule } from '@/components/automation/automation-formatters'
 import type { Automation } from '@proma/shared'
-
-/** 把调度配置格式化为可读文案 */
-function formatSchedule(a: Automation): string {
-  if (a.scheduleType === 'daily') return `每天 ${a.timeOfDay ?? '09:00'}`
-  if (a.scheduleType === 'weekly') {
-    const names = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-    return `每${names[a.dayOfWeek ?? 1]} ${a.timeOfDay ?? '09:00'}`
-  }
-  const min = a.intervalMinutes
-  if (min < 60) return `每 ${min} 分钟`
-  if (min < 1440) return `每 ${min / 60} 小时`
-  return `每 ${min / 1440} 天`
-}
 
 export function AutomationsListView(): React.ReactElement {
   const automations = useAtomValue(automationsAtom)

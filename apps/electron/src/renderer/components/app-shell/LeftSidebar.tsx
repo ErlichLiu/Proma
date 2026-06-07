@@ -83,6 +83,7 @@ import { useOpenSession } from '@/hooks/useOpenSession'
 import { useSyncActiveTabSideEffects } from '@/hooks/useSyncActiveTabSideEffects'
 import { CollapsedWorkspacePopover } from '@/components/agent/CollapsedWorkspacePopover'
 import { MoveSessionDialog } from '@/components/agent/MoveSessionDialog'
+import { AutomationPreviewPopover } from '@/components/automation/AutomationPreviewPopover'
 import {
   SessionMiniMapPopover,
   useSessionMiniMapHover,
@@ -161,35 +162,108 @@ interface AutomationSidebarEntryProps {
 }
 
 function AutomationSidebarEntry({ count, active, onClick }: AutomationSidebarEntryProps): React.ReactElement {
+  const preview = useSessionMiniMapHover()
   return (
-    <button
-      type="button"
-      aria-label={`自动任务，${count} 个任务已创建`}
-      onClick={onClick}
-      className={cn(
-        'group w-full flex items-center justify-between px-3 py-2 rounded-md text-[13px] transition-colors duration-100 titlebar-no-drag',
-        active
-          ? 'bg-primary/10 text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
-          : 'text-foreground/60 hover:bg-primary/5 hover:text-foreground',
-      )}
-    >
-      <span className="flex items-center gap-3 min-w-0">
-        <span className="flex-shrink-0 w-[18px] h-[18px]">
-          <AlarmClock size={16} className={cn('block', active ? 'text-primary' : 'text-foreground/45')} />
-        </span>
-        <span className="truncate">自动任务</span>
-      </span>
-      <span
+    <>
+      <button
+        ref={preview.setAnchorRef}
+        type="button"
+        aria-label={`自动任务，${count} 个任务已创建`}
+        onClick={onClick}
+        onMouseEnter={preview.handleMouseEnter}
+        onMouseLeave={preview.handleMouseLeave}
         className={cn(
-          'ml-2 flex h-5 min-w-[22px] flex-shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-medium tabular-nums',
+          'group w-full flex items-center justify-between px-3 py-2 rounded-md text-[13px] transition-colors duration-100 titlebar-no-drag',
           active
-            ? 'bg-primary/[0.14] text-primary'
-            : 'bg-foreground/[0.045] text-foreground/[0.42] group-hover:text-foreground/65',
+            ? 'bg-primary/10 text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
+            : 'text-foreground/60 hover:bg-primary/5 hover:text-foreground',
         )}
       >
-        {formatAutomationCount(count)}
-      </span>
-    </button>
+        <span className="flex items-center gap-3 min-w-0">
+          <span className="flex-shrink-0 w-[18px] h-[18px]">
+            <AlarmClock size={16} className={cn('block', active ? 'text-primary' : 'text-foreground/45')} />
+          </span>
+          <span className="truncate">自动任务</span>
+        </span>
+        <span
+          className={cn(
+            'ml-2 flex h-5 min-w-[22px] flex-shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-medium tabular-nums',
+            active
+              ? 'bg-primary/[0.14] text-primary'
+              : 'bg-foreground/[0.045] text-foreground/[0.42] group-hover:text-foreground/65',
+          )}
+        >
+          {formatAutomationCount(count)}
+        </span>
+      </button>
+      <AutomationPreviewPopover
+        anchorRef={preview.anchorRef}
+        open={preview.isOpen}
+        isLeaving={preview.isLeaving}
+        onMouseEnter={preview.handlePanelMouseEnter}
+        onMouseLeave={preview.handlePanelMouseLeave}
+      />
+    </>
+  )
+}
+
+interface AutomationRailButtonProps {
+  count: number
+  isActive: boolean
+  onClick: () => void
+}
+
+/**
+ * 折叠态侧边栏的「自动任务」入口：方形按钮 + 数字徽章。
+ * 短 hover（< 600ms）显示原 Tooltip 文本；长 hover 展开 AutomationPreviewPopover。
+ */
+function AutomationRailButton({ count, isActive, onClick }: AutomationRailButtonProps): React.ReactElement {
+  const preview = useSessionMiniMapHover()
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={preview.setAnchorRef}
+            type="button"
+            aria-label={`自动任务，${count} 个任务已创建`}
+            onClick={onClick}
+            onMouseEnter={preview.handleMouseEnter}
+            onMouseLeave={preview.handleMouseLeave}
+            className={cn(
+              'relative size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border',
+              isActive
+                ? 'border-primary/80 bg-primary text-primary-foreground shadow-sm'
+                : 'border-border/45 bg-foreground/[0.025] text-foreground/45 hover:border-border/70 hover:bg-foreground/[0.045] hover:text-primary',
+            )}
+          >
+            <AlarmClock size={16} />
+            {count > 0 && (
+              <span
+                className={cn(
+                  'absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums',
+                  isActive
+                    ? 'bg-primary-foreground text-primary'
+                    : 'bg-primary text-primary-foreground',
+                )}
+              >
+                {formatAutomationCount(count)}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          自动任务（{count} 个任务已创建）
+        </TooltipContent>
+      </Tooltip>
+      <AutomationPreviewPopover
+        anchorRef={preview.anchorRef}
+        open={preview.isOpen}
+        isLeaving={preview.isLeaving}
+        onMouseEnter={preview.handlePanelMouseEnter}
+        onMouseLeave={preview.handlePanelMouseLeave}
+      />
+    </>
   )
 }
 
@@ -1426,38 +1500,11 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             <TooltipContent side="right">搜索</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={`自动任务，${automationCount} 个任务已创建`}
-                onClick={handleOpenAutomations}
-                className={cn(
-                  'relative size-10 flex items-center justify-center rounded-[12px] transition-colors titlebar-no-drag border',
-                  activeView === 'automations'
-                    ? 'border-primary/80 bg-primary text-primary-foreground shadow-sm'
-                    : 'border-border/45 bg-foreground/[0.025] text-foreground/45 hover:border-border/70 hover:bg-foreground/[0.045] hover:text-primary',
-                )}
-              >
-                <AlarmClock size={16} />
-                {automationCount > 0 && (
-                  <span
-                    className={cn(
-                      'absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums',
-                      activeView === 'automations'
-                        ? 'bg-primary-foreground text-primary'
-                        : 'bg-primary text-primary-foreground',
-                    )}
-                  >
-                    {formatAutomationCount(automationCount)}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              自动任务（{automationCount} 个任务已创建）
-            </TooltipContent>
-          </Tooltip>
+          <AutomationRailButton
+            count={automationCount}
+            isActive={activeView === 'automations'}
+            onClick={handleOpenAutomations}
+          />
         </div>
 
         <div className="my-3 h-px w-8 bg-border/70" />
