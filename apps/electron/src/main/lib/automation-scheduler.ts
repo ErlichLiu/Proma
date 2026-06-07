@@ -31,6 +31,9 @@ import { runAgentHeadless, isAgentSessionActive } from './agent-service'
 /** tick 周期：每 30s 检查一次到期任务（短轮询，抗休眠漂移） */
 const TICK_INTERVAL_MS = 30_000
 
+/** 单次任务执行的超时上限：2 小时。超时后强制标记为 error 并释放 runningAutomations 槽位 */
+const RUN_TIMEOUT_MS = 2 * 60 * 60 * 1000
+
 function formatScheduleLabel(a: Automation): string {
   if (a.scheduleType === 'daily') return `每天 ${a.timeOfDay ?? '09:00'}`
   if (a.scheduleType === 'weekly') {
@@ -98,6 +101,7 @@ export async function runAutomation(automation: Automation, manual = false): Pro
       const finish = (status: 'success' | 'error', error?: string): void => {
         if (settled) return
         settled = true
+        if (timeoutTimer) clearTimeout(timeoutTimer)
         appendRun(automation.id, {
           runAt,
           sessionId: targetSessionId,
@@ -119,6 +123,12 @@ export async function runAutomation(automation: Automation, manual = false): Pro
         }
         resolveRun()
       }
+
+      // 超时保护：防止 runAgentHeadless 永远不回调导致 automation 永久卡死
+      const timeoutTimer = setTimeout(() => {
+        finish('error', `执行超时（超过 ${RUN_TIMEOUT_MS / 3600_000} 小时）`)
+        console.warn(`[定时任务] ${automation.name} 执行超时，强制结束`)
+      }, RUN_TIMEOUT_MS)
 
       runAgentHeadless(
         {

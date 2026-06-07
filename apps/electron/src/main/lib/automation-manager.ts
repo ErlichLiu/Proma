@@ -28,25 +28,41 @@ interface AutomationsIndex {
 
 const INDEX_VERSION = 1
 
+/**
+ * 内存缓存：避免每次操作都从磁盘读取完整索引。
+ * 所有写入操作同时更新缓存和磁盘（write-through），保证一致性。
+ * 由于 readFileSync/writeFileSync 是同步的，Node 事件循环不会在 read-modify-write 中间让出，
+ * 因此不存在并发竞态。缓存的作用是减少冗余磁盘 I/O。
+ */
+let cachedIndex: AutomationsIndex | null = null
+
 function readIndex(): AutomationsIndex {
+  if (cachedIndex) return cachedIndex
+
   const data = readJsonFileSafe<AutomationsIndex>(getAutomationsPath())
-  if (!data) return { version: INDEX_VERSION, automations: [] }
-  // 未知版本：拒绝按当前 schema 解析，回退到空索引（避免用未来格式当作当前格式覆写）。
-  // 当前版本只有 1，未来加迁移逻辑时在这里分支处理。
+  if (!data) {
+    cachedIndex = { version: INDEX_VERSION, automations: [] }
+    return cachedIndex
+  }
   if (typeof data.version !== 'number' || data.version > INDEX_VERSION) {
     console.warn(`[定时任务] 索引文件版本 ${data.version} 不被当前构建识别，将忽略其内容`)
-    return { version: INDEX_VERSION, automations: [] }
+    cachedIndex = { version: INDEX_VERSION, automations: [] }
+    return cachedIndex
   }
   if (!Array.isArray(data.automations)) {
-    return { version: INDEX_VERSION, automations: [] }
+    cachedIndex = { version: INDEX_VERSION, automations: [] }
+    return cachedIndex
   }
-  return data
+  cachedIndex = data
+  return cachedIndex
 }
 
 function writeIndex(index: AutomationsIndex): void {
   try {
+    cachedIndex = index
     writeJsonFileAtomic(getAutomationsPath(), index)
   } catch (error) {
+    cachedIndex = null // 写入失败时丢弃缓存，下次重新从磁盘读取
     console.error('[定时任务] 写入索引文件失败:', error)
     throw new Error('写入定时任务索引失败')
   }
@@ -57,31 +73,53 @@ function writeIndex(index: AutomationsIndex): void {
  * - interval：from + 间隔分钟
  * - daily：今天/明天的 timeOfDay
  * - weekly：本周/下周 dayOfWeek 的 timeOfDay
+ *
+ * 返回值保证为有限正整数。输入非法时回退到 from + 10min 并打印警告。
  */
 export function computeNextRunAt(
   a: Pick<Automation, 'scheduleType' | 'intervalMinutes' | 'timeOfDay' | 'dayOfWeek'>,
   from: number = Date.now(),
 ): number {
+  const FALLBACK_INTERVAL_MS = 10 * 60_000
+
+  let result: number
+
   if (a.scheduleType === 'interval') {
-    return from + Math.max(1, a.intervalMinutes) * 60_000
+    const minutes = Number(a.intervalMinutes)
+    if (!Number.isFinite(minutes) || minutes < 1) {
+      console.warn(`[定时任务] computeNextRunAt: intervalMinutes 非法 (${a.intervalMinutes})，回退到 10 分钟`)
+      result = from + FALLBACK_INTERVAL_MS
+    } else {
+      result = from + Math.max(1, minutes) * 60_000
+    }
+  } else {
+    const timeOfDay = a.timeOfDay ?? '09:00'
+    const parts = timeOfDay.split(':').map(Number)
+    const hh = Number.isFinite(parts[0]) ? parts[0]! : 9
+    const mm = Number.isFinite(parts[1]) ? parts[1]! : 0
+    const next = new Date(from)
+    next.setSeconds(0, 0)
+    next.setHours(hh, mm, 0, 0)
+
+    if (a.scheduleType === 'daily') {
+      if (next.getTime() <= from) next.setDate(next.getDate() + 1)
+      result = next.getTime()
+    } else {
+      // weekly
+      const targetDow = Number.isFinite(a.dayOfWeek) ? a.dayOfWeek! : 1
+      let dayDiff = (targetDow - next.getDay() + 7) % 7
+      if (dayDiff === 0 && next.getTime() <= from) dayDiff = 7
+      next.setDate(next.getDate() + dayDiff)
+      result = next.getTime()
+    }
   }
 
-  const [hh, mm] = (a.timeOfDay ?? '09:00').split(':').map(Number)
-  const next = new Date(from)
-  next.setSeconds(0, 0)
-  next.setHours(hh ?? 9, mm ?? 0, 0, 0)
-
-  if (a.scheduleType === 'daily') {
-    if (next.getTime() <= from) next.setDate(next.getDate() + 1)
-    return next.getTime()
+  if (!Number.isFinite(result) || result <= 0) {
+    console.warn(`[定时任务] computeNextRunAt: 计算结果非法 (${result})，回退到 10 分钟后`)
+    return from + FALLBACK_INTERVAL_MS
   }
 
-  // weekly
-  const targetDow = a.dayOfWeek ?? 1
-  let dayDiff = (targetDow - next.getDay() + 7) % 7
-  if (dayDiff === 0 && next.getTime() <= from) dayDiff = 7
-  next.setDate(next.getDate() + dayDiff)
-  return next.getTime()
+  return result
 }
 
 /** 获取全部定时任务（按 createdAt 升序，保持列表稳定） */

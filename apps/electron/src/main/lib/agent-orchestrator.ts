@@ -828,6 +828,10 @@ export class AgentOrchestrator {
    */
   private async processAutomationCommands(sessionId: string, channelId: string, workspaceId?: string): Promise<void> {
     try {
+      // 快速跳过：由定时任务触发的会话不会产生新的 automation 指令（系统提示词已明确禁止）
+      const meta = getAgentSessionMeta(sessionId)
+      if (meta?.sourceAutomationId) return
+
       const sdkMessages = getAgentSessionSDKMessages(sessionId)
       if (!sdkMessages || sdkMessages.length === 0) return
 
