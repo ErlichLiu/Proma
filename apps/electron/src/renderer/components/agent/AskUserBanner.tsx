@@ -7,10 +7,11 @@
 
 import * as React from 'react'
 import { useAtom, useSetAtom } from 'jotai'
-import { Send, X } from 'lucide-react'
+import { Eye, EyeOff, Send, X } from 'lucide-react'
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { allPendingAskUserRequestsAtom, agentStreamingStatesAtom, finalizeStreamingActivities } from '@/atoms/agent-atoms'
 import type { AskUserQuestion } from '@proma/shared'
 
@@ -42,6 +43,8 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   const [submitting, setSubmitting] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState(0)
   const [focusedOptIdx, setFocusedOptIdx] = React.useState(-1)
+  // 临时隐藏卡片：方便用户先回看 AI 内容再决策；不持久化
+  const [isHidden, setIsHidden] = React.useState(false)
 
   const request = requests[0] ?? null
   const questions = request?.questions ?? []
@@ -54,6 +57,8 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   questionsRef.current = questions
   const focusedOptIdxRef = React.useRef(focusedOptIdx)
   focusedOptIdxRef.current = focusedOptIdx
+  const isHiddenRef = React.useRef(isHidden)
+  isHiddenRef.current = isHidden
   const submitRef = React.useRef<(() => void) | null>(null)
   const autoAdvanceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -71,6 +76,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
     clearAutoAdvanceTimer()
     setActiveTab(0)
     setFocusedOptIdx(-1)
+    setIsHidden(false)
     const firstOpt = questions[0]?.options[0]
     setAnswers(firstOpt
       ? new Map([[0, { ...EMPTY_ANSWER, selected: [firstOpt.label] }]])
@@ -95,6 +101,8 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
     if (!request || questions.length === 0) return
 
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // 卡片被临时隐藏时，禁用所有键盘导航，避免用户回看 AI 内容时误触提交
+      if (isHiddenRef.current) return
       const curTab = activeTabRef.current
       const qs = questionsRef.current
       const curFocusIdx = focusedOptIdxRef.current
@@ -236,27 +244,53 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
 
   return (
     <div className="mx-4 mb-3 rounded-xl bg-card shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
-      {/* 头部 + Tab 栏 */}
-      <div className="px-4 pt-3 pb-2">
-        <div className="flex items-center justify-between mb-2">
+      {/* 头部按钮行 —— 显示/隐藏态共用同一行 DOM，避免切换时位移 */}
+      <div className={`px-4 pt-3 ${isHidden ? 'pb-3' : 'pb-2'}`}>
+        <div className={`flex items-center justify-between ${!isHidden && questions.length > 1 ? 'mb-2' : ''}`}>
           <span className="text-sm font-medium text-foreground">Proma Agent 需要你的输入</span>
           <div className="flex items-center gap-1.5">
             {requests.length > 1 && (
               <span className="text-xs text-muted-foreground">(+{requests.length - 1})</span>
             )}
-            <button
-              type="button"
-              className="size-5 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
-              onClick={handleDismiss}
-              title="关闭并终止 Agent"
-            >
-              <X className="size-3.5" />
-            </button>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="size-5 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
+                  // 点击后主动 blur：避免 Radix Tooltip 因 trigger 仍 focused 而抑制下次 hover 弹出
+                  onClick={(e) => {
+                    setIsHidden((v) => !v)
+                    e.currentTarget.blur()
+                  }}
+                  aria-label={isHidden ? '展开提问卡片' : '暂时隐藏提问卡片'}
+                >
+                  {isHidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{isHidden ? '展开提问卡片' : '暂时隐藏提问卡片'}</p>
+              </TooltipContent>
+            </Tooltip>
+            {!isHidden && (
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="size-5 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
+                    onClick={handleDismiss}
+                    aria-label="关闭并终止 Agent"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p>关闭并终止 Agent</p></TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
 
-        {/* Tab 栏（多问题时显示） */}
-        {questions.length > 1 && (
+        {/* Tab 栏（多问题时显示，隐藏态折叠） */}
+        {!isHidden && questions.length > 1 && (
           <div className="flex gap-1">
             {questions.map((q, idx) => {
               const isActive = idx === activeTab
@@ -285,6 +319,9 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
         )}
       </div>
 
+      {/* 隐藏态：折叠以下全部内容，仅保留头部按钮行 */}
+      {!isHidden && (
+      <>
       {/* 当前问题内容 */}
       <div className="px-4 pb-2">
         <QuestionCard
@@ -332,6 +369,8 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
           </Button>
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }
