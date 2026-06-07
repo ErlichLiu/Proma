@@ -2415,33 +2415,28 @@ const AgentProjectGroupItem = React.memo(function AgentProjectGroupItem({
   const [renamingWorkspace, setRenamingWorkspace] = React.useState(false)
   const [workspaceEditName, setWorkspaceEditName] = React.useState('')
   const workspaceEditRef = React.useRef<HTMLInputElement>(null)
-  // Radix closes the dropdown and asynchronously restores focus to the trigger
-  // button. We guard against that spurious blur for the duration of the close
-  // animation (~150 ms) so the input isn't dismissed before the user types.
-  const skipWorkspaceBlurRef = React.useRef(false)
+  const justStartedRenamingRef = React.useRef(false)
 
   const handleStartWorkspaceRename = (): void => {
     setWorkspaceEditName(group.workspace.name)
     setRenamingWorkspace(true)
-    skipWorkspaceBlurRef.current = true
+    justStartedRenamingRef.current = true
     setTimeout(() => {
+      justStartedRenamingRef.current = false
       workspaceEditRef.current?.focus()
       workspaceEditRef.current?.select()
-      skipWorkspaceBlurRef.current = false
-    }, 150)
+    }, 300)
   }
 
   const handleWorkspaceRenameCommit = async (): Promise<void> => {
+    if (justStartedRenamingRef.current) return
     const trimmed = workspaceEditName.trim()
-    setRenamingWorkspace(false)
-    if (trimmed && trimmed !== group.workspace.name) {
-      await onRenameWorkspace(group.workspace.id, trimmed)
+    if (!trimmed || trimmed === group.workspace.name) {
+      setRenamingWorkspace(false)
+      return
     }
-  }
-
-  const handleWorkspaceRenameBlur = (): void => {
-    if (skipWorkspaceBlurRef.current) return
-    void handleWorkspaceRenameCommit()
+    await onRenameWorkspace(group.workspace.id, trimmed)
+    setRenamingWorkspace(false)
   }
 
   const handleWorkspaceRenameKeyDown = (e: React.KeyboardEvent): void => {
@@ -2450,7 +2445,6 @@ const AgentProjectGroupItem = React.memo(function AgentProjectGroupItem({
       e.preventDefault()
       void handleWorkspaceRenameCommit()
     } else if (e.key === 'Escape') {
-      skipWorkspaceBlurRef.current = false
       setRenamingWorkspace(false)
     }
   }
@@ -2506,34 +2500,43 @@ const AgentProjectGroupItem = React.memo(function AgentProjectGroupItem({
           <GripVertical size={12} />
         </span>
 
-        <button
-          type="button"
-          onClick={() => onSelectProject(group.workspace.id)}
-          className={cn(
-            'relative flex-1 min-w-0 flex items-center gap-1 px-1 py-1 rounded-md text-left transition-[padding,color,background-color] titlebar-no-drag group-hover/project:pl-4 group-hover/project:pr-11 hover:bg-foreground/[0.025]',
-            isCurrent
-              ? 'agent-project-item-current text-foreground'
-              : 'text-foreground/65 hover:text-foreground/88',
-          )}
-        >
-          <FolderOpen size={13} className="flex-shrink-0 text-foreground/40" />
-          {renamingWorkspace ? (
+        {renamingWorkspace ? (
+          <div
+            className={cn(
+              'relative flex-1 min-w-0 flex items-center gap-1 px-1 py-1 rounded-md text-left titlebar-no-drag group-hover/project:pl-4 group-hover/project:pr-11',
+              isCurrent
+                ? 'agent-project-item-current text-foreground'
+                : 'text-foreground/65',
+            )}
+          >
+            <FolderOpen size={13} className="flex-shrink-0 text-foreground/40" />
             <input
               ref={workspaceEditRef}
               value={workspaceEditName}
               onChange={(e) => setWorkspaceEditName(e.target.value)}
               onKeyDown={handleWorkspaceRenameKeyDown}
-              onBlur={handleWorkspaceRenameBlur}
-              onClick={(e) => e.stopPropagation()}
+              onBlur={() => void handleWorkspaceRenameCommit()}
               className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-foreground border-b border-primary/50 outline-none px-0.5 leading-[18px]"
               maxLength={50}
             />
-          ) : (
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSelectProject(group.workspace.id)}
+            className={cn(
+              'relative flex-1 min-w-0 flex items-center gap-1 px-1 py-1 rounded-md text-left transition-[padding,color,background-color] titlebar-no-drag group-hover/project:pl-4 group-hover/project:pr-11 hover:bg-foreground/[0.025]',
+              isCurrent
+                ? 'agent-project-item-current text-foreground'
+                : 'text-foreground/65 hover:text-foreground/88',
+            )}
+          >
+            <FolderOpen size={13} className="flex-shrink-0 text-foreground/40" />
             <span className="flex-1 min-w-0 truncate text-[13px] font-medium leading-[18px]">
               {group.workspace.name}
             </span>
-          )}
-        </button>
+          </button>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
