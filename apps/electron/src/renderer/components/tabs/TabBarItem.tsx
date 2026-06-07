@@ -28,6 +28,10 @@ export interface TabBarItemProps {
   isHovered: boolean
   /** 预览面板是否正在退出动画 */
   isLeaving: boolean
+  /** 是否正在被拖拽 */
+  isDragging?: boolean
+  /** 拖拽时水平偏移量 */
+  dragOffsetX?: number
   onActivate: () => void
   onClose: () => void
   onMiddleClick: () => void
@@ -57,6 +61,8 @@ export function TabBarItem({
   isStreaming,
   isHovered,
   isLeaving,
+  isDragging,
+  dragOffsetX,
   onActivate,
   onClose,
   onMiddleClick,
@@ -145,7 +151,15 @@ export function TabBarItem({
   return (
     <div
       data-tab-id={id}
-      className="relative min-w-[120px] max-w-[200px] flex-[1_0_120px] titlebar-no-drag"
+      className={cn(
+        "relative min-w-[120px] max-w-[200px] flex-[1_0_120px] titlebar-no-drag",
+        isDragging ? "z-20" : "",
+      )}
+      style={isDragging ? {
+        transform: `translateX(${dragOffsetX ?? 0}px)`,
+        transition: 'none',
+        opacity: 0.85,
+      } : undefined}
       onMouseEnter={onHoverEnter}
       onMouseLeave={onHoverLeave}
     >

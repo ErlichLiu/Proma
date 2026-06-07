@@ -81,7 +81,14 @@ export function TabBar(): React.ReactElement {
     tabId: string
     startX: number
     startIndex: number
+    offsetX: number
+    pointerOffsetInTab: number
   } | null>(null)
+  const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null)
+  const [dragOffsetX, setDragOffsetX] = React.useState(0)
+  // 保持 tabs 的最新值供拖拽事件处理器使用
+  const tabsRef = React.useRef(tabs)
+  tabsRef.current = tabs
 
   const handleActivate = React.useCallback((tabId: string) => {
     setActiveTabId(tabId)
@@ -159,44 +166,88 @@ export function TabBar(): React.ReactElement {
     const idx = tabs.findIndex((t) => t.id === tabId)
     if (idx === -1) return
 
+    // 记录鼠标按下时在 tab 内部的偏移量
+    const tabEl = document.querySelector(`[data-tab-id="${tabId}"]`) as HTMLElement | null
+    if (!tabEl) return
+    const tabRect = tabEl.getBoundingClientRect()
+    const pointerOffsetInTab = e.clientX - tabRect.left
+
     dragState.current = {
       dragging: false,
       tabId,
       startX: e.clientX,
       startIndex: idx,
+      offsetX: 0,
+      pointerOffsetInTab,
     }
 
     const handleMove = (me: PointerEvent): void => {
       if (!dragState.current) return
-      const dx = Math.abs(me.clientX - dragState.current.startX)
-      if (dx > 5) dragState.current.dragging = true
+      const dx = me.clientX - dragState.current.startX
+      if (!dragState.current.dragging && Math.abs(dx) > 5) {
+        dragState.current.dragging = true
+        setDraggingTabId(tabId)
+      }
+      if (!dragState.current.dragging) return
+
+      // 计算被拖 tab 的视觉中心位置
+      const currentTabs = tabsRef.current
+      const currentIdx = currentTabs.findIndex((t) => t.id === tabId)
+      if (currentIdx === -1) return
+
+      // 使用所有 tab 元素的当前位置计算拖拽中心
+      const allTabEls = document.querySelectorAll('[data-tab-id]')
+      const draggedEl = allTabEls[currentIdx] as HTMLElement | null
+      if (!draggedEl) return
+      const draggedRect = draggedEl.getBoundingClientRect()
+      const dragCenterX = draggedRect.left + dragState.current.pointerOffsetInTab + dx
+
+      // 确定 dragCenterX 落在哪个 tab 的范围内
+      let targetIndex = currentIdx
+      for (let i = 0; i < allTabEls.length; i++) {
+        const el = allTabEls[i] as HTMLElement
+        const rect = el.getBoundingClientRect()
+        if (dragCenterX < rect.left + rect.width / 2) {
+          targetIndex = i
+          break
+        }
+        targetIndex = i
+      }
+
+      // 更新 transform 偏移量
+      dragState.current.offsetX = dx
+      setDragOffsetX(dx)
+
+      // 实时交换
+      if (targetIndex !== currentIdx) {
+        const reordered = reorderTabs(currentTabs, currentIdx, targetIndex)
+        if (reordered !== currentTabs) {
+          // 记录交换前被拖 tab 的视觉位置
+          const visualLeftBefore = draggedRect.left + dx
+          setTabs(reordered)
+          // 交换后 React 会重渲染，tab 在 DOM 中的位置变了
+          // 需要修正 offset 使 tab 视觉位置不变
+          // 在 requestAnimationFrame 中（React 已渲染）读取新 DOM 位置并修正
+          requestAnimationFrame(() => {
+            const newEl = document.querySelector(`[data-tab-id="${tabId}"]`) as HTMLElement | null
+            if (newEl && dragState.current) {
+              const newRect = newEl.getBoundingClientRect()
+              const newDx = visualLeftBefore - newRect.left
+              dragState.current.startX = me.clientX - newDx
+              dragState.current.offsetX = newDx
+              setDragOffsetX(newDx)
+            }
+          })
+        }
+      }
     }
 
     const handleUp = (): void => {
       document.removeEventListener('pointermove', handleMove)
       document.removeEventListener('pointerup', handleUp)
-      if (!dragState.current) return
-      const { dragging, startIndex, tabId: dragTabId } = dragState.current
       dragState.current = null
-      if (!dragging) return // 未实际拖拽，只是点击
-
-      // 计算释放位置对应的 tab 索引
-      const tabElements = document.querySelectorAll('[data-tab-id]')
-      let dropIndex = startIndex
-      for (let i = 0; i < tabElements.length; i++) {
-        const el = tabElements[i] as HTMLElement
-        const rect = el.getBoundingClientRect()
-        if (e.clientX < rect.right) {
-          dropIndex = i
-          break
-        }
-        dropIndex = i
-      }
-
-      if (dropIndex !== startIndex) {
-        const reordered = reorderTabs(tabs, startIndex, dropIndex)
-        if (reordered !== tabs) setTabs(reordered)
-      }
+      setDraggingTabId(null)
+      setDragOffsetX(0)
     }
 
     document.addEventListener('pointermove', handleMove)
@@ -213,6 +264,8 @@ export function TabBar(): React.ReactElement {
         streamingMap={indicatorMap}
         workspaceNameBySessionId={workspaceNameBySessionId}
         automationSessionIds={automationSessionIds}
+        draggingTabId={draggingTabId}
+        dragOffsetX={dragOffsetX}
         onActivate={handleActivate}
         onClose={requestClose}
         onDragStart={handleDragStart}
@@ -229,6 +282,8 @@ function TabBarInner({
   streamingMap,
   workspaceNameBySessionId,
   automationSessionIds,
+  draggingTabId,
+  dragOffsetX,
   onActivate,
   onClose,
   onDragStart,
@@ -239,6 +294,8 @@ function TabBarInner({
   streamingMap: Map<string, SessionIndicatorStatus>
   workspaceNameBySessionId: Map<string, string>
   automationSessionIds: Set<string>
+  draggingTabId: string | null
+  dragOffsetX: number
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
   onDragStart: (tabId: string, e: React.PointerEvent) => void
@@ -354,10 +411,10 @@ function TabBarInner({
   }, [])
 
   return (
-    <div className="flex items-end h-[34px] tabbar-bg relative">
+    <div className={cn("flex items-end h-[34px] tabbar-bg relative", isWindows && "pr-[126px]")}>
       {/* 顶部 TabBar 的空白区域必须保持可拖拽，尤其是 macOS/Windows 自定义标题栏。
-          注意：不要把 titlebar-no-drag 加到下面的整条 flex 容器上，否则标签右侧空白会再次失去拖拽能力。
-          Windows 上背景拖拽层避开右上角 WindowControls 区域（126px），防止 hitmask 重叠。
+          Windows 上外层 pr-[126px] 让 TabBar 背景（tabbar-bg）不延伸到 WindowControls 区域，
+          同时拖拽层也用 right-[126px] 避开按钮区，防止 hitmask 重叠。
           需要交互的单个 Tab 会在 TabBarItem 内部自己声明 titlebar-no-drag。 */}
       <div className={cn("absolute inset-0 titlebar-drag-region", isWindows && "right-[126px]")} />
 
@@ -375,7 +432,7 @@ function TabBarInner({
 
       <div
         ref={scrollRef}
-        className={cn("relative flex items-end flex-1 min-w-0 overflow-x-auto scrollbar-none", canScrollLeft && "pl-5", canScrollRight && "pr-5", isWindows && "pr-[126px]")}
+        className={cn("relative flex items-end flex-1 min-w-0 overflow-x-auto scrollbar-none", canScrollLeft && "pl-5", canScrollRight && "pr-5")}
       >
         {tabs.map((tab) => (
           <TabBarItem
@@ -394,6 +451,8 @@ function TabBarInner({
             isStreaming={streamingMap.get(tab.id) ?? 'idle'}
             isHovered={hoveredTabId === tab.id}
             isLeaving={hoveredTabId === tab.id && isLeaving}
+            isDragging={draggingTabId === tab.id}
+            dragOffsetX={draggingTabId === tab.id ? dragOffsetX : 0}
             onActivate={() => onActivate(tab.id)}
             onClose={() => onClose(tab.id)}
             onMiddleClick={() => onClose(tab.id)}
