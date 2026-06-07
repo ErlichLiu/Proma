@@ -9,11 +9,12 @@
  */
 
 import * as React from 'react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom, useStore } from 'jotai'
 import {
   tabsAtom,
   activeTabIdAtom,
   tabIndicatorMapAtom,
+  SCRATCH_PAD_ID,
 } from '@/atoms/tab-atoms'
 import type { TabItem } from '@/atoms/tab-atoms'
 import type { SessionIndicatorStatus } from '@/atoms/agent-atoms'
@@ -36,6 +37,7 @@ export function TabBar(): React.ReactElement {
   const [tabs, setTabs] = useAtom(tabsAtom)
   const [activeTabId, setActiveTabId] = useAtom(activeTabIdAtom)
   const indicatorMap = useAtomValue(tabIndicatorMapAtom)
+  const store = useStore()
 
   // Tab 切换时同步 sidebar 状态
   const appMode = useAtomValue(appModeAtom)
@@ -117,14 +119,33 @@ export function TabBar(): React.ReactElement {
     }
   }, [setActiveTabId, setAutomationForm, tabs, agentSessions, appMode, setAppMode, setCurrentConversationId, setCurrentAgentSessionId, setCurrentAgentWorkspaceId, setUnviewedCompleted])
 
-  /** 取消置顶标签 */
+  /** 取消置顶标签（同步更新 session/conversation 元数据并移除标签） */
   const handleUnpinTab = React.useCallback((tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab?.pinned) return
+
+    // 从 tabs 数组中移除该标签，激活切换到其他标签
+    let newActiveId: string | null = null
     setTabs((prev) => {
-      const tab = prev.find((t) => t.id === tabId)
-      if (!tab?.pinned) return prev
-      return prev.map((t) => t.id === tabId ? { ...t, pinned: false } : t)
+      const target = prev.find((t) => t.id === tabId)
+      if (!target?.pinned) return prev
+      const currentActive = store.get(activeTabIdAtom)
+      if (currentActive === tabId) {
+        const otherPinned = prev.filter((t) => t.pinned && t.id !== tabId)
+        const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+        newActiveId = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
+      }
+      return prev.filter((t) => t.id !== tabId)
     })
-  }, [setTabs])
+    if (newActiveId) setActiveTabId(newActiveId)
+
+    // 同步更新 session/conversation 元数据
+    if (tab.type === 'agent') {
+      window.electronAPI.togglePinAgentSession(tab.sessionId).catch(console.error)
+    } else if (tab.type === 'chat') {
+      window.electronAPI.togglePinConversation(tab.sessionId).catch(console.error)
+    }
+  }, [tabs, setTabs, setActiveTabId, store])
 
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return // 只处理左键

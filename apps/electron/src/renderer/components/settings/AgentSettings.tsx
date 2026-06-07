@@ -182,7 +182,13 @@ export function AgentSettings(): React.ReactElement {
     setWorkspaces(reordered)
     setDragId(null)
     setDropIndicator(null)
-    window.electronAPI.reorderAgentWorkspaces(reordered.map((w) => w.id)).catch(console.error)
+    const previous = workspaces
+    setWorkspaces(reordered)
+    window.electronAPI.reorderAgentWorkspaces(reordered.map((w) => w.id)).catch((error) => {
+      console.error('[AgentSettings] 项目排序失败:', error)
+      setWorkspaces(previous)
+      toast.error('项目排序失败')
+    })
   }
 
   const handleDragEnd = (): void => { setDragId(null); setDropIndicator(null) }
