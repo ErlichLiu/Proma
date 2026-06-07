@@ -975,7 +975,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       setWorkspaces((prev) => prev.map((w) => (w.id === updated.id ? updated : w)))
     } catch (error) {
       console.error('[侧边栏] 重命名工作区失败:', error)
-      toast.error('重命名失败')
+      const msg = error instanceof Error ? error.message : '重命名失败'
+      toast.error(msg)
     }
   }, [setWorkspaces])
 
