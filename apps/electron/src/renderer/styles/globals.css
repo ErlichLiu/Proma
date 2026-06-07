@@ -478,7 +478,7 @@
 }
 .theme-ocean-dark .automation-entry-selected .automation-entry-badge {
   background-color: hsl(205 70% 75% / 0.20) !important;
-  color: #fff !important;
+  color: hsl(205 70% 75%) !important;
 }
 
 /* ===== 森系主题：会话/工作区选中状态 ===== */
@@ -517,7 +517,7 @@
 }
 .theme-forest-dark .automation-entry-selected .automation-entry-badge {
   background-color: hsl(150 40% 70% / 0.20) !important;
-  color: #fff !important;
+  color: hsl(150 40% 70%) !important;
 }
 
 /* ===== 莫兰迪主题：模式切换器选中状态 ===== */
