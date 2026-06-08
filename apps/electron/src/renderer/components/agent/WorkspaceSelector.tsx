@@ -40,6 +40,7 @@ import {
 import { agentSessionsAtom, agentWorkspacesAtom, agentSettingsTabAtom } from '@/atoms/agent-atoms'
 import { settingsTabAtom, settingsOpenAtom, type SettingsTab } from '@/atoms/settings-tab'
 import { workspaceListModeAtom, projectListHeightAtom } from '@/atoms/sidebar-atoms'
+import { tabsAtom } from '@/atoms/tab-atoms'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import type { AgentWorkspace, AgentSessionMeta } from '@proma/shared'
 
@@ -47,6 +48,7 @@ export function WorkspaceSelector(): React.ReactElement {
   const { workspaces, currentWorkspaceId, selectProject, createProject } = useProjectActions()
   const [, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const [, setAgentSessions] = useAtom(agentSessionsAtom)
+  const setTabs = useSetAtom(tabsAtom)
   const setSettingsTab = useSetAtom(settingsTabAtom)
   const setSettingsOpen = useSetAtom(settingsOpenAtom)
   const setAgentSettingsTab = useSetAtom(agentSettingsTabAtom)
@@ -54,10 +56,10 @@ export function WorkspaceSelector(): React.ReactElement {
   const [workspaceListMode] = useAtom(workspaceListModeAtom)
 
   if (workspaceListMode === 'list') {
-    return <WorkspaceListMode workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} selectProject={selectProject} createProject={createProject} setWorkspaces={setWorkspaces} setAgentSessions={setAgentSessions} setSettingsTab={setSettingsTab} setSettingsOpen={setSettingsOpen} setAgentSettingsTab={setAgentSettingsTab} />
+    return <WorkspaceListMode workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} selectProject={selectProject} createProject={createProject} setWorkspaces={setWorkspaces} setAgentSessions={setAgentSessions} setSettingsTab={setSettingsTab} setSettingsOpen={setSettingsOpen} setAgentSettingsTab={setAgentSettingsTab} setTabs={setTabs} />
   }
 
-  return <WorkspaceDropdownMode workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} selectProject={selectProject} createProject={createProject} setWorkspaces={setWorkspaces} setAgentSessions={setAgentSessions} setSettingsTab={setSettingsTab} setSettingsOpen={setSettingsOpen} setAgentSettingsTab={setAgentSettingsTab} />
+  return <WorkspaceDropdownMode workspaces={workspaces} currentWorkspaceId={currentWorkspaceId} selectProject={selectProject} createProject={createProject} setWorkspaces={setWorkspaces} setAgentSessions={setAgentSessions} setSettingsTab={setSettingsTab} setSettingsOpen={setSettingsOpen} setAgentSettingsTab={setAgentSettingsTab} setTabs={setTabs} />
 }
 
 // ===== 共享状态与逻辑 =====
@@ -72,13 +74,14 @@ interface WorkspaceModeProps {
   setSettingsTab: (tab: SettingsTab) => void
   setSettingsOpen: (open: boolean) => void
   setAgentSettingsTab: (tab: string) => void
+  setTabs: React.Dispatch<React.SetStateAction<import('@/atoms/tab-atoms').TabItem[]>>
 }
 
 const canDelete = (ws: AgentWorkspace, total: number): boolean => {
   return ws.slug !== 'default' && total > 1
 }
 
-const useDeleteConfirm = (setWorkspaces: WorkspaceModeProps['setWorkspaces'], setAgentSessions: WorkspaceModeProps['setAgentSessions'], currentWorkspaceId: string | null, selectProject: WorkspaceModeProps['selectProject'], workspaces: AgentWorkspace[]) => {
+const useDeleteConfirm = (setWorkspaces: WorkspaceModeProps['setWorkspaces'], setAgentSessions: WorkspaceModeProps['setAgentSessions'], setTabs: WorkspaceModeProps['setTabs'], currentWorkspaceId: string | null, selectProject: WorkspaceModeProps['selectProject'], workspaces: AgentWorkspace[]) => {
   const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null)
 
   const handleConfirmDelete = async (): Promise<void> => {
@@ -92,6 +95,7 @@ const useDeleteConfirm = (setWorkspaces: WorkspaceModeProps['setWorkspaces'], se
       ])
       setWorkspaces(remaining)
       setAgentSessions(sessions)
+      setTabs((prev) => prev.filter((t) => !t.pinned || t.workspaceId !== deleteTargetId))
 
       if (deleteTargetId === currentWorkspaceId && remaining.length > 0) {
         const defaultWorkspace = remaining.find((workspace) => workspace.slug === 'default')
@@ -144,7 +148,7 @@ function WorkspaceDropdownMode(props: WorkspaceModeProps): React.ReactElement {
   const [renameName, setRenameName] = React.useState('')
   const renameInputRef = React.useRef<HTMLInputElement>(null)
 
-  const { deleteTargetId, setDeleteTargetId, handleConfirmDelete } = useDeleteConfirm(props.setWorkspaces, props.setAgentSessions, currentWorkspaceId, selectProject, workspaces)
+  const { deleteTargetId, setDeleteTargetId, handleConfirmDelete } = useDeleteConfirm(props.setWorkspaces, props.setAgentSessions, props.setTabs, currentWorkspaceId, selectProject, workspaces)
 
   const handleCreate = async (): Promise<void> => {
     const result = await createProject(createName)
@@ -383,7 +387,7 @@ function WorkspaceListMode(props: WorkspaceModeProps): React.ReactElement {
   const [editName, setEditName] = React.useState('')
   const editInputRef = React.useRef<HTMLInputElement>(null)
 
-  const { deleteTargetId, setDeleteTargetId, handleConfirmDelete } = useDeleteConfirm(props.setWorkspaces, props.setAgentSessions, currentWorkspaceId, selectProject, workspaces)
+  const { deleteTargetId, setDeleteTargetId, handleConfirmDelete } = useDeleteConfirm(props.setWorkspaces, props.setAgentSessions, props.setTabs, currentWorkspaceId, selectProject, workspaces)
 
   // 拖拽排序
   const [dragId, setDragId] = React.useState<string | null>(null)
@@ -485,7 +489,7 @@ function WorkspaceListMode(props: WorkspaceModeProps): React.ReactElement {
     }
     const fromIdx = workspaces.findIndex((w) => w.id === dragId)
     const toIdx = workspaces.findIndex((w) => w.id === targetId)
-    if (fromIdx === -1 || toIdx === -1) return
+    if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDropIndicator(null); return }
     const reordered = [...workspaces]
     const [moved] = reordered.splice(fromIdx, 1)
     const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx

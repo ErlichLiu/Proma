@@ -58,14 +58,14 @@ export function TabBar(): React.ReactElement {
   const { requestClose } = useCloseTab()
 
   const workspaceNameBySessionId = React.useMemo(() => {
-    const workspaceNameMap = new Map(agentWorkspaces.map((workspace) => [workspace.id, workspace.name]))
+    const workspaceNameByIdMap = new Map(agentWorkspaces.map((workspace) => [workspace.id, workspace.name]))
     const sessionWorkspaceNameMap = new Map<string, string>()
     for (const session of agentSessions) {
       if (!session.workspaceId) continue
-      const workspaceName = workspaceNameMap.get(session.workspaceId)
+      const workspaceName = workspaceNameByIdMap.get(session.workspaceId)
       if (workspaceName) sessionWorkspaceNameMap.set(session.id, workspaceName)
     }
-    return sessionWorkspaceNameMap
+    return { sessionIdMap: sessionWorkspaceNameMap, workspaceIdMap: workspaceNameByIdMap }
   }, [agentSessions, agentWorkspaces])
 
   const automationSessionIds = React.useMemo(() => {
@@ -131,22 +131,20 @@ export function TabBar(): React.ReactElement {
 
   /** 取消置顶标签（同步更新 session/conversation 元数据并移除标签） */
   const handleUnpinTab = React.useCallback((tabId: string) => {
-    const tab = tabs.find((t) => t.id === tabId)
+    // 用 store.get 获取最新 tabs，避免闭包过期
+    const currentTabs = store.get(tabsAtom)
+    const tab = currentTabs.find((t) => t.id === tabId)
     if (!tab?.pinned) return
 
-    // 从 tabs 数组中移除该标签，激活切换到其他标签
+    // 先计算新 activeId，再在 updater 中纯计算
+    const currentActive = store.get(activeTabIdAtom)
     let newActiveId: string | null = null
-    setTabs((prev) => {
-      const target = prev.find((t) => t.id === tabId)
-      if (!target?.pinned) return prev
-      const currentActive = store.get(activeTabIdAtom)
-      if (currentActive === tabId) {
-        const otherPinned = prev.filter((t) => t.pinned && t.id !== tabId)
-        const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
-        newActiveId = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
-      }
-      return prev.filter((t) => t.id !== tabId)
-    })
+    if (currentActive === tabId) {
+      const otherPinned = currentTabs.filter((t) => t.pinned && t.id !== tabId)
+      const nonPinned = currentTabs.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+      newActiveId = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
+    }
+    setTabs((prev) => prev.filter((t) => t.id !== tabId))
     if (newActiveId) setActiveTabId(newActiveId)
 
     // 同步更新 session/conversation 元数据并更新 atom
@@ -159,7 +157,7 @@ export function TabBar(): React.ReactElement {
         setConversations((prev) => prev.map((c) => c.id === updated.id ? updated : c))
       }).catch(console.error)
     }
-  }, [tabs, setTabs, setActiveTabId, store, setAgentSessions, setConversations])
+  }, [setTabs, setActiveTabId, store, setAgentSessions, setConversations])
 
   const handleDragStart = React.useCallback((tabId: string, e: React.PointerEvent) => {
     if (e.button !== 0) return
@@ -246,7 +244,8 @@ export function TabBar(): React.ReactElement {
         tabs={tabs}
         activeTabId={activeTabId}
         streamingMap={indicatorMap}
-        workspaceNameBySessionId={workspaceNameBySessionId}
+        workspaceNameBySessionId={workspaceNameBySessionId.sessionIdMap}
+        workspaceNameByIdMap={workspaceNameBySessionId.workspaceIdMap}
         automationSessionIds={automationSessionIds}
         draggingTabId={draggingTabId}
         dragLeft={dragLeft}
@@ -266,6 +265,7 @@ function TabBarInner({
   activeTabId,
   streamingMap,
   workspaceNameBySessionId,
+  workspaceNameByIdMap,
   automationSessionIds,
   draggingTabId,
   dragLeft,
@@ -279,6 +279,7 @@ function TabBarInner({
   activeTabId: string | null
   streamingMap: Map<string, SessionIndicatorStatus>
   workspaceNameBySessionId: Map<string, string>
+  workspaceNameByIdMap: Map<string, string>
   automationSessionIds: Set<string>
   draggingTabId: string | null
   dragLeft: number
@@ -444,7 +445,7 @@ function TabBarInner({
               title={tab.title}
               workspaceName={
                 tab.workspaceId === CHAT_WORKSPACE_ID ? 'Chat'
-                : tab.workspaceId ? workspaceNameBySessionId.get(tab.sessionId)
+                : tab.workspaceId ? workspaceNameByIdMap.get(tab.workspaceId)
                 : undefined
               }
               isAutomation={tab.type === 'agent' && automationSessionIds.has(tab.sessionId)}

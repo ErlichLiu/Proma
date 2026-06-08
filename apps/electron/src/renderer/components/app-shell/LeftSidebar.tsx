@@ -553,7 +553,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
   const filteredAgentSessions = React.useMemo(
     () => {
       const byWorkspace = agentSessions.filter(
-        (s) => s.workspaceId === currentWorkspaceId && !draftSessionIds.has(s.id)
+        (s) => (s.workspaceId ?? currentWorkspaceId) === currentWorkspaceId && !draftSessionIds.has(s.id)
       )
       const filtered = viewMode === 'archived'
         ? byWorkspace.filter((s) => s.archived)
@@ -588,7 +588,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
   /** 已归档 Agent 会话数量（当前项目） */
   const archivedAgentSessionCount = React.useMemo(
-    () => agentSessions.filter((s) => s.archived && !draftSessionIds.has(s.id) && s.workspaceId === currentWorkspaceId).length,
+    () => agentSessions.filter((s) => s.archived && !draftSessionIds.has(s.id) && (s.workspaceId ?? currentWorkspaceId) === currentWorkspaceId).length,
     [agentSessions, draftSessionIds, currentWorkspaceId]
   )
 
@@ -703,18 +703,15 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       )
 
       if (updated.pinned) {
-        // 置顶时：创建或标记置顶标签，确保顺序 [scratch, ...pinned, ...nonPinned]
-        // Chat 单置顶约束：已有 Chat 置顶标签时先自动取消旧置顶
-        let oldChatPinnedSessionId: string | null = null
+        // Chat 单置顶约束：先从当前 tabs 计算旧置顶信息，再在 updater 中纯计算
+        const currentTabs = store.get(tabsAtom)
+        const existingChatPinned = currentTabs.find((t) => t.pinned && t.type === 'chat' && t.sessionId !== id)
+        const oldChatPinnedSessionId = existingChatPinned?.sessionId ?? null
+
         setTabs((prev) => {
           const scratchTab = prev.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
-          // 检查是否已有 Chat 置顶标签
-          const existingChatPinned = prev.find((t) => t.pinned && t.type === 'chat' && t.sessionId !== id)
-          if (existingChatPinned) {
-            oldChatPinnedSessionId = existingChatPinned.sessionId
-          }
-          // 移除旧 Chat 置顶标签
-          let tabsWithoutOldPinned = existingChatPinned
+          // 移除旧 Chat 置顶标签（用 sessionId 匹配，因为 prev 可能已变化）
+          const tabsWithoutOldPinned = existingChatPinned
             ? prev.filter((t) => t.id !== existingChatPinned.id)
             : prev
           const existing = tabsWithoutOldPinned.find((t) => t.sessionId === id && t.type === 'chat')
@@ -762,20 +759,20 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           toast.success('已置顶')
         }
       } else {
-        // 取消置顶时：移除置顶标签（纯函数计算，副作用在外部调用）
-        let newActiveId: string | null = null
-        setTabs((prev) => {
-          const tab = prev.find((t) => t.sessionId === id && t.pinned)
-          if (!tab) return prev
+        // 取消置顶时：先计算新 activeId，再在 updater 中纯计算
+        const currentTabs = store.get(tabsAtom)
+        const tab = currentTabs.find((t) => t.sessionId === id && t.pinned && t.type === 'chat')
+        if (tab) {
           const currentActive = store.get(activeTabIdAtom)
+          let newActiveId: string | null = null
           if (currentActive === tab.id) {
-            const otherPinned = prev.filter((t) => t.pinned && t.id !== tab.id)
-            const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+            const otherPinned = currentTabs.filter((t) => t.pinned && t.id !== tab.id)
+            const nonPinned = currentTabs.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
             newActiveId = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
           }
-          return prev.filter((t) => t.id !== tab.id)
-        })
-        if (newActiveId) setActiveTabId(newActiveId)
+          setTabs((prev) => prev.filter((t) => t.id !== tab.id))
+          if (newActiveId) setActiveTabId(newActiveId)
+        }
         toast.success('已取消置顶')
       }
     } catch (error) {
@@ -992,23 +989,20 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       const original = store.get(agentSessionsAtom).find((s) => s.id === id)
       const updated = await window.electronAPI.togglePinAgentSession(id)
       setAgentSessions((prev) => replaceAgentSessionInFreshnessOrder(prev, updated))
-      const workspaceId = updated.workspaceId
+      const workspaceId = updated.workspaceId ?? store.get(agentSessionsAtom).find((s) => s.id === id)?.workspaceId
 
       if (updated.pinned) {
-        // 置顶时：创建或标记置顶标签，确保顺序 [scratch, ...pinned, ...nonPinned]
-        // 每工作区单置顶约束：同工作区已有置顶标签时先自动取消旧置顶
-        let oldPinnedSessionId: string | null = null
+        // 每工作区单置顶约束：先从当前 tabs 计算旧置顶信息，再在 updater 中纯计算
+        const currentTabs = store.get(tabsAtom)
+        const existingWorkspacePinned = workspaceId
+          ? currentTabs.find((t) => t.pinned && t.type === 'agent' && t.workspaceId === workspaceId && t.sessionId !== id)
+          : undefined
+        const oldPinnedSessionId = existingWorkspacePinned?.sessionId ?? null
+
         setTabs((prev) => {
           const scratchTab = prev.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
-          // 检查是否已有同工作区的置顶标签（workspaceId 为空时跳过约束，无法确定工作区归属）
-          const existingWorkspacePinned = workspaceId
-            ? prev.find((t) => t.pinned && t.type === 'agent' && t.workspaceId === workspaceId && t.sessionId !== id)
-            : undefined
-          if (existingWorkspacePinned) {
-            oldPinnedSessionId = existingWorkspacePinned.sessionId
-          }
           // 移除旧置顶标签
-          let tabsWithoutOldPinned = existingWorkspacePinned
+          const tabsWithoutOldPinned = existingWorkspacePinned
             ? prev.filter((t) => t.id !== existingWorkspacePinned.id)
             : prev
           const existing = tabsWithoutOldPinned.find((t) => t.sessionId === id && t.type === 'agent')
@@ -1026,7 +1020,6 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           }).catch((err) => {
             console.error('[侧边栏] 取消旧置顶失败，回滚前端标签:', err)
             const rollbackId = oldPinnedSessionId
-            if (!rollbackId) return
             // 回滚：将旧置顶标签重新添加回 tabs
             setTabs((prev) => {
               const scratchTab = prev.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
@@ -1056,20 +1049,20 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           toast.success('已置顶')
         }
       } else {
-        // 取消置顶时：移除置顶标签（纯函数计算，副作用在外部调用）
-        let newActiveId: string | null = null
-        setTabs((prev) => {
-          const tab = prev.find((t) => t.sessionId === id && t.pinned)
-          if (!tab) return prev
+        // 取消置顶时：先计算新 activeId，再在 updater 中纯计算
+        const currentTabs = store.get(tabsAtom)
+        const tab = currentTabs.find((t) => t.sessionId === id && t.pinned && t.type === 'agent')
+        if (tab) {
           const currentActive = store.get(activeTabIdAtom)
+          let newActiveId: string | null = null
           if (currentActive === tab.id) {
-            const otherPinned = prev.filter((t) => t.pinned && t.id !== tab.id)
-            const nonPinned = prev.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+            const otherPinned = currentTabs.filter((t) => t.pinned && t.id !== tab.id)
+            const nonPinned = currentTabs.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
             newActiveId = otherPinned.at(-1)?.id ?? nonPinned.at(0)?.id ?? SCRATCH_PAD_ID
           }
-          return prev.filter((t) => t.id !== tab.id)
-        })
-        if (newActiveId) setActiveTabId(newActiveId)
+          setTabs((prev) => prev.filter((t) => t.id !== tab.id))
+          if (newActiveId) setActiveTabId(newActiveId)
+        }
         toast.success('已取消置顶')
       }
     } catch (error) {
@@ -1145,14 +1138,21 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         const existingPinned = updatedSession.workspaceId
           ? prev.find((t) => t.pinned && t.type === 'agent' && t.workspaceId === updatedSession.workspaceId && t.id !== tab.id)
           : undefined
+        let result: TabItem[]
         if (existingPinned) {
           oldPinnedSessionId = existingPinned.sessionId
           // 取消旧置顶标签，更新迁移标签的 workspaceId
-          return prev
+          result = prev
             .map((t) => t.id === existingPinned.id ? { ...t, pinned: false } : t)
             .map((t) => t.id === tab.id ? { ...t, workspaceId: updatedSession.workspaceId } : t)
+        } else {
+          result = prev.map((t) => t.id === tab.id ? { ...t, workspaceId: updatedSession.workspaceId } : t)
         }
-        return prev.map((t) => t.id === tab.id ? { ...t, workspaceId: updatedSession.workspaceId } : t)
+        // 重排标签顺序：scratch → pinned → non-pinned
+        const scratchTab = result.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
+        const pinnedTabs = result.filter((t) => t.pinned && t.id !== SCRATCH_PAD_ID)
+        const nonPinnedTabs = result.filter((t) => !t.pinned && t.id !== SCRATCH_PAD_ID && t.type !== 'preview')
+        return [scratchTab, ...pinnedTabs, ...nonPinnedTabs]
       })
       // 同步取消旧置顶的后端状态
       if (oldPinnedSessionId) {
@@ -1173,7 +1173,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       agentSessions.filter((session) =>
         session.archived
         && !draftSessionIds.has(session.id)
-        && session.workspaceId === currentWorkspaceId
+        && (session.workspaceId ?? currentWorkspaceId) === currentWorkspaceId
       )
     )),
     [agentSessions, draftSessionIds, currentWorkspaceId]

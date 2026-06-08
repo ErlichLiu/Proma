@@ -234,7 +234,7 @@ export function getPersistableTabState(
  *  restore 提示存在时，切回带预览的会话会一并重建其预览 Tab 并回到上次视图。 */
 export function openTab(
   tabs: TabItem[],
-  item: { type: TabType; sessionId: string; title: string },
+  item: { type: TabType; sessionId: string; title: string; workspaceId?: string },
   restore?: OpenTabRestore,
 ): { tabs: TabItem[]; activeTabId: string } {
   const scratchTab = tabs.find((t) => t.id === SCRATCH_PAD_ID) ?? createScratchPadTab()
@@ -260,6 +260,7 @@ export function openTab(
           type: 'agent' as const,
           sessionId: item.sessionId,
           title: 'Agent 会话',
+          workspaceId: item.workspaceId,
         }
     const previewTab: TabItem = {
       id: createPreviewTabId(item.sessionId),
@@ -280,6 +281,7 @@ export function openTab(
     type: item.type,
     sessionId: item.sessionId,
     title: item.title,
+    workspaceId: item.workspaceId,
   }
 
   // 切回带预览的会话：重建该会话的预览 Tab，并按 lastView 决定激活哪个。

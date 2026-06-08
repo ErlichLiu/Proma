@@ -1005,4 +1005,4 @@ export const stoppedByUserSessionsAtom = atom<Set<string>>(new Set<string>())
 export const agentSettingsReadyAtom = atom(false)
 
 /** AgentSettings 内部激活的 Tab（skills / workspaces / mcp / tools） */
-export const agentSettingsTabAtom = atom<string>('skills')
+export const agentSettingsTabAtom = atom<string>('workspaces')

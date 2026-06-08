@@ -181,11 +181,9 @@ export function AgentSettings(): React.ReactElement {
     const adjustedToIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
     const insertIdx = dropIndicator.position === 'after' ? adjustedToIdx + 1 : adjustedToIdx
     reordered.splice(insertIdx, 0, moved!)
-    setWorkspaces(reordered)
+    const previous = workspaces
     setDragId(null)
     setDropIndicator(null)
-    const previous = workspaces
-    setWorkspaces(reordered)
     window.electronAPI.reorderAgentWorkspaces(reordered.map((w) => w.id)).catch((error) => {
       console.error('[AgentSettings] 项目排序失败:', error)
       setWorkspaces(previous)
