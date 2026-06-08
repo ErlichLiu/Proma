@@ -391,9 +391,30 @@ function mergeAdjacentSameModelTurns(groups: MessageGroup[]): MessageGroup[] {
       continue
     }
 
-    // 后台任务唤醒后开始的 turn：独立成块，不向前合并。
+    // 后台任务唤醒后开始的 turn：原则上独立成块，不向前合并。
+    // 但如果前一个 turn 也是同模型的 assistant-turn（中间无用户输入），
+    // 说明这是同一轮对话的延续（如 bash 工具执行后的续接），应合并。
     if (group.startsAfterWake) {
-      result.push(group)
+      let canMerge = false
+      for (let i = result.length - 1; i >= 0; i--) {
+        const prev = result[i]!
+        if (prev.type === 'user') break
+        if (prev.type === 'system' && ['compact_boundary', 'permission_denied'].includes((prev.message as SDKSystemMessage).subtype ?? '')) break
+        if (prev.type === 'assistant-turn') {
+          const sameModel = prev.model === group.model
+          const eitherFalsy = !prev.model || !group.model
+          if (sameModel || eitherFalsy) {
+            canMerge = true
+            // 合并到前一个 turn
+            prev.assistantMessages.push(...group.assistantMessages)
+            prev.turnMessages.push(...group.turnMessages)
+          }
+          break
+        }
+      }
+      if (!canMerge) {
+        result.push(group)
+      }
       continue
     }
 
@@ -404,7 +425,10 @@ function mergeAdjacentSameModelTurns(groups: MessageGroup[]): MessageGroup[] {
       if (prev.type === 'user') break // 真正的用户输入阻断合并
       if (prev.type === 'system' && ['compact_boundary', 'permission_denied'].includes((prev.message as SDKSystemMessage).subtype ?? '')) break
       if (prev.type === 'assistant-turn') {
-        if (prev.model === group.model) {
+        // 模型相同 → 可合并；任意一方 model 为 falsy（流式期间 modelId 注入不一致）→ 也视为同模型
+        const sameModel = prev.model === group.model
+        const eitherFalsy = !prev.model || !group.model
+        if (sameModel || eitherFalsy) {
           mergeTargetIdx = i
         }
         break // 遇到第一个 assistant-turn 就停止（不跨越不同模型的 turn）
