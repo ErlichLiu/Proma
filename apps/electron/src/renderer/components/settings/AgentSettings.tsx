@@ -670,9 +670,9 @@ interface SkillListPanelProps {
 
 function SkillListPanel({ skills, defaultSkillSlugs, selectedSlug, onSelect, onDelete, onToggle, onUpdate, skillsDir }: SkillListPanelProps): React.ReactElement {
   const groups = React.useMemo(() => groupSkillsByPrefix(skills, defaultSkillSlugs), [skills, defaultSkillSlugs])
-  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(() =>
-    new Set(groups.filter((g) => g.prefix).map((g) => g.prefix)),
-  )
+  // 默认折叠所有分组
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(() => new Set())
+  const [searchQuery, setSearchQuery] = React.useState('')
 
   const toggleGroup = (prefix: string): void => {
     setExpandedGroups((prev) => {
@@ -687,65 +687,100 @@ function SkillListPanel({ skills, defaultSkillSlugs, selectedSlug, onSelect, onD
     if (skillsDir) window.electronAPI.openFile(`${skillsDir}/${slug}`)
   }
 
-  return (
-    <div className="w-56 flex-shrink-0 border-r border-border overflow-y-auto bg-muted/20">
-      {groups.map((group) =>
-        group.prefix ? (
-          <div key={group.prefix}>
-            <button
-              onClick={() => toggleGroup(group.prefix)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/40 transition-colors"
-            >
-              {expandedGroups.has(group.prefix)
-                ? <ChevronDown size={12} className="text-muted-foreground flex-shrink-0" />
-                : <ChevronRight size={12} className="text-muted-foreground flex-shrink-0" />}
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate flex-1">
-                {group.isBuiltin ? 'built-in' : group.prefix}
-              </span>
-              {group.isBuiltin && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium flex-shrink-0">
-                  PROMA
-                </span>
-              )}
-              <span className="text-[10px] tabular-nums text-muted-foreground flex-shrink-0">{group.skills.length}</span>
-            </button>
-            {expandedGroups.has(group.prefix) && (
-              <div className="relative">
-                <div className="absolute left-3 top-0 bottom-0 w-px bg-border/60 pointer-events-none z-10" />
-                {group.skills.map((skill) => (
-                  <SkillCompactItem
-                    key={skill.slug}
-                    skill={skill}
-                    displayName={shortName(skill.slug, group.prefix)}
-                    selected={selectedSlug === skill.slug}
-                    onSelect={() => onSelect(skill.slug)}
-                    onDelete={() => onDelete(skill.slug, skill.name)}
-                    onToggle={(enabled) => onToggle(skill.slug, enabled)}
-                    onOpenFolder={() => openSkillFolder(skill.slug)}
-                    onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
-                    isBuiltin={group.isBuiltin}
-                    indented
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          group.skills.map((skill) => (
-            <SkillCompactItem
-              key={skill.slug}
-              skill={skill}
-              displayName={skill.name}
-              selected={selectedSlug === skill.slug}
-              onSelect={() => onSelect(skill.slug)}
-              onDelete={() => onDelete(skill.slug, skill.name)}
-              onToggle={(enabled) => onToggle(skill.slug, enabled)}
-              onOpenFolder={() => openSkillFolder(skill.slug)}
-              onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
-            />
-          ))
+  const filteredGroups = React.useMemo(() => {
+    if (!searchQuery.trim()) return groups
+    const query = searchQuery.toLowerCase()
+    return groups
+      .map((group) => ({
+        ...group,
+        skills: group.skills.filter(
+          (skill) =>
+            skill.name.toLowerCase().includes(query) ||
+            skill.slug.toLowerCase().includes(query) ||
+            (skill.description?.toLowerCase().includes(query) ?? false),
         ),
-      )}
+      }))
+      .filter((group) => group.skills.length > 0)
+  }, [groups, searchQuery])
+
+  const isGroupExpanded = (prefix: string): boolean => {
+    if (searchQuery.trim()) return true
+    return expandedGroups.has(prefix)
+  }
+
+  return (
+    <div className="w-56 flex-shrink-0 border-r border-border overflow-y-auto bg-muted/20 flex flex-col">
+      <div className="p-2 border-b border-border">
+        <div className="relative">
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="搜索 Skills..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-7 pr-2 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {filteredGroups.map((group) =>
+          group.prefix ? (
+            <div key={group.prefix}>
+              <button
+                onClick={() => toggleGroup(group.prefix)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/40 transition-colors"
+              >
+                {isGroupExpanded(group.prefix)
+                  ? <ChevronDown size={12} className="text-muted-foreground flex-shrink-0" />
+                  : <ChevronRight size={12} className="text-muted-foreground flex-shrink-0" />}
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate flex-1">
+                  {group.isBuiltin ? 'built-in' : group.prefix}
+                </span>
+                {group.isBuiltin && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium flex-shrink-0">
+                    PROMA
+                  </span>
+                )}
+                <span className="text-[10px] tabular-nums text-muted-foreground flex-shrink-0">{group.skills.length}</span>
+              </button>
+              {isGroupExpanded(group.prefix) && (
+                <div className="relative">
+                  <div className="absolute left-3 top-0 bottom-0 w-px bg-border/60 pointer-events-none z-10" />
+                  {group.skills.map((skill) => (
+                    <SkillCompactItem
+                      key={skill.slug}
+                      skill={skill}
+                      displayName={shortName(skill.slug, group.prefix)}
+                      selected={selectedSlug === skill.slug}
+                      onSelect={() => onSelect(skill.slug)}
+                      onDelete={() => onDelete(skill.slug, skill.name)}
+                      onToggle={(enabled) => onToggle(skill.slug, enabled)}
+                      onOpenFolder={() => openSkillFolder(skill.slug)}
+                      onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
+                      isBuiltin={group.isBuiltin}
+                      indented
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            group.skills.map((skill) => (
+              <SkillCompactItem
+                key={skill.slug}
+                skill={skill}
+                displayName={skill.name}
+                selected={selectedSlug === skill.slug}
+                onSelect={() => onSelect(skill.slug)}
+                onDelete={() => onDelete(skill.slug, skill.name)}
+                onToggle={(enabled) => onToggle(skill.slug, enabled)}
+                onOpenFolder={() => openSkillFolder(skill.slug)}
+                onUpdate={skill.hasUpdate ? () => onUpdate(skill.slug) : undefined}
+              />
+            ))
+          ),
+        )}
+      </div>
     </div>
   )
 }
