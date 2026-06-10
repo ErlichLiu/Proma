@@ -23,7 +23,7 @@ function getTutorialFilePath(): string {
     return join(process.resourcesPath, 'tutorial.md')
   }
   // 开发模式：app.getAppPath() → apps/electron/
-  return join(app.getAppPath(), '../../tutorial/tutorial.md')
+  return join(app.getAppPath(), '../../tutorial/tutorial-v2.md')
 }
 
 /**

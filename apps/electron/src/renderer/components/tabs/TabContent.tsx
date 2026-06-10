@@ -12,6 +12,8 @@ import { ChatView } from '@/components/chat'
 import { AgentView } from '@/components/agent'
 import { PreviewTabContent } from '@/components/diff/PreviewTabContent'
 import { ScratchPadView } from '@/components/scratch-pad/ScratchPadView'
+import { TutorialViewer } from '@/components/tutorial/TutorialViewer'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { TabErrorBoundary } from './TabErrorBoundary'
 
 export interface TabContentProps {
@@ -39,6 +41,16 @@ export function TabContent({ tabId }: TabContentProps): React.ReactElement {
 
   if (tab.type === 'scratch') {
     return <ScratchPadView />
+  }
+
+  if (tab.type === 'tutorial') {
+    return (
+      <ScrollArea className="h-full">
+        <div className="px-8 py-6 max-w-3xl mx-auto">
+          <TutorialViewer />
+        </div>
+      </ScrollArea>
+    )
   }
 
   if (tab.type === 'chat') {
