@@ -123,15 +123,17 @@ function EmptyState(): React.ReactElement {
 /** 滚动到顶部时触发加载更多 */
 function LoadMoreTrigger({ onLoadMore, loadingMore }: { onLoadMore: () => void; loadingMore?: boolean }): null {
   const { scrollRef } = useStickToBottomContext()
+  const stateRef = React.useRef({ onLoadMore, loadingMore })
+  stateRef.current = { onLoadMore, loadingMore }
   React.useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     const handle = (): void => {
-      if (el.scrollTop < 80 && !loadingMore) onLoadMore()
+      if (el.scrollTop < 80 && !stateRef.current.loadingMore) stateRef.current.onLoadMore()
     }
     el.addEventListener('scroll', handle, { passive: true })
     return () => el.removeEventListener('scroll', handle)
-  }, [scrollRef, onLoadMore, loadingMore])
+  }, [scrollRef])
   return null
 }
 
