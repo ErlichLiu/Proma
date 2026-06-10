@@ -110,11 +110,29 @@ interface AgentMessagesProps {
   onFork?: (upToMessageUuid: string) => void
   onRewind?: (assistantMessageUuid: string) => void
   onCompact?: () => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 /** 空状态引导 — 使用 WelcomeEmptyState */
 function EmptyState(): React.ReactElement {
   return <WelcomeEmptyState />
+}
+
+/** 滚动到顶部时触发加载更多 */
+function LoadMoreTrigger({ onLoadMore, loadingMore }: { onLoadMore: () => void; loadingMore?: boolean }): null {
+  const { scrollRef } = useStickToBottomContext()
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const handle = (): void => {
+      if (el.scrollTop < 80 && !loadingMore) onLoadMore()
+    }
+    el.addEventListener('scroll', handle, { passive: true })
+    return () => el.removeEventListener('scroll', handle)
+  }, [scrollRef, onLoadMore, loadingMore])
+  return null
 }
 
 function AssistantLogo({ model }: { model?: string }): React.ReactElement {
@@ -393,7 +411,7 @@ function AgentRunningIndicator({ startedAt }: { startedAt?: number }): React.Rea
   )
 }
 
-export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, attachedDirs, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact }: AgentMessagesProps): React.ReactElement {
+export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persistedSDKMessages, streaming, streamState, liveMessages, sessionPath, attachedDirs, stoppedByUser, onRetry, onRetryInNewSession, onFork, onRewind, onCompact, hasMore, loadingMore, onLoadMore }: AgentMessagesProps): React.ReactElement {
   const userProfile = useAtomValue(userProfileAtom)
   const setMinimapCache = useSetAtom(tabMinimapCacheAtom)
   const channels = useAtomValue(channelsAtom)
@@ -610,7 +628,11 @@ export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persi
     <BasePathsProvider basePaths={attachedDirs}>
     <Conversation resize={ready && !transitioning ? 'smooth' : 'instant'} className={ready ? (skipFadeIn ? 'opacity-100' : 'opacity-100 transition-opacity duration-200') : 'opacity-0'}>
       <ScrollPositionManager id={sessionId} ready={ready} />
+      {hasMore && onLoadMore && <LoadMoreTrigger onLoadMore={onLoadMore} loadingMore={loadingMore} />}
       <ConversationContent>
+        {hasMore && loadingMore && (
+          <div className="flex justify-center py-2 text-xs text-muted-foreground">加载更多...</div>
+        )}
         {!hasContent && !streaming ? (
           <EmptyState />
         ) : (

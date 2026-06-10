@@ -1668,8 +1668,8 @@ export function registerIpcHandlers(): void {
   // 获取 Agent 会话 SDKMessage（Phase 4 新格式）
   ipcMain.handle(
     AGENT_IPC_CHANNELS.GET_SDK_MESSAGES,
-    async (_, id: string, limit?: number): Promise<SDKMessage[]> => {
-      return getAgentSessionSDKMessages(id, limit)
+    async (_, id: string, limit?: number, offset?: number): Promise<SDKMessage[]> => {
+      return getAgentSessionSDKMessages(id, limit, offset)
     }
   )
 

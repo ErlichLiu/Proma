@@ -633,6 +633,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   // 消息是否已完成首次加载（用于 auto-send 等待）
   const [messagesLoaded, setMessagesLoaded] = React.useState(false)
   const loadingSessionIdRef = React.useRef<string | null>(null)
+  const PAGE_SIZE = 500
+  const [loadedCount, setLoadedCount] = React.useState(PAGE_SIZE)
+  const [hasMore, setHasMore] = React.useState(false)
+  const [loadingMore, setLoadingMore] = React.useState(false)
 
   // 加载当前会话消息
   React.useEffect(() => {
@@ -641,6 +645,8 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     const isSessionSwitch = loadingSessionIdRef.current !== sessionId
     if (isSessionSwitch) {
       loadingSessionIdRef.current = sessionId
+      setLoadedCount(PAGE_SIZE)
+      setHasMore(false)
       // 命中缓存则立即填充，消除「先清空 → 等 IPC 全量读盘」的可见空窗；
       // IPC 返回后仍会以最新数据覆盖。未命中才回退到清空 + loading 态。
       // 注意：refreshVersion bump（流结束/出错/rewind）不是会话切换，
@@ -655,10 +661,10 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       }
     }
     let cancelled = false
-    window.electronAPI.getAgentSessionSDKMessages(sessionId, 500)
+    window.electronAPI.getAgentSessionSDKMessages(sessionId, PAGE_SIZE)
       .then((sdkMsgs) => {
         if (cancelled) return
-        // 写入缓存（含 LRU 淘汰，防止会话数增长导致内存无限膨胀）
+        setHasMore(sdkMsgs.length === PAGE_SIZE)
         setMessagesCache((prev) => setSessionMessagesCache(prev, sessionId, sdkMsgs))
         unstable_batchedUpdates(() => {
           setPersistedSDKMessages(sdkMsgs)
@@ -720,6 +726,22 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       })
     return () => { cancelled = true }
   }, [sessionId, refreshVersion, setStreamingStates, setLiveMessagesMap, setMessagesCache, store])
+
+  const loadMore = React.useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    const nextOffset = loadedCount
+    const nextCount = loadedCount + PAGE_SIZE
+    try {
+      const older = await window.electronAPI.getAgentSessionSDKMessages(sessionId, PAGE_SIZE, nextOffset)
+      setLoadedCount(nextCount)
+      setHasMore(older.length === PAGE_SIZE)
+      setPersistedSDKMessages((prev) => [...older, ...prev])
+      setMessagesCache((c) => setSessionMessagesCache(c, sessionId, [...older, ...persistedSDKMessagesRef.current]))
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [loadingMore, hasMore, loadedCount, sessionId, setMessagesCache])
 
   // 从会话元数据初始化附加目录（仅冷启动水合，后续由 handleAttachFolder/handleDetachDirectory 实时写入）
   React.useEffect(() => {
@@ -2033,6 +2055,9 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
           onFork={handleFork}
           onRewind={handleRewindRequest}
           onCompact={handleCompact}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
         />
 
         {/* 权限请求横幅 */}
