@@ -258,6 +258,7 @@ const PROMPT_TOO_LONG_PATTERNS = [
   'maximum context length',
   'token limit',
   'exceeds the model',
+  'range of input length',
 ] as const
 
 /** 检测错误消息是否为 prompt too long 类型 */

@@ -655,7 +655,7 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       }
     }
     let cancelled = false
-    window.electronAPI.getAgentSessionSDKMessages(sessionId)
+    window.electronAPI.getAgentSessionSDKMessages(sessionId, 500)
       .then((sdkMsgs) => {
         if (cancelled) return
         // 写入缓存（含 LRU 淘汰，防止会话数增长导致内存无限膨胀）

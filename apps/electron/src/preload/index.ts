@@ -416,7 +416,7 @@ export interface ElectronAPI {
   createAgentSession: (title?: string, channelId?: string, workspaceId?: string) => Promise<AgentSessionMeta>
 
   /** 获取 Agent 会话 SDKMessage（Phase 4 新格式） */
-  getAgentSessionSDKMessages: (id: string) => Promise<SDKMessage[]>
+  getAgentSessionSDKMessages: (id: string, limit?: number) => Promise<SDKMessage[]>
 
   /** 更新 Agent 会话标题 */
   updateAgentSessionTitle: (id: string, title: string) => Promise<AgentSessionMeta>
@@ -1403,8 +1403,8 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_SESSION, title, channelId, workspaceId)
   },
 
-  getAgentSessionSDKMessages: (id: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_SDK_MESSAGES, id)
+  getAgentSessionSDKMessages: (id: string, limit?: number) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_SDK_MESSAGES, id, limit)
   },
 
   updateAgentSessionTitle: (id: string, title: string) => {

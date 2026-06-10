@@ -288,7 +288,7 @@ function sanitizeOversizedMessage(msg: SDKMessage, originalLength: number): SDKM
  * 旧格式（有 `role` 字段）会被转换为近似的 SDKMessage。
  * 新格式（有 `type` 字段）直接返回。
  */
-export function getAgentSessionSDKMessages(id: string): SDKMessage[] {
+export function getAgentSessionSDKMessages(id: string, limit?: number): SDKMessage[] {
   const filePath = getAgentSessionMessagesPath(id)
 
   if (!existsSync(filePath)) {
@@ -297,7 +297,10 @@ export function getAgentSessionSDKMessages(id: string): SDKMessage[] {
 
   try {
     const raw = readFileSync(filePath, 'utf-8')
-    const lines = raw.split('\n').filter((line) => line.trim())
+    let lines = raw.split('\n').filter((line) => line.trim())
+    if (limit !== undefined && lines.length > limit) {
+      lines = lines.slice(-limit)
+    }
     return lines.map((line) => {
       const parsed = JSON.parse(line)
       // 旧格式检测：AgentMessage 有 `role` 字段，SDKMessage 有 `type` 字段
