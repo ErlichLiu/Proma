@@ -252,9 +252,6 @@ export interface ElectronAPI {
   /** 获取教程内容 */
   getTutorialContent: () => Promise<string | null>
 
-  /** 获取教程文件路径 */
-  getTutorialFilePath: () => Promise<string>
-
   /** 创建欢迎对话（含教程附件） */
   createWelcomeConversation: () => Promise<ConversationMeta | null>
 
@@ -1191,10 +1188,6 @@ const electronAPI: ElectronAPI = {
   // 教程
   getTutorialContent: () => {
     return ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_TUTORIAL_CONTENT)
-  },
-
-  getTutorialFilePath: () => {
-    return ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_TUTORIAL_FILE_PATH)
   },
 
   createWelcomeConversation: () => {

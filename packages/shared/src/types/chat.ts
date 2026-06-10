@@ -401,8 +401,6 @@ export const CHAT_IPC_CHANNELS = {
   // 教程
   /** 获取教程内容 */
   GET_TUTORIAL_CONTENT: 'chat:get-tutorial-content',
-  /** 获取教程文件路径 */
-  GET_TUTORIAL_FILE_PATH: 'chat:get-tutorial-file-path',
   /** 创建欢迎对话（含教程附件） */
   CREATE_WELCOME_CONVERSATION: 'chat:create-welcome-conversation',
 

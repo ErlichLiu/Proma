@@ -51,7 +51,6 @@ import { AgentSettings } from "./AgentSettings";
 import { PromptSettings } from "./PromptSettings";
 import { ToolSettings } from "./ToolSettings";
 import { BotHubSettings } from "./BotHubSettings";
-import { TutorialViewer } from "../tutorial/TutorialViewer";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { VoiceInputSettings } from "./VoiceInputSettings";
 import { MigrationSettings } from "./MigrationSettings";
@@ -133,8 +132,6 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <AboutSettings />;
     case "bots":
       return <BotHubSettings />;
-    case "tutorial":
-      return <TutorialViewer />;
     case "shortcuts":
       return <ShortcutSettings />;
     case "voice-input":
@@ -143,6 +140,9 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <MigrationSettings />;
     case "storage":
       return <StorageSettings />;
+    default:
+      // tutorial 等特殊 tab 由 handleTabChange 拦截打开主区 Tab，不会在此渲染
+      return <GeneralSettings />;
   }
 }
 
