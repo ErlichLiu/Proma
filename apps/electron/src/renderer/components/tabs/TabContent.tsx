@@ -11,9 +11,8 @@ import { tabsAtom } from '@/atoms/tab-atoms'
 import { ChatView } from '@/components/chat'
 import { AgentView } from '@/components/agent'
 import { PreviewTabContent } from '@/components/diff/PreviewTabContent'
+import { DiffTabContent } from '@/components/diff/DiffTabContent'
 import { ScratchPadView } from '@/components/scratch-pad/ScratchPadView'
-import { TutorialViewer } from '@/components/tutorial/TutorialViewer'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { TabErrorBoundary } from './TabErrorBoundary'
 
 export interface TabContentProps {
@@ -44,13 +43,7 @@ export function TabContent({ tabId }: TabContentProps): React.ReactElement {
   }
 
   if (tab.type === 'tutorial') {
-    return (
-      <ScrollArea className="h-full">
-        <div className="px-8 py-6 max-w-3xl mx-auto">
-          <TutorialViewer />
-        </div>
-      </ScrollArea>
-    )
+    return <TutorialTabContent />
   }
 
   if (tab.type === 'chat') {
@@ -73,5 +66,25 @@ export function TabContent({ tabId }: TabContentProps): React.ReactElement {
     <TabErrorBoundary key={tab.sessionId} sessionId={tab.sessionId}>
       <AgentView sessionId={tab.sessionId} />
     </TabErrorBoundary>
+  )
+}
+
+function TutorialTabContent(): React.ReactElement {
+  const [filePath, setFilePath] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    window.electronAPI.getTutorialFilePath().then(setFilePath).catch(console.error)
+  }, [])
+
+  if (!filePath) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中...</div>
+
+  return (
+    <DiffTabContent
+      filePath={filePath}
+      dirPath={filePath.slice(0, filePath.lastIndexOf('/'))}
+      sessionId="tutorial"
+      previewOnly
+      readOnly
+    />
   )
 }

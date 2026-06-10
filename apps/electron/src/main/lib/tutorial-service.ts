@@ -18,7 +18,7 @@ import type { ConversationMeta, FileAttachment, ChatMessage } from '@proma/share
  * 开发模式：从 monorepo 根目录读取
  * 生产模式：从 extraResources 读取
  */
-function getTutorialFilePath(): string {
+export function getTutorialFilePath(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'tutorial.md')
   }
