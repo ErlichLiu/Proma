@@ -240,6 +240,7 @@ export function InlineEditForm({ message, onSubmit, onCancel }: InlineEditFormPr
         <div className="flex flex-wrap gap-1">
           {editableAttachments.map((item) => (
             <AttachmentPreviewItem
+              id={item.id}
               key={item.id}
               filename={item.attachment.filename}
               mediaType={item.attachment.mediaType}

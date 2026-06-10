@@ -2,7 +2,7 @@
  * AttachmentPreviewItem - 附件预览卡片
  *
  * 对标 Cherry Studio 的 AttachmentPreview 风格：
- * - 图片：紧凑缩略图 + 圆角
+ * - 图片：紧凑缩略图 + 圆角，点击可打开标注编辑器
  * - 非图片：teal 色标签 + 文件名截断
  * - hover 显示关闭按钮
  */
@@ -10,9 +10,11 @@
 import * as React from 'react'
 import { X, Paperclip } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ImageLightbox } from '@/components/ui/image-lightbox'
+import { ImageAnnotator } from '@/components/image-annotator/ImageAnnotator'
 
 interface AttachmentPreviewItemProps {
+  /** 附件唯一 ID */
+  id: string
   /** 原始文件名 */
   filename: string
   /** MIME 类型 */
@@ -21,6 +23,8 @@ interface AttachmentPreviewItemProps {
   previewUrl?: string
   /** 删除回调 */
   onRemove: () => void
+  /** 标注完成回调：返回新的 base64 图片数据 */
+  onAnnotate?: (id: string, newBase64: string) => void
   /** 点击回调（用于打开文件预览等） */
   onClick?: () => void
   className?: string
@@ -37,14 +41,16 @@ function truncateName(name: string, max: number = 20): string {
 }
 
 export function AttachmentPreviewItem({
+  id,
   filename,
   mediaType,
   previewUrl,
   onRemove,
+  onAnnotate,
   onClick,
   className,
 }: AttachmentPreviewItemProps): React.ReactElement {
-  const [lightboxOpen, setLightboxOpen] = React.useState(false)
+  const [annotatorOpen, setAnnotatorOpen] = React.useState(false)
   const handleRemoveClick = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     onRemove()
@@ -66,7 +72,7 @@ export function AttachmentPreviewItem({
           src={previewUrl}
           alt={filename}
           className="size-full object-cover cursor-pointer"
-          onClick={() => setLightboxOpen(true)}
+          onClick={() => setAnnotatorOpen(true)}
         />
         {/* hover 关闭按钮 */}
         <button
@@ -83,11 +89,14 @@ export function AttachmentPreviewItem({
         >
           <X className="size-3" />
         </button>
-        <ImageLightbox
+        <ImageAnnotator
           src={previewUrl}
           alt={filename}
-          open={lightboxOpen}
-          onOpenChange={setLightboxOpen}
+          open={annotatorOpen}
+          onOpenChange={setAnnotatorOpen}
+          onConfirm={(newBase64) => {
+            onAnnotate?.(id, newBase64)
+          }}
         />
       </div>
     )
