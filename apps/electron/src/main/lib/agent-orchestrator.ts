@@ -28,6 +28,8 @@ import {
   THINKING_SIGNATURE_ERROR_CODE,
   THINKING_SIGNATURE_ERROR_MESSAGE,
   THINKING_SIGNATURE_ERROR_TITLE,
+  buildBuiltinWorkflowSlashCommandPrompt,
+  parseBuiltinWorkflowSlashCommandMessage,
 } from '@proma/shared'
 import type { PermissionRequest, PromaPermissionMode, AskUserRequest, ExitPlanModeRequest } from '@proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
@@ -1282,9 +1284,11 @@ export class AgentOrchestrator {
 
       const contextualMessage = `${dynamicCtx}\n\n${enrichedMessage}`
 
-      const isCompactCommand = userMessage.trim() === '/compact'
-      const finalPrompt = isCompactCommand
-        ? '/compact'
+      const builtinWorkflowSlashCommand = parseBuiltinWorkflowSlashCommandMessage(userMessage)
+      const workflowProgressEnabled = builtinWorkflowSlashCommand != null
+      const isNativeSlashCommand = userMessage.trim() === '/compact' || workflowProgressEnabled
+      const finalPrompt = isNativeSlashCommand
+        ? buildBuiltinWorkflowSlashCommandPrompt(userMessage.trimStart())
         : existingSdkSessionId
           ? contextualMessage
           : buildContextPrompt(sessionId, contextualMessage, { agentCwd })
@@ -1535,6 +1539,7 @@ export class AgentOrchestrator {
         env: sdkEnv,
         ...(maxTurns != null && { maxTurns }),
         sdkPermissionMode: sdkPermissionModeForPromaMode(initialPermissionMode),
+        includePartialMessages: workflowProgressEnabled,
         // permissionMode 负责表达 auto/plan/bypassPermissions。
         // 当提供 canUseTool 回调时这里必须为 false，否则 CLI 同时收到
         // --allow-dangerously-skip-permissions 和 --permission-prompt-tool stdio
