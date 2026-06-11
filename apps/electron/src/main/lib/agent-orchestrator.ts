@@ -40,6 +40,7 @@ import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk, getPromaUserAg
 import pkg from '../../../package.json' with { type: 'json' }
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
+import { startThinkingProxy, stopThinkingProxy, forceStopThinkingProxy } from './thinking-proxy-service'
 import { appendSDKMessages, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages, getAgentSessionSDKMessages, truncateSDKMessages, resolveUserUuidFromSDK, rewindFilesFromSnapshot } from './agent-session-manager'
 import { getAgentWorkspace, getWorkspaceMcpConfig, ensurePluginManifest } from './agent-workspace-manager'
 import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, getWorkspaceFilesDir, getConfigDirName } from './config-paths'
@@ -1304,6 +1305,37 @@ export class AgentOrchestrator {
       this.sessionPermissionModes.set(sessionId, initialPermissionMode)
       console.log(`[Agent 编排] 权限模式: ${initialPermissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
 
+      // 12.1 anthropic-compatible 渠道 + thinking 启用：启动本地代理拦截
+      // CLI 内部会将 thinking.type="enabled" 转为 "adaptive" 发给 API，
+      // 但讯飞等兼容端点不支持 adaptive，需要本地代理在 HTTP 层面替换回 "enabled"。
+      const isCompatThinking = channel.provider === 'anthropic-compatible' && channel.agentThinkingEnabled === true
+      if (isCompatThinking && appSettings.agentThinking && appSettings.agentThinking.type !== 'disabled') {
+        const budgetTokens = appSettings.agentThinking.type === 'enabled' && appSettings.agentThinking.budgetTokens
+          ? appSettings.agentThinking.budgetTokens
+          : 16384
+        const originalBaseUrl = channel.baseUrl && channel.baseUrl !== 'https://api.anthropic.com'
+          ? normalizeAnthropicBaseUrlForSdk(channel.baseUrl)
+          : undefined
+        if (originalBaseUrl) {
+          const thinkingProxyUrl = await startThinkingProxy(sessionId, {
+            targetBaseUrl: originalBaseUrl,
+            budgetTokens,
+          })
+          // CLI 连本地代理，代理转发到实际端点
+          sdkEnv.ANTHROPIC_BASE_URL = thinkingProxyUrl
+          process.env.ANTHROPIC_BASE_URL = thinkingProxyUrl
+          // CLI 不再直连 API，清除 HTTPS_PROXY 避免 CLI 通过 Clash 连本地代理
+          // 出站代理由 thinking-proxy-service 自行管理
+          delete sdkEnv.HTTPS_PROXY
+          delete sdkEnv.HTTP_PROXY
+          delete process.env.HTTPS_PROXY
+          delete process.env.HTTP_PROXY
+          console.log(`[Agent Thinking Proxy] 启用代理: ${thinkingProxyUrl} → ${originalBaseUrl}, budgetTokens=${budgetTokens}`)
+        } else {
+          console.warn(`[Agent Thinking Proxy] 跳过：isCompatThinking 渠道缺少自定义 Base URL，thinking 可能不兼容`)
+        }
+      }
+
       const emitPlanModeChanged = (active: boolean, source: 'initial' | 'tool' | 'permission'): void => {
         this.eventBus.emit(sessionId, {
           kind: 'proma_event',
@@ -1576,8 +1608,29 @@ export class AgentOrchestrator {
         // 启用文件检查点，支持 rewindFiles 回退
         enableFileCheckpointing: true,
         // SDK 0.2.52+ 新增选项（从 settings 读取）
-        ...(appSettings.agentThinking && { thinking: appSettings.agentThinking }),
-        effort: appSettings.agentEffort ?? 'high',
+        // thinking / effort 仅在渠道支持时传递：
+        // - anthropic / deepseek：原生支持 adaptive thinking
+        // - anthropic-compatible + agentThinkingEnabled：兼容端点不支持 adaptive，
+        //   降级为 {type:'enabled', budgetTokens}，CLI 会转成 adaptive 发给 API，
+        //   由 thinking-proxy 在 HTTP 层拦截替换为 enabled。
+        // - 其它（kimi / zhipu / minimax 等）：不支持，不传
+        ...(() => {
+          const provider = channel.provider
+          const isNativeThinking = provider === 'anthropic' || provider === 'deepseek'
+          const isCompatThinking = provider === 'anthropic-compatible' && channel.agentThinkingEnabled === true
+          console.log(`[Agent Thinking] provider=${provider}, agentThinkingEnabled=${channel.agentThinkingEnabled}, isNativeThinking=${isNativeThinking}, isCompatThinking=${isCompatThinking}`)
+          if (!isNativeThinking && !isCompatThinking) return {}
+          if (!appSettings.agentThinking) return {}
+          // anthropic-compatible 兼容端点不支持 adaptive，降级为 manual 模式
+          const thinking = isCompatThinking && appSettings.agentThinking.type === 'adaptive'
+            ? { type: 'enabled' as const, budgetTokens: 16384 }
+            : appSettings.agentThinking
+          console.log(`[Agent Thinking] resolved thinking=${JSON.stringify(thinking)}, effort=${appSettings.agentEffort ?? 'high'}`)
+          return {
+            thinking,
+            effort: appSettings.agentEffort ?? 'high',
+          }
+        })(),
         ...(appSettings.agentMaxBudgetUsd != null && appSettings.agentMaxBudgetUsd > 0 && {
           maxBudgetUsd: appSettings.agentMaxBudgetUsd,
         }),
@@ -2192,6 +2245,8 @@ export class AgentOrchestrator {
       // askUserService 不在 turn 结束时清理——AskUserQuestion 的生命周期由用户交互决定，
       // 仅在会话真正删除时（DELETE_SESSION IPC）才清理。
       exitPlanService.clearSessionPending(sessionId)
+      // 清理 thinking proxy（会话结束不再需要）
+      stopThinkingProxy(sessionId).catch((err) => console.error('[Agent 编排] 关闭 thinking proxy 失败:', err))
     }
   }
 
@@ -2324,6 +2379,8 @@ export class AgentOrchestrator {
     this.activeSessions.clear()
     this.sessionPermissionModes.clear()
     this.queuedMessageUuids.clear()
+    // 清理 thinking proxy
+    forceStopThinkingProxy().catch((err) => console.error('[Agent 编排] 关闭 thinking proxy 失败:', err))
   }
 
   // ===== 队列消息管理 =====

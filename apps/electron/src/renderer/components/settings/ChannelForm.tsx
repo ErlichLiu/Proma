@@ -145,6 +145,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
   const [showApiKey, setShowApiKey] = React.useState(false)
   const [models, setModels] = React.useState<ChannelModel[]>(channel?.models ?? [])
   const [enabled, setEnabled] = React.useState(channel?.enabled ?? true)
+  const [agentThinkingEnabled, setAgentThinkingEnabled] = React.useState(channel?.agentThinkingEnabled ?? false)
 
   // 新模型输入
   const [newModelId, setNewModelId] = React.useState('')
@@ -195,6 +196,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     currentBaseUrl: string,
     currentApiKey: string,
     currentEnabled: boolean,
+    currentAgentThinkingEnabled: boolean,
   ) => {
     if (!isEdit || !channel) return
     try {
@@ -205,6 +207,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
         apiKey: currentApiKey || undefined,
         models: currentModels,
         enabled: currentEnabled,
+        ...(currentProvider === 'anthropic-compatible' ? { agentThinkingEnabled: currentAgentThinkingEnabled } : { agentThinkingEnabled: false }),
       })
       const eligible = isAgentEligibleChannel(savedChannel)
       if (eligible !== lastAgentEligibleRef.current) {
@@ -226,11 +229,12 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     nextBaseUrl: string,
     nextApiKey: string,
     nextEnabled: boolean,
+    nextAgentThinkingEnabled: boolean,
   ) => {
     if (!isEdit || !initializedRef.current) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      doAutoSave(nextModels, nextName, nextProvider, nextBaseUrl, nextApiKey, nextEnabled)
+      doAutoSave(nextModels, nextName, nextProvider, nextBaseUrl, nextApiKey, nextEnabled, nextAgentThinkingEnabled)
     }, AUTO_SAVE_DELAY)
   }, [isEdit, doAutoSave])
 
@@ -248,9 +252,9 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
 
   // 监听字段变化触发 auto-save
   React.useEffect(() => {
-    scheduleAutoSave(models, name, provider, baseUrl, apiKey, enabled)
+    scheduleAutoSave(models, name, provider, baseUrl, apiKey, enabled, agentThinkingEnabled)
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current) }
-  }, [models, name, provider, baseUrl, apiKey, enabled, scheduleAutoSave])
+  }, [models, name, provider, baseUrl, apiKey, enabled, agentThinkingEnabled, scheduleAutoSave])
 
   // 切换供应商时自动更新 Base URL，Anthropic 兼容渠道自动添加预设模型
   const handleProviderChange = (newProvider: string): void => {
@@ -258,6 +262,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     setProvider(p)
     setBaseUrl(PROVIDER_DEFAULT_URLS[p])
     setTestResult(null)
+    setAgentThinkingEnabled(false)
     // 预设模型：首次切换到对应 provider 且无模型时自动填充
     if (models.length === 0) {
       if (p === 'deepseek') {
@@ -388,6 +393,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
         apiKey,
         models,
         enabled,
+        ...(provider === 'anthropic-compatible' ? { agentThinkingEnabled } : {}),
       }
       const savedChannel = await window.electronAPI.createChannel(input)
       if (isAgentEligibleChannel(savedChannel)) {
@@ -402,7 +408,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
     } finally {
       setSaving(false)
     }
-  }, [name, provider, baseUrl, apiKey, models, enabled, onAgentEligibilityChange])
+  }, [name, provider, baseUrl, apiKey, models, enabled, agentThinkingEnabled, onAgentEligibilityChange])
 
   /** 创建渠道（仅新建模式） */
   const handleCreate = async (): Promise<void> => {
@@ -580,6 +586,14 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
             checked={enabled}
             onCheckedChange={setEnabled}
           />
+          {provider === 'anthropic-compatible' && (
+            <SettingsToggle
+              label="Agent Thinking 支持"
+              description="开启后 Agent 模式将向此渠道发送 thinking 参数（需供应商支持扩展思维协议）"
+              checked={agentThinkingEnabled}
+              onCheckedChange={setAgentThinkingEnabled}
+            />
+          )}
         </SettingsCard>
       </SettingsSection>
 

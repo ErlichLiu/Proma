@@ -124,6 +124,8 @@ export interface Channel {
   models: ChannelModel[]
   /** 是否启用 */
   enabled: boolean
+  /** Agent 模式是否支持 thinking（仅 anthropic-compatible 类型渠道有效） */
+  agentThinkingEnabled?: boolean
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -141,6 +143,8 @@ export interface ChannelCreateInput {
   apiKey: string
   models: ChannelModel[]
   enabled: boolean
+  /** Agent 模式是否支持 thinking（仅 anthropic-compatible 类型渠道有效） */
+  agentThinkingEnabled?: boolean
 }
 
 /**
@@ -154,6 +158,8 @@ export interface ChannelUpdateInput {
   apiKey?: string
   models?: ChannelModel[]
   enabled?: boolean
+  /** Agent 模式是否支持 thinking（仅 anthropic-compatible 类型渠道有效） */
+  agentThinkingEnabled?: boolean
 }
 
 /**
