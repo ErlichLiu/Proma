@@ -42,7 +42,7 @@ type ZodModule = typeof import('zod')
 const TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function validScheduleType(v: unknown): v is AutomationScheduleType {
-  return v === 'interval' || v === 'daily' || v === 'weekly'
+  return v === 'interval' || v === 'daily' || v === 'weekly' || v === 'monthly'
 }
 
 function validPermissionMode(v: unknown): v is AutomationPermissionMode {
@@ -73,6 +73,9 @@ function validateScheduleFields(input: Partial<CreateAutomationInput | UpdateAut
   if (input.dayOfWeek !== undefined && (!isFiniteInt(input.dayOfWeek) || input.dayOfWeek < 0 || input.dayOfWeek > 6)) {
     throw new Error(`非法的 dayOfWeek: ${String(input.dayOfWeek)}`)
   }
+  if (input.dayOfMonth !== undefined && (!isFiniteInt(input.dayOfMonth) || input.dayOfMonth < 1 || input.dayOfMonth > 31)) {
+    throw new Error(`非法的 dayOfMonth: ${String(input.dayOfMonth)}`)
+  }
   if (input.permissionMode !== undefined && !validPermissionMode(input.permissionMode)) {
     throw new Error(`非法的 permissionMode: ${String(input.permissionMode)}`)
   }
@@ -87,6 +90,7 @@ function summarizeAutomation(a: Automation, includeHistory: boolean): Record<str
     intervalMinutes: a.intervalMinutes,
     timeOfDay: a.timeOfDay,
     dayOfWeek: a.dayOfWeek,
+    dayOfMonth: a.dayOfMonth,
     permissionMode: a.permissionMode,
     workspaceId: a.workspaceId,
     sourceSessionId: a.sourceSessionId,
@@ -117,7 +121,7 @@ function getCurrentAutomationId(ctx: AutomationAgentToolContext): string | undef
 }
 
 function buildAutomationSchemas(z: ZodModule['z']) {
-  const scheduleType = z.enum(['interval', 'daily', 'weekly'])
+  const scheduleType = z.enum(['interval', 'daily', 'weekly', 'monthly'])
   const permissionMode = z.enum(['auto', 'bypassPermissions'])
   return {
     list: {
@@ -130,10 +134,11 @@ function buildAutomationSchemas(z: ZodModule['z']) {
     create: {
       name: z.string().describe('任务名，简短说明长期反复执行的目标'),
       prompt: z.string().describe('每次触发时发送给 Agent 的完整自然语言指令'),
-      scheduleType: scheduleType.describe('调度类型：interval 固定间隔，daily 每天定点，weekly 每周定点'),
+      scheduleType: scheduleType.describe('调度类型：interval 固定间隔，daily 每天定点，weekly 每周定点，monthly 每月定点'),
       intervalMinutes: z.number().int().min(1).optional().describe('固定间隔分钟数；scheduleType=interval 时必填'),
-      timeOfDay: z.string().optional().describe('每天/每周触发时间，24 小时制 HH:MM'),
+      timeOfDay: z.string().optional().describe('每天/每周/每月触发时间，24 小时制 HH:MM'),
       dayOfWeek: z.number().int().min(0).max(6).optional().describe('每周触发日，0=周日，1=周一，...，6=周六'),
+      dayOfMonth: z.number().int().min(1).max(31).optional().describe('每月触发日，1-31；scheduleType=monthly 时必填'),
       active: z.boolean().optional().describe('创建后是否启用，默认 true'),
       permissionMode: permissionMode.optional().describe('无人值守权限模式，默认 bypassPermissions；高风险任务可用 auto'),
     },
@@ -143,8 +148,9 @@ function buildAutomationSchemas(z: ZodModule['z']) {
       prompt: z.string().optional().describe('新的执行提示词'),
       scheduleType: scheduleType.optional().describe('新的调度类型'),
       intervalMinutes: z.number().int().min(1).optional().describe('新的固定间隔分钟数'),
-      timeOfDay: z.string().optional().describe('新的每天/每周触发时间，24 小时制 HH:MM'),
+      timeOfDay: z.string().optional().describe('新的每天/每周/每月触发时间，24 小时制 HH:MM'),
       dayOfWeek: z.number().int().min(0).max(6).optional().describe('新的每周触发日，0=周日，...，6=周六'),
+      dayOfMonth: z.number().int().min(1).max(31).optional().describe('新的每月触发日，1-31'),
       active: z.boolean().optional().describe('启用或暂停任务'),
       permissionMode: permissionMode.optional().describe('新的无人值守权限模式'),
     },
@@ -209,6 +215,7 @@ export async function injectAutomationMcpServer(
             intervalMinutes: args.intervalMinutes ?? 10,
             timeOfDay: args.timeOfDay,
             dayOfWeek: args.dayOfWeek,
+            dayOfMonth: args.dayOfMonth,
             channelId: ctx.channelId,
             modelId: ctx.modelId,
             workspaceId: ctx.workspaceId,
@@ -220,11 +227,14 @@ export async function injectAutomationMcpServer(
           if (input.scheduleType === 'interval' && args.intervalMinutes === undefined) {
             throw new Error('scheduleType=interval 时 intervalMinutes 必填')
           }
-          if ((input.scheduleType === 'daily' || input.scheduleType === 'weekly') && !input.timeOfDay) {
-            throw new Error('scheduleType=daily/weekly 时 timeOfDay 必填')
+          if ((input.scheduleType === 'daily' || input.scheduleType === 'weekly' || input.scheduleType === 'monthly') && !input.timeOfDay) {
+            throw new Error('scheduleType=daily/weekly/monthly 时 timeOfDay 必填')
           }
           if (input.scheduleType === 'weekly' && input.dayOfWeek === undefined) {
             throw new Error('scheduleType=weekly 时 dayOfWeek 必填')
+          }
+          if (input.scheduleType === 'monthly' && input.dayOfMonth === undefined) {
+            throw new Error('scheduleType=monthly 时 dayOfMonth 必填')
           }
           const automation = createAutomation(input)
           broadcastAutomationsChanged()
@@ -246,6 +256,7 @@ export async function injectAutomationMcpServer(
             intervalMinutes: args.intervalMinutes,
             timeOfDay: args.timeOfDay,
             dayOfWeek: args.dayOfWeek,
+            dayOfMonth: args.dayOfMonth,
             active: args.active,
             permissionMode: args.permissionMode,
           }
