@@ -56,6 +56,17 @@ function writeIndex(index: ConversationsIndex): void {
 }
 
 /**
+ * 查找系统助手对话
+ *
+ * @param type 系统助手类型
+ * @returns 对话元数据，不存在返回 null
+ */
+export function findSystemAssistantConversation(type: 'onboarding' | 'troubleshoot'): ConversationMeta | null {
+  const index = readIndex()
+  return index.conversations.find((c) => c.isSystemAssistant === type) ?? null
+}
+
+/**
  * 获取所有对话（按 updatedAt 降序）
  */
 export function listConversations(): ConversationMeta[] {
@@ -69,12 +80,14 @@ export function listConversations(): ConversationMeta[] {
  * @param title 对话标题（默认"新对话"）
  * @param modelId 默认模型 ID
  * @param channelId 使用的渠道 ID
+ * @param isSystemAssistant 系统助手类型（设置后不在普通列表显示）
  * @returns 创建的对话元数据
  */
 export function createConversation(
   title?: string,
   modelId?: string,
   channelId?: string,
+  isSystemAssistant?: 'onboarding' | 'troubleshoot',
 ): ConversationMeta {
   const index = readIndex()
   const now = Date.now()
@@ -84,6 +97,7 @@ export function createConversation(
     title: title || '新对话',
     modelId,
     channelId,
+    ...(isSystemAssistant ? { isSystemAssistant } : {}),
     createdAt: now,
     updatedAt: now,
   }

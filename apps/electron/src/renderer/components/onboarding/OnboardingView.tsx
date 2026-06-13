@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { GraduationCap, ChevronRight, ChevronLeft, HardDriveDownload, Users } from 'lucide-react'
+import { GraduationCap, ChevronRight, ChevronLeft, HardDriveDownload, Users, Rocket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EnvironmentCheckPanel } from '@/components/environment/EnvironmentCheckPanel'
 import { isShellEnvironmentOkAtom } from '@/atoms/environment'
@@ -18,7 +18,7 @@ import { detectIsWindows } from '@/lib/platform'
 import { migrationImportDialogOpenAtom } from '@/atoms/migration-atoms'
 
 interface OnboardingViewProps {
-  onComplete: (openTutorial?: boolean) => void
+  onComplete: (action?: 'tutorial' | 'assistant') => void
 }
 
 export function OnboardingView({ onComplete }: OnboardingViewProps) {
@@ -27,9 +27,9 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const shellOk = useAtomValue(isShellEnvironmentOkAtom)
   const setMigrationImportDialogOpen = useSetAtom(migrationImportDialogOpenAtom)
 
-  const handleFinish = async (openTutorial?: boolean) => {
+  const handleFinish = async (action?: 'tutorial' | 'assistant') => {
     await window.electronAPI.updateSettings({ onboardingCompleted: true })
-    onComplete(openTutorial)
+    onComplete(action)
   }
 
   const handleNextFromWelcome = () => {
@@ -58,7 +58,22 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
           <div className="w-full max-w-2xl">
             <div className="space-y-3">
               <button
-                onClick={() => handleFinish(true)}
+                onClick={() => handleFinish('assistant')}
+                className="w-full rounded-xl bg-gradient-to-r from-primary/10 via-primary/15 to-primary/10 border border-primary/25 p-4 flex items-center gap-4 hover:from-primary/15 hover:via-primary/20 hover:to-primary/15 transition-colors text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+                  <Rocket size={20} className="text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-foreground">让 Proma 帮你用起来 Proma</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    启动助手引导你完成渠道配置、工具接入等初始设置
+                  </p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleFinish('tutorial')}
                 className="w-full rounded-xl bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border border-primary/15 p-4 flex items-center gap-4 hover:from-primary/10 hover:via-primary/15 hover:to-primary/10 transition-colors text-left"
               >
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
