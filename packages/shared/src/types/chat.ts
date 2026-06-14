@@ -155,6 +155,8 @@ export interface ConversationMeta {
   pinned?: boolean
   /** 是否已归档 */
   archived?: boolean
+  /** 系统助手类型（冷启动向导 / 问题排查助手），设置后不在普通对话列表中显示 */
+  isSystemAssistant?: 'onboarding' | 'troubleshoot'
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -403,6 +405,9 @@ export const CHAT_IPC_CHANNELS = {
   GET_TUTORIAL_CONTENT: 'chat:get-tutorial-content',
   /** 创建欢迎对话（含教程附件） */
   CREATE_WELCOME_CONVERSATION: 'chat:create-welcome-conversation',
+
+  /** 获取或创建系统助手对话（冷启动向导 / 问题排查助手） */
+  GET_OR_CREATE_SYSTEM_ASSISTANT: 'chat:get-or-create-system-assistant',
 
   // 流式事件（主进程 → 渲染进程推送）
   /** 内容片段 */

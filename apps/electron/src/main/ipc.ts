@@ -147,7 +147,7 @@ import {
   openFileDialog,
 } from './lib/attachment-service'
 import { extractTextFromAttachment } from './lib/document-parser'
-import { getTutorialContent, createWelcomeConversation } from './lib/tutorial-service'
+import { getTutorialContent, createWelcomeConversation, ensureSystemAssistantConversation } from './lib/tutorial-service'
 import { getUserProfile, updateUserProfile } from './lib/user-profile-service'
 import { getSettings, updateSettings } from './lib/settings-service'
 import { setDockBadgeCount } from './lib/dock-badge-service'
@@ -1184,6 +1184,14 @@ export function registerIpcHandlers(): void {
     CHAT_IPC_CHANNELS.CREATE_WELCOME_CONVERSATION,
     async (): Promise<ConversationMeta | null> => {
       return createWelcomeConversation()
+    }
+  )
+
+  // 获取或创建系统助手对话（冷启动向导 / 问题排查助手）
+  ipcMain.handle(
+    CHAT_IPC_CHANNELS.GET_OR_CREATE_SYSTEM_ASSISTANT,
+    async (_, type: 'onboarding' | 'troubleshoot'): Promise<ConversationMeta | null> => {
+      return ensureSystemAssistantConversation(type)
     }
   )
 

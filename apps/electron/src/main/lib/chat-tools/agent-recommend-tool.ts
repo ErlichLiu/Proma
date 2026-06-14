@@ -24,7 +24,7 @@ export const AGENT_RECOMMEND_TOOL_META: ChatToolMeta = {
   executorType: 'builtin',
   systemPromptAppend: `
 <agent_mode_recommendation>
-你有能力推荐用户切换到 Agent 模式。**请积极主动地识别适合 Agent 模式的任务**，在回复用户之前先调用 suggest_agent_mode 工具。
+你有能力推荐用户切换到 Agent 模式。**这是强制要求：当任务适合 Agent 模式时，你必须先调用 suggest_agent_mode 工具，然后再回复用户。禁止用文字描述来替代工具调用。**
 
 ## Agent 模式的能力
 
@@ -36,9 +36,7 @@ Agent 模式拥有以下 Chat 模式不具备的能力：
 - **多步骤编排**：自主规划和执行复杂的多步骤任务，支持试错和迭代
 - **深度研究**：通过 MCP 和 Skills 进行系统化的信息搜集、对比分析和结构化输出
 
-## 推荐判断基准
-
-当用户的任务符合以下**任一**场景时，就应该推荐切换：
+## 推荐判断基准（满足任一即必须调用工具）
 
 1. **研究调研类任务**：产品调研、技术选型、竞品分析、行业报告、市场分析等需要系统化搜集和整理信息的任务
 2. **内容创作与输出**：撰写长文档、报告、方案、教程等需要结构化输出的任务
@@ -48,22 +46,14 @@ Agent 模式拥有以下 Chat 模式不具备的能力：
 6. **外部能力需求**：访问数据库、调用 API、获取实时数据、使用开发工具等
 7. **数据处理分析**：数据清洗、统计分析、生成图表、制作可视化等
 8. **复杂多步任务**：任何需要拆分为多个子步骤、涉及规划和迭代的任务
+9. **工具配置与安装**：安装 Skill、连接 MCP、接入飞书/钉钉/微信等外部服务、配置渠道和工具——这类任务在 Agent 模式下可以直接操作，效率远高于 Chat 模式手动引导
 
-### 典型推荐示例
+## 执行规则
 
-- "帮我做个 XX 产品/技术的调研" → 推荐（深度研究 + 结构化输出）
-- "帮我写一个 React 组件" → 推荐（文件创建 + 代码编写）
-- "分析一下这个项目的代码" → 推荐（文件读取 + 代码分析）
-- "帮我整理一份报告" → 推荐（内容创作 + 结构化输出）
-- "搭建一个新项目" → 推荐（文件创建 + 命令行 + 多步骤）
-
-### 不推荐的场景
-
-仅以下简单任务不需要推荐：简短问答、解释概念、翻译短文、日常闲聊、简单计算
-
-## 推荐要求
-
-- **reason 必须具体说明 Agent 模式如何帮助用户更好地实现他们的目标**。结合用户的具体任务描述 Agent 会怎样做。例如："你想做桌面端 AI 产品调研，Agent 模式可以通过 MCP 和 Skills 系统化地搜集各产品信息、自动整理对比分析，并输出结构化的调研报告文档。"
+- **发现任务符合上述任一场景，必须立即调用 suggest_agent_mode，不得跳过**
+- **禁止**：用文字解释"你需要切换到 Agent 模式"或"Agent 模式可以做这个"而不调用工具
+- **正确做法**：调用工具 → 工具处理后系统会显示切换按钮 → 你的回复正常回答用户
+- reason 必须具体说明 Agent 模式如何帮助用户更好地实现他们的目标
 - suggestedPrompt 应概括用户的核心任务需求，作为 Agent 会话的起始提示
 - 每轮对话最多推荐一次，避免反复打扰
 </agent_mode_recommendation>`,
@@ -74,7 +64,7 @@ Agent 模式拥有以下 Chat 模式不具备的能力：
 export const AGENT_RECOMMEND_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'suggest_agent_mode',
-    description: 'Proactively recommend switching to Agent mode when the task involves research, coding, file operations, command execution, content creation, data analysis, or any multi-step work. Call this before responding whenever the task would meaningfully benefit from Agent capabilities.',
+    description: 'Proactively recommend switching to Agent mode when the task involves research, coding, file operations, command execution, content creation, data analysis, multi-step work, OR when the user wants to install Skills, connect MCP tools, integrate external services (Feishu, DingTalk, WeChat), or configure any tools/integrations. Call this before responding whenever the task would meaningfully benefit from Agent capabilities.',
     parameters: {
       type: 'object',
       properties: {

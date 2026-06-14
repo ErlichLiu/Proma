@@ -44,15 +44,34 @@ export default function App(): React.ReactElement {
     initialize()
   }, [])
 
-  // 完成 onboarding 回调：创建欢迎对话，可选打开教程 Tab
-  const handleOnboardingComplete = async (openTutorial?: boolean) => {
+  // 完成 onboarding 回调：根据用户选择打开教程 Tab 或启动助手对话
+  const handleOnboardingComplete = async (action?: 'tutorial' | 'assistant') => {
     setShowOnboarding(false)
 
-    if (openTutorial) {
+    if (action === 'tutorial') {
       const tabs = store.get(tabsAtom)
       const result = openTab(tabs, { type: 'tutorial', sessionId: TUTORIAL_TAB_ID, title: 'Proma 使用教程' })
       store.set(tabsAtom, result.tabs)
       store.set(activeTabIdAtom, result.activeTabId)
+      return
+    }
+
+    if (action === 'assistant') {
+      try {
+        const meta = await window.electronAPI.getOrCreateSystemAssistant('onboarding')
+        if (meta) {
+          const conversations = store.get(conversationsAtom)
+          if (!conversations.find((c) => c.id === meta.id)) {
+            store.set(conversationsAtom, [meta, ...conversations])
+          }
+          const tabs = store.get(tabsAtom)
+          const result = openTab(tabs, { type: 'chat', sessionId: meta.id, title: meta.title })
+          store.set(tabsAtom, result.tabs)
+          store.set(activeTabIdAtom, result.activeTabId)
+        }
+      } catch (error) {
+        console.error('[App] 打开启动助手失败:', error)
+      }
       return
     }
 

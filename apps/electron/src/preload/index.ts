@@ -255,6 +255,9 @@ export interface ElectronAPI {
   /** 创建欢迎对话（含教程附件） */
   createWelcomeConversation: () => Promise<ConversationMeta | null>
 
+  /** 获取或创建系统助手对话（冷启动向导 / 问题排查助手） */
+  getOrCreateSystemAssistant: (type: 'onboarding' | 'troubleshoot') => Promise<ConversationMeta | null>
+
   // ===== 消息发送 =====
 
   /** 发送消息（触发 AI 流式响应） */
@@ -1192,6 +1195,10 @@ const electronAPI: ElectronAPI = {
 
   createWelcomeConversation: () => {
     return ipcRenderer.invoke(CHAT_IPC_CHANNELS.CREATE_WELCOME_CONVERSATION)
+  },
+
+  getOrCreateSystemAssistant: (type: 'onboarding' | 'troubleshoot') => {
+    return ipcRenderer.invoke(CHAT_IPC_CHANNELS.GET_OR_CREATE_SYSTEM_ASSISTANT, type)
   },
 
   // 消息发送

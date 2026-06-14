@@ -11,7 +11,7 @@
 import * as React from 'react'
 import { useAtom, useSetAtom, useAtomValue, useStore } from 'jotai'
 import { toast } from 'sonner'
-import { Pin, PinOff, Settings, Plus, Trash2, Pencil, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Bot, MessageSquare, MoreHorizontal, FolderOpen, GripVertical, Clock, AlarmClock } from 'lucide-react'
+import { Pin, PinOff, Settings, Plus, Trash2, Pencil, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Bot, MessageSquare, MoreHorizontal, FolderOpen, GripVertical, Clock, AlarmClock, HelpCircle, Rocket, Wrench, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { ModeSwitcher } from './ModeSwitcher'
@@ -160,6 +160,64 @@ function AutomationSidebarEntry({ count, active, onClick }: AutomationSidebarEnt
         {formatAutomationCount(count)}
       </span>
     </button>
+  )
+}
+
+interface HelpSidebarEntryProps {
+  onOpen: (type: 'onboarding' | 'troubleshoot') => void
+}
+
+function HelpSidebarEntry({ onOpen }: HelpSidebarEntryProps): React.ReactElement {
+  const [expanded, setExpanded] = React.useState(false)
+
+  return (
+    <div className="titlebar-no-drag">
+      <button
+        type="button"
+        aria-label="Proma 助手"
+        onClick={() => setExpanded((v) => !v)}
+        className={cn(
+          'group w-full flex items-center justify-between px-3 py-2 rounded-md text-[13px] transition-colors duration-100',
+          expanded
+            ? 'bg-accent-foreground/[0.10] text-foreground shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]'
+            : 'text-foreground/60 hover:bg-accent-foreground/[0.08] hover:text-foreground',
+        )}
+      >
+        <span className="flex items-center gap-3 min-w-0">
+          <span className={cn('flex-shrink-0 w-[18px] h-[18px]', expanded ? 'text-accent-foreground' : 'text-foreground/45')}>
+            <HelpCircle size={16} className="block" />
+          </span>
+          <span className="truncate">Proma 助手</span>
+        </span>
+        <ChevronDown
+          size={14}
+          className={cn(
+            'flex-shrink-0 transition-transform duration-150',
+            expanded ? 'rotate-180 text-foreground/60' : 'text-foreground/30',
+          )}
+        />
+      </button>
+      {expanded && (
+        <div className="mt-0.5 flex flex-col gap-0.5 pl-2">
+          <button
+            type="button"
+            onClick={() => onOpen('onboarding')}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[12px] text-foreground/55 hover:bg-accent-foreground/[0.07] hover:text-foreground transition-colors duration-100"
+          >
+            <Rocket size={13} className="flex-shrink-0 text-foreground/35" />
+            <span className="truncate">启动助手</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpen('troubleshoot')}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[12px] text-foreground/55 hover:bg-accent-foreground/[0.07] hover:text-foreground transition-colors duration-100"
+          >
+            <Wrench size={13} className="flex-shrink-0 text-foreground/35" />
+            <span className="truncate">问题排查助手</span>
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -526,9 +584,9 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       .catch(console.error)
   }, [currentWorkspaceSlug, mode, activeView, capabilitiesVersion])
 
-  /** 置顶对话列表（仅活跃模式显示，排除 draft） */
+  /** 置顶对话列表（仅活跃模式显示，排除 draft 和系统助手对话） */
   const pinnedConversations = React.useMemo(
-    () => viewMode === 'active' ? conversations.filter((c) => c.pinned && !draftSessionIds.has(c.id)) : [],
+    () => viewMode === 'active' ? conversations.filter((c) => c.pinned && !draftSessionIds.has(c.id) && !c.isSystemAssistant) : [],
     [conversations, viewMode, draftSessionIds]
   )
 
@@ -545,12 +603,12 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     [agentSessions, viewMode, draftSessionIds]
   )
 
-  /** 对话按日期分组（根据 viewMode 过滤归档状态，排除 draft） */
+  /** 对话按日期分组（根据 viewMode 过滤归档状态，排除 draft 和系统助手对话） */
   const conversationGroups = React.useMemo(
     () => {
       const filtered = viewMode === 'archived'
-        ? conversations.filter((c) => c.archived && !draftSessionIds.has(c.id))
-        : conversations.filter((c) => !c.archived && !c.pinned && !draftSessionIds.has(c.id))
+        ? conversations.filter((c) => c.archived && !draftSessionIds.has(c.id) && !c.isSystemAssistant)
+        : conversations.filter((c) => !c.archived && !c.pinned && !draftSessionIds.has(c.id) && !c.isSystemAssistant)
       return groupByDate(filtered)
     },
     [conversations, viewMode, draftSessionIds]
@@ -602,6 +660,19 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     setAutomationForm({ open: false, draft: null })
     setActiveView('automations')
   }, [setAutomationForm, setActiveView])
+
+  /** 打开系统助手对话（冷启动向导 / 问题排查助手） */
+  const handleOpenSystemAssistant = React.useCallback(async (type: 'onboarding' | 'troubleshoot'): Promise<void> => {
+    try {
+      const meta = await window.electronAPI.getOrCreateSystemAssistant(type)
+      if (!meta) return
+      const title = type === 'onboarding' ? '启动助手' : '问题排查助手'
+      openSession('chat', meta.id, meta.title || title)
+      setActiveView('conversations')
+    } catch (error) {
+      console.error('[侧边栏] 打开系统助手失败:', error)
+    }
+  }, [openSession, setActiveView])
 
   // 切换模式时重置归档视图
   React.useEffect(() => {
@@ -1684,6 +1755,11 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
           active={activeView === 'automations'}
           onClick={handleOpenAutomations}
         />
+      </div>
+
+      {/* Proma 助手入口：冷启动向导 + 问题排查助手 */}
+      <div className="px-3 pt-0.5 pb-0.5">
+        <HelpSidebarEntry onOpen={handleOpenSystemAssistant} />
       </div>
 
       {/* Chat 模式 active 视图：置顶 + 对话历史，结构与 Agent active 视图保持一致 */}
