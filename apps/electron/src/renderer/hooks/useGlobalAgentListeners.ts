@@ -56,6 +56,7 @@ import { autoPreviewEnabledAtom, previewPanelOpenMapAtom, previewFileMapAtom } f
 import type { NotificationSoundType } from '@/types/settings'
 import { toast } from 'sonner'
 import type { AgentStreamEvent, AgentStreamCompletePayload, AgentEvent, AgentStreamPayload, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, SDKContentBlock, SDKUserContentBlock, PromaEvent, AgentSessionMeta } from '@proma/shared'
+import { inferContextWindow } from '@proma/shared'
 import { buildExternalAgentRunActivation } from '@/lib/external-agent-run'
 import { getAgentCompletionMarkers } from '@/lib/agent-completion-presence'
 import { getPlanModeChangeFromToolName, updatePlanModeSessionSet } from '@/lib/agent-plan-mode'
@@ -99,32 +100,6 @@ function uniqueTruthyPaths(paths: Array<string | null | undefined>): string[] {
 // Phase 1 临时兼容层：将 AgentStreamPayload 转换为旧 AgentEvent
 // Phase 2 将移除此转换，直接使用 SDKMessage 渲染
 // ============================================================================
-
-/**
- * 按模型名推断 contextWindow。SDK 流式过程中不返回此字段，
- * 只有 result 消息的 modelUsage 才带（且部分渠道不返回）。
- * 这里提供一个按模型家族的 fallback，保证进度环永远有分母可用。
- */
-function inferContextWindow(model?: string): number | undefined {
-  if (!model) return undefined
-  const m = model.toLowerCase()
-  // Claude Haiku 为 200k
-  if (m.includes('claude-haiku')) return 200_000
-  // Claude Sonnet 4.6、Opus 4.6 / 4.7 / 4.8、Fable 5、DeepSeek V4 系列均为 1M 上下文
-  if (
-    m.includes('claude-sonnet-4-6') ||
-    m.includes('claude-opus-4-6') ||
-    m.includes('claude-opus-4-7') ||
-    m.includes('claude-opus-4-8') ||
-    m.includes('claude-fable-5')
-  ) return 1_000_000
-  if (m.includes('deepseek-v4')) return 1_000_000
-  // MiniMax M3 为 1M 上下文
-  if (m.includes('minimax-m3')) return 1_000_000
-  // 小米 MiMo：v2.5 / v2.5-pro / v2-pro 为 1M（omni / flash 仍走默认 200k）
-  if (m.includes('mimo-v2.5') || m.includes('mimo-v2-pro')) return 1_000_000
-  return 200_000
-}
 
 function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
   if (payload.kind === 'proma_event') {
