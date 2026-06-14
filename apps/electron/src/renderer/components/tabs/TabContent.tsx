@@ -15,7 +15,6 @@ import { PreviewTabContent } from '@/components/diff/PreviewTabContent'
 import { MarkdownRichEditor } from '@/components/diff/MarkdownRichEditor'
 import { MarkdownToc } from '@/components/diff/MarkdownToc'
 import { ScratchPadView } from '@/components/scratch-pad/ScratchPadView'
-import { normalizeTutorialContentResult } from '@/lib/tutorial-content-state'
 import { TabErrorBoundary } from './TabErrorBoundary'
 
 export interface TabContentProps {
@@ -81,9 +80,12 @@ function TutorialTabContent(): React.ReactElement {
   React.useEffect(() => {
     window.electronAPI.getTutorialContent()
       .then((result) => {
-        const normalized = normalizeTutorialContentResult(result)
-        setContent(normalized.content)
-        setLoadState(normalized.state)
+        if (result === null) {
+          setLoadState('error')
+          return
+        }
+        setContent(result)
+        setLoadState('ready')
       })
       .catch((error) => {
         console.error(error)
