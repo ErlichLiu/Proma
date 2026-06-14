@@ -699,7 +699,7 @@ export function applyAgentEvent(
           ...(event.usage.cacheReadTokens != null && { cacheReadTokens: event.usage.cacheReadTokens }),
           ...(event.usage.cacheCreationTokens != null && { cacheCreationTokens: event.usage.cacheCreationTokens }),
           ...(event.usage.costUsd != null && { costUsd: event.usage.costUsd }),
-          ...(event.usage.contextWindow && { contextWindow: event.usage.contextWindow }),
+          ...(event.usage.contextWindow != null && { contextWindow: event.usage.contextWindow }),
         } : {}),
         retrying: undefined,
         ...finalizeStreamingActivities(prev.toolActivities),
