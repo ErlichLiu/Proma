@@ -123,6 +123,9 @@ function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
         return [{ type: 'plan_mode_changed', active: evt.active, source: evt.source }]
       case 'model_resolved':
         return [{ type: 'model_resolved', model: evt.model }]
+      case 'context_window':
+        // main 进程从 SDK result 拿到的真实 contextWindow，转成 usage_update 让 atom 合并到 streamState
+        return [{ type: 'usage_update', usage: { contextWindow: evt.contextWindow } }]
       case 'permission_mode_changed':
         return [{ type: 'permission_mode_changed', mode: evt.mode }]
       case 'run_resumed':
@@ -190,8 +193,11 @@ function payloadToLegacyEvents(payload: AgentStreamPayload): AgentEvent[] {
       if (!aMsg.parent_tool_use_id && aMsg.message.usage) {
         const u = aMsg.message.usage
         const inputTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-        // 流式过程中 SDK 不返回 contextWindow，按模型名推断一个默认值作为 fallback
-        const modelName = aMsg.message.model ?? aMsg._channelModelId
+        // 流式过程中 SDK 不返回 contextWindow，按模型名推断一个默认值作为 fallback。
+        // 注意：必须优先用 _channelModelId（用户在 UI 上选择的原始模型 ID），
+        // 因为部分端点（如智谱）会在 message.model 里剥掉 [1m] 等规格后缀，
+        // 导致 glm-x-preview[1m] 被识别成 glm-x-preview（200K）。
+        const modelName = aMsg._channelModelId ?? aMsg.message.model
         const fallbackWindow = inferContextWindow(modelName)
         events.push({
           type: 'usage_update',

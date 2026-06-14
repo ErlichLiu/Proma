@@ -710,7 +710,7 @@ export function applyAgentEvent(
     case 'usage_update':
       return {
         ...prev,
-        inputTokens: event.usage.inputTokens,
+        ...(event.usage.inputTokens != null && { inputTokens: event.usage.inputTokens }),
         ...(event.usage.outputTokens != null && { outputTokens: event.usage.outputTokens }),
         ...(event.usage.cacheReadTokens != null && { cacheReadTokens: event.usage.cacheReadTokens }),
         ...(event.usage.cacheCreationTokens != null && { cacheCreationTokens: event.usage.cacheCreationTokens }),
