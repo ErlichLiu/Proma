@@ -15,6 +15,7 @@ import { PreviewTabContent } from '@/components/diff/PreviewTabContent'
 import { MarkdownRichEditor } from '@/components/diff/MarkdownRichEditor'
 import { MarkdownToc } from '@/components/diff/MarkdownToc'
 import { ScratchPadView } from '@/components/scratch-pad/ScratchPadView'
+import { normalizeTutorialContentResult } from '@/lib/tutorial-content-state'
 import { TabErrorBoundary } from './TabErrorBoundary'
 
 export interface TabContentProps {
@@ -72,15 +73,31 @@ export function TabContent({ tabId }: TabContentProps): React.ReactElement {
 }
 
 function TutorialTabContent(): React.ReactElement {
-  const [content, setContent] = React.useState<string | null>(null)
+  const [content, setContent] = React.useState('')
+  const [loadState, setLoadState] = React.useState<'loading' | 'ready' | 'error'>('loading')
   const [tocOpen] = useAtom(markdownTocOpenAtom)
   const scrollRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
-    window.electronAPI.getTutorialContent().then(setContent).catch(console.error)
+    window.electronAPI.getTutorialContent()
+      .then((result) => {
+        const normalized = normalizeTutorialContentResult(result)
+        setContent(normalized.content)
+        setLoadState(normalized.state)
+      })
+      .catch((error) => {
+        console.error(error)
+        setLoadState('error')
+      })
   }, [])
 
-  if (content === null) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中...</div>
+  if (loadState === 'loading') {
+    return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中...</div>
+  }
+
+  if (loadState === 'error') {
+    return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">教程加载失败</div>
+  }
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden">
