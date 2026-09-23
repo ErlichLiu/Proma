@@ -87,7 +87,7 @@ import {
   shouldActivateExternalAgentRun,
   shouldRevealDelegatedSession,
 } from '@/lib/external-agent-run'
-import { upsertAgentSession, mergeFetchedAgentSessions, selectDelegatedSession } from '@/lib/agent-session-list'
+import { upsertAgentSession, mergeFetchedAgentSessions, selectDelegatedSession, resolveAgentSessionWorkspaceId } from '@/lib/agent-session-list'
 import {
   getAgentCompletionMarkers,
   getDelegatedCompletionAttention,
@@ -675,9 +675,12 @@ export function useGlobalAgentListeners(): void {
       store.set(appModeAtom, 'agent')
       store.set(currentAgentSessionIdAtom, sessionId)
       const sessions = store.get(agentSessionsAtom)
-      const session = sessions.find((s) => s.id === sessionId)
-      if (session?.workspaceId) {
-        store.set(currentAgentWorkspaceIdAtom, session.workspaceId)
+      const session = sessions.find((item) => item.id === sessionId)
+      const workspaceId = session
+        ? resolveAgentSessionWorkspaceId(session, store.get(agentWorkspacesAtom))
+        : undefined
+      if (workspaceId) {
+        store.set(currentAgentWorkspaceIdAtom, workspaceId)
       }
     }
 
